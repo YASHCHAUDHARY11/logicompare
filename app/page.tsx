@@ -181,7 +181,7 @@ const formatINR = (val: number) => {
 };
 
 // ==========================================
-// INLINE ICONS
+// INLINE SVG ICONS
 // ==========================================
 const TruckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -244,10 +244,40 @@ const XMarkIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   </svg>
 );
 
+const ShieldCheckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+);
+
+const ChevronDownIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
+const LayersIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+  </svg>
+);
+
+const CurrencyRupeeIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 8h6m-5 0h.01M9 12h5m-5 0h.01M9 4v16m0-12a4 4 0 014 4 4 4 0 01-4 4l6 6" />
+  </svg>
+);
+
 // ==========================================
 // MAIN COMPONENT
 // ==========================================
 export default function LogiComparePro() {
+  // Navigation View State
+  const [activeView, setActiveView] = useState<"landing" | "dashboard">("landing");
+  const [landingWorkflowTab, setLandingWorkflowTab] = useState<"shipper" | "vendor">("shipper");
+  const [landingTrackingInput, setLandingTrackingInput] = useState("LC-894210");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
   // Demo Personas
   const DEMO_SHIPPER: UserProfile = {
     id: "demo-shipper-uuid",
@@ -385,6 +415,24 @@ export default function LogiComparePro() {
       setCurrentUser(DEMO_VENDOR);
       setActivePortal("vendor");
     }
+    setActiveView("dashboard");
+  };
+
+  // Landing Page Quick Track Jump
+  const handleLandingQuickTrack = (awbToTrack?: string) => {
+    const awb = awbToTrack || landingTrackingInput || "LC-894210";
+    setActiveTrackingAwb(awb);
+    setTrackingSearchInput(awb);
+    setActiveView("dashboard");
+    setActivePortal("shipper");
+    setShipperSubTab("tracker");
+  };
+
+  // Landing Page Quick Compare Jump
+  const handleLandingJumpToCompare = () => {
+    setActiveView("dashboard");
+    setActivePortal("shipper");
+    setShipperSubTab("compare");
   };
 
   // Multi-box weight computation
@@ -721,6 +769,7 @@ export default function LogiComparePro() {
           await supabase.from("profiles").upsert([profile]);
           setCurrentUser(profile);
           setActivePortal(profile.role);
+          setActiveView("dashboard");
           setShowAuthModal(false);
         }
       } else {
@@ -735,6 +784,7 @@ export default function LogiComparePro() {
             setCurrentUser(pData as UserProfile);
             setActivePortal(pData.role);
           }
+          setActiveView("dashboard");
           setShowAuthModal(false);
         }
       }
@@ -752,12 +802,12 @@ export default function LogiComparePro() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
       {/* ============================================================== */}
-      {/* CLEAN LIGHT NAVIGATION BAR */}
+      {/* GLOBAL TOP NAVIGATION BAR */}
       {/* ============================================================== */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           {/* Logo & Platform Name */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveView("landing")}>
             <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
               <TruckIcon className="w-6 h-6 text-white" />
             </div>
@@ -772,42 +822,60 @@ export default function LogiComparePro() {
             </div>
           </div>
 
-          {/* Quick Demo Role Switcher */}
-          <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          {/* Navigation View Switcher (Landing vs Dashboard) */}
+          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
-              onClick={() => switchDemoRole("shipper")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
-                currentUser.role === "shipper"
+              onClick={() => setActiveView("landing")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                activeView === "landing"
                   ? "bg-white text-indigo-700 shadow-xs border border-slate-200/60"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <span>⚡ Shipper Mode</span>
-              <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.2 rounded font-medium">Apex</span>
+              <span>🏠 Home / Overview</span>
             </button>
             <button
-              onClick={() => switchDemoRole("vendor")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
-                currentUser.role === "vendor"
-                  ? "bg-white text-emerald-700 shadow-xs border border-slate-200/60"
+              onClick={() => setActiveView("dashboard")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                activeView === "dashboard"
+                  ? "bg-white text-indigo-700 shadow-xs border border-slate-200/60"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <span>⚡ Carrier Mode</span>
-              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded font-medium">Delhivery</span>
+              <span>🚀 Freight Matrix Dashboard</span>
             </button>
           </div>
 
-          {/* Active Profile & Auth Button */}
-          <div className="flex items-center space-x-3">
-            <div className="hidden sm:block text-right">
-              <p className="text-xs font-bold text-slate-900">{currentUser.company_name}</p>
-              <p className="text-[11px] text-slate-500 font-mono">GSTIN: {currentUser.gstin || "Unregistered"}</p>
+          {/* Quick Demo Switchers & Auth */}
+          <div className="flex items-center space-x-2">
+            <div className="hidden sm:flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                onClick={() => switchDemoRole("shipper")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
+                  currentUser.role === "shipper" && activeView === "dashboard"
+                    ? "bg-white text-indigo-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <span>⚡ Shipper</span>
+                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1 py-0.2 rounded font-medium">Apex</span>
+              </button>
+              <button
+                onClick={() => switchDemoRole("vendor")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
+                  currentUser.role === "vendor" && activeView === "dashboard"
+                    ? "bg-white text-emerald-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <span>⚡ Carrier</span>
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1 py-0.2 rounded font-medium">Delhivery</span>
+              </button>
             </div>
 
             <button
               onClick={() => setShowAuthModal(true)}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition shadow-xs flex items-center space-x-2"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-xs flex items-center space-x-1.5"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>Account / Login</span>
@@ -817,1057 +885,1450 @@ export default function LogiComparePro() {
       </header>
 
       {/* ============================================================== */}
-      {/* MAIN CONTENT AREA */}
+      {/* VIEW 1: INTRO / HIGH-CONVERTING B2B LANDING PAGE */}
       {/* ============================================================== */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
-        {/* Navigation Selector Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
-          <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit">
-            <button
-              onClick={() => setActivePortal("shipper")}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
-                activePortal === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Shipper Portal
-            </button>
-            <button
-              onClick={() => setActivePortal("vendor")}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
-                activePortal === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Carrier & Fleet Hub
-            </button>
+      {activeView === "landing" && (
+        <div className="flex-1 flex flex-col space-y-16 pb-12">
+          {/* 1. HERO SECTION */}
+          <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50/70 via-white to-slate-50 pt-12 pb-16 px-4 lg:px-8 border-b border-slate-200">
+            <div className="max-w-6xl mx-auto text-center space-y-6">
+              {/* Trust Badge */}
+              <div className="inline-flex items-center space-x-2 bg-indigo-50 border border-indigo-200 text-indigo-800 px-3.5 py-1.5 rounded-full text-xs font-bold tracking-wide shadow-xs">
+                <span>🇮🇳</span>
+                <span>Built for Indian B2B Supply Chains, Manufacturers & Cargo Shippers</span>
+              </div>
+
+              {/* Main Headline */}
+              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-tight max-w-4xl mx-auto">
+                Compare Multi-Carrier B2B Freight Rates & Book Consignments in{" "}
+                <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8">60 Seconds</span>.
+              </h1>
+
+              {/* Subheadline */}
+              <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
+                LogiCompare Pro eliminates opaque transporter quotes. Instantly calculate billable volumetric weights (Surface 4500 / Air 5000), ODA surcharges, 
+                0.2% FOV transit risk coverage, fuel percentages, and 18% GST across India's premier B2B carrier networks.
+              </p>
+
+              {/* Primary Action Buttons */}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={handleLandingJumpToCompare}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl text-sm transition shadow-md shadow-indigo-600/20 flex items-center space-x-2"
+                >
+                  <BoxIcon className="w-5 h-5" />
+                  <span>Compare Freight Rates Now</span>
+                </button>
+                <button
+                  onClick={() => {
+                    switchDemoRole("vendor");
+                  }}
+                  className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold px-6 py-3 rounded-xl text-sm transition shadow-xs flex items-center space-x-2"
+                >
+                  <TruckIcon className="w-5 h-5 text-emerald-600" />
+                  <span>Join as Carrier / Vendor</span>
+                </button>
+              </div>
+
+              {/* Quick AWB Track Widget Inside Hero */}
+              <div className="pt-6 max-w-xl mx-auto">
+                <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-md flex flex-col sm:flex-row items-center gap-2">
+                  <div className="flex items-center space-x-2 px-3 py-1 text-slate-400 w-full sm:w-auto">
+                    <SearchIcon className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-500 shrink-0">Track AWB:</span>
+                    <input
+                      type="text"
+                      value={landingTrackingInput}
+                      onChange={(e) => setLandingTrackingInput(e.target.value)}
+                      placeholder="e.g. LC-894210"
+                      className="bg-transparent font-mono text-sm text-slate-900 font-bold focus:outline-none w-full"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleLandingQuickTrack()}
+                    className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shrink-0"
+                  >
+                    Track Shipment
+                  </button>
+                </div>
+                <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-500 mt-2.5">
+                  <span>Try Sample AWBs:</span>
+                  <button
+                    onClick={() => handleLandingQuickTrack("LC-894210")}
+                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                  >
+                    LC-894210 (In Transit)
+                  </button>
+                  <span>•</span>
+                  <button
+                    onClick={() => handleLandingQuickTrack("LC-551923")}
+                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                  >
+                    LC-551923 (Delivered)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 2. TRUST METRICS & CARRIER STRIP */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+                <span className="text-3xl font-black text-indigo-600">5+</span>
+                <p className="text-xs font-bold text-slate-800 mt-1">Verified National Carriers</p>
+                <p className="text-[11px] text-slate-500">Integrated surface & air linehauls</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+                <span className="text-3xl font-black text-emerald-600">19,000+</span>
+                <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
+                <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+                <span className="text-3xl font-black text-slate-900">100%</span>
+                <p className="text-xs font-bold text-slate-800 mt-1">Transparent GST Breakup</p>
+                <p className="text-[11px] text-slate-500">Statutory 18% GTA ITC compliant</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+                <span className="text-3xl font-black text-amber-500">0s</span>
+                <p className="text-xs font-bold text-slate-800 mt-1">Instant AWB Generation</p>
+                <p className="text-[11px] text-slate-500">Printable 4x6 / A4 barcode labels</p>
+              </div>
+            </div>
+
+            {/* Carrier Logos Strip */}
+            <div className="pt-6 text-center space-y-3">
+              <span className="text-xs uppercase font-bold text-slate-600 tracking-wider">
+                Direct Integration With India's Top Rated Commercial Carriers
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 pt-2 opacity-85">
+                {vendors.map((v) => (
+                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* 3. INTERACTIVE "HOW IT WORKS" WORKFLOW */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                Interactive Operational Workflow
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Whether you are a manufacturing business booking daily pallets or a carrier managing rate cards, our unified platform orchestrates the complete lifecycle.
+              </p>
+
+              {/* Workflow Toggle */}
+              <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
+                <button
+                  onClick={() => setLandingWorkflowTab("shipper")}
+                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
+                    landingWorkflowTab === "shipper" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📦 For Shippers & Businesses
+                </button>
+                <button
+                  onClick={() => setLandingWorkflowTab("vendor")}
+                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
+                    landingWorkflowTab === "vendor" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  🚛 For Logistics Vendors & Carriers
+                </button>
+              </div>
+            </div>
+
+            {/* Workflow Steps Cards */}
+            {landingWorkflowTab === "shipper" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
+                  <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Enter origin and destination PINs with auto hub detection. Add multiple cartons with weight and (L x W x H cm) dimensions.
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Compare Landed Quotes</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
+                  <h3 className="font-bold text-slate-900 text-sm">1-Click Booking & AWB Label</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Confirm booking to generate official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB and print thermal-ready barcode shipping labels.
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
+                  <h3 className="font-bold text-slate-900 text-sm">5-Milestone Live Tracking</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Track consignment movement from Booked and Picked Up to In Transit linehauls and Proof of Delivery (POD).
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Register as a verified transporter, enter GSTIN credentials, and link your fleet types (Surface, Air Cargo, or FTL Heavy Trailers).
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Publish Rate Cards or Bid on RFQs</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Define lane-specific rate tariffs (base rate, per-kg rate, fuel %, ODA charges) or submit competitive bids on heavy cargo loads.
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Fulfill & Dispatch Milestone Scans</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Receive bookings, update status logs (Picked Up, In Transit Hub, Out for Delivery), and sync tracking history across all stakeholders.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* 4. CORE CAPABILITIES (6-CARD FEATURE GRID) */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                Enterprise Features
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Everything required to eliminate manual freight rate haggling and streamline logistics procurement.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {/* Feature 1 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <LayersIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Automatically calculates actual weight vs. volumetric weight across multiple box sizes. Supports IATA Air divisor (5000) and Indian Surface Express divisor (4500).
+                </p>
+              </div>
+
+              {/* Feature 2 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <CurrencyRupeeIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Transparent breakdown of all statutory logistics fees: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.
+                </p>
+              </div>
+
+              {/* Feature 3 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <ShieldCheckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected against transit damages.
+                </p>
+              </div>
+
+              {/* Feature 4 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <PrinterIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Automated Commercial AWB Labels</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Instant generation of physical shipping labels complete with high-density barcode stripes, origin/dest routing hub codes, package counts, and GSTINs.
+                </p>
+              </div>
+
+              {/* Feature 5 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <TruckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Heavy Load RFQ Reverse Bidding</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Post requirements for 32ft MXL trailers, 24ft containers, or 21-ton Taurus trucks. Verified fleet owners submit competitive bids below your target ceiling price.
+                </p>
+              </div>
+
+              {/* Feature 6 */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <CheckCircleIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Carrier Rate Card Manager</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Transporters can configure custom origin and destination PIN prefixes, define minimum billable weights, update transit SLAs, and toggle rate active states.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* 5. FREQUENTLY ASKED QUESTIONS (ACCORDION) */}
+          <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                FAQ & Knowledge Base
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Common questions on Indian commercial freight calculation, billable weights, and billing.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                {
+                  q: "How is Billable Weight calculated between Actual and Volumetric weight?",
+                  a: "Commercial carriers charge based on whichever is higher: the gross actual weight on the scale or the volumetric weight. For Surface Cargo in India, the volumetric weight is calculated as (Length x Width x Height in cm) / 4500. For Air Cargo, the standard divisor is 5000. LogiCompare Pro automatically computes this across all box dimensions and applies carrier minimum weight thresholds."
+                },
+                {
+                  q: "What are ODA (Out of Delivery Area) and FOV (Freight on Value) charges?",
+                  a: "ODA is an additional surcharge applied by carriers when a delivery destination PIN code is located outside primary municipal hubs, typically adding ₹450 - ₹600. FOV (Freight on Value) is a transit risk protection fee (typically 0.20% of the declared cargo invoice value) providing formal insurance compensation against damage or loss."
+                },
+                {
+                  q: "How does the Reverse RFQ Bidding Marketplace work for heavy loads?",
+                  a: "For full truck load (FTL) or heavy consignments exceeding standard parcel thresholds, shippers post their load details (e.g., 32ft MXL Trailer, 18 MT steel coils) and a maximum target price. Logistics operators then submit live bids competing downward, giving shippers the best possible market spot rate."
+                },
+                {
+                  q: "Can logistics carriers update their rate cards and tariffs anytime?",
+                  a: "Yes. In the Carrier Hub, logistics vendors can publish custom rate cards, configure seasonal fuel surcharges, update base tariffs per kilogram, and activate or pause specific routes based on linehaul capacity."
+                }
+              ].map((faq, idx) => (
+                <div
+                  key={idx}
+                  className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition"
+                >
+                  <button
+                    onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                    className="w-full p-4 text-left font-bold text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
+                  >
+                    <span>{faq.q}</span>
+                    <ChevronDownIcon
+                      className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
+                    />
+                  </button>
+                  {openFaq === idx && (
+                    <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 6. BOTTOM CALL-TO-ACTION BANNER */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+            <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-8 sm:p-12 text-white text-center space-y-6 shadow-xl">
+              <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                Start Saving On B2B Freight
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+                Ready to optimize your supply chain and eliminate freight billing disputes?
+              </h2>
+              <p className="text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+                Switch to the Freight Matrix Dashboard to calculate live rates, print commercial AWB labels, and track consignments across India.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={handleLandingJumpToCompare}
+                  className="bg-white hover:bg-slate-100 text-slate-900 font-extrabold px-6 py-3 rounded-xl text-sm transition shadow-lg"
+                >
+                  Open Freight Rate Matrix
+                </button>
+                <button
+                  onClick={() => switchDemoRole("shipper")}
+                  className="bg-indigo-700 hover:bg-indigo-600 text-white border border-indigo-500 font-bold px-6 py-3 rounded-xl text-sm transition"
+                >
+                  ⚡ Instant Demo as Shipper
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* VIEW 2: FULL FREIGHT MATRIX DASHBOARD (APP) */}
+      {/* ============================================================== */}
+      {activeView === "dashboard" && (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
+          {/* Dashboard Header Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
+            <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit">
+              <button
+                onClick={() => setActivePortal("shipper")}
+                className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+                  activePortal === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Shipper Portal
+              </button>
+              <button
+                onClick={() => setActivePortal("vendor")}
+                className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+                  activePortal === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Carrier & Fleet Hub
+              </button>
+            </div>
+
+            {/* Sub-Tabs Navigation */}
+            {activePortal === "shipper" ? (
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {[
+                  { id: "compare", label: "🔍 Compare & Book Rates" },
+                  { id: "shipments", label: "📦 My Shipments & Labels" },
+                  { id: "tracker", label: "📍 Live AWB Tracker" },
+                  { id: "rfq", label: "⚖️ Heavy Load RFQ Bidding" }
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setShipperSubTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                      shipperSubTab === t.id
+                        ? "bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold"
+                        : "text-slate-600 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {[
+                  { id: "orders", label: "📋 Incoming Orders & Dispatch" },
+                  { id: "rates", label: "🏷️ Rate Card Manager" },
+                  { id: "bids", label: "🎯 Bid on Live RFQs" }
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setVendorSubTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                      vendorSubTab === t.id
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold"
+                        : "text-slate-600 hover:bg-slate-200/50"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Sub-Tabs Navigation */}
-          {activePortal === "shipper" ? (
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {[
-                { id: "compare", label: "🔍 Compare & Book Rates" },
-                { id: "shipments", label: "📦 My Shipments & Labels" },
-                { id: "tracker", label: "📍 Live AWB Tracker" },
-                { id: "rfq", label: "⚖️ Heavy Load RFQ Bidding" }
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setShipperSubTab(t.id as any)}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                    shipperSubTab === t.id
-                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold"
-                      : "text-slate-600 hover:bg-slate-200/50"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {[
-                { id: "orders", label: "📋 Incoming Orders & Dispatch" },
-                { id: "rates", label: "🏷️ Rate Card Manager" },
-                { id: "bids", label: "🎯 Bid on Live RFQs" }
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setVendorSubTab(t.id as any)}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                    vendorSubTab === t.id
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold"
-                      : "text-slate-600 hover:bg-slate-200/50"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ============================================================== */}
-        {/* SHIPPER PORTAL MODULES */}
-        {/* ============================================================== */}
-        {activePortal === "shipper" && (
-          <div className="space-y-6">
-            {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
-            {shipperSubTab === "compare" && (
-              <div className="space-y-6">
-                {/* 1. Light Calculator Form Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                  <div className="border-b border-slate-100 pb-4 mb-6">
-                    <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-                      <BoxIcon className="w-5 h-5 text-indigo-600" />
-                      <span>Pan-India Commercial Freight Calculator</span>
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Auto-detects hub routing codes, computes volumetric divisors (Air 5000 / Surface 4500), and calculates statutory B2B logistics taxes.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    {/* Origin PIN */}
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode (Pickup)</label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={originPin}
-                        onChange={(e) => setOriginPin(e.target.value)}
-                        placeholder="e.g. 110020"
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                      />
-                      <div className="mt-2 flex items-center justify-between text-[11px]">
-                        <span className="text-indigo-700 font-semibold">{originZone.city}</span>
-                        <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
-                          {originZone.hub}
-                        </span>
-                      </div>
+          {/* ============================================================== */}
+          {/* SHIPPER PORTAL MODULES */}
+          {/* ============================================================== */}
+          {activePortal === "shipper" && (
+            <div className="space-y-6">
+              {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
+              {shipperSubTab === "compare" && (
+                <div className="space-y-6">
+                  {/* 1. Light Calculator Form Card */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <div className="border-b border-slate-100 pb-4 mb-6">
+                      <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                        <BoxIcon className="w-5 h-5 text-indigo-600" />
+                        <span>Pan-India Commercial Freight Calculator</span>
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Auto-detects hub routing codes, computes volumetric divisors (Air 5000 / Surface 4500), and calculates statutory B2B logistics taxes.
+                      </p>
                     </div>
 
-                    {/* Destination PIN */}
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode (Drop)</label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={destPin}
-                        onChange={(e) => setDestPin(e.target.value)}
-                        placeholder="e.g. 400001"
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                      />
-                      <div className="mt-2 flex items-center justify-between text-[11px]">
-                        <span className="text-emerald-700 font-semibold">{destZone.city}</span>
-                        <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
-                          {destZone.hub}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Declared Cargo Value */}
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Declared Value (₹) for Insurance</label>
-                      <input
-                        type="number"
-                        value={declaredValue}
-                        onChange={(e) => setDeclaredValue(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                      />
-                      <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
-                    </div>
-
-                    {/* Mode & ODA Checkbox */}
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Transport Mode</label>
-                        <select
-                          value={selectedMode}
-                          onChange={(e) => setSelectedMode(e.target.value as any)}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                        >
-                          <option value="all">All Modes (Air, Surface, FTL)</option>
-                          <option value="surface">Surface Express Only</option>
-                          <option value="air">Air Cargo Only</option>
-                          <option value="ftl">Full Truck Load (FTL)</option>
-                        </select>
-                      </div>
-
-                      <label className="flex items-center space-x-2 mt-2 cursor-pointer pt-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                      {/* Origin PIN */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode (Pickup)</label>
                         <input
-                          type="checkbox"
-                          checked={isOda}
-                          onChange={(e) => setIsOda(e.target.checked)}
-                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                          type="text"
+                          maxLength={6}
+                          value={originPin}
+                          onChange={(e) => setOriginPin(e.target.value)}
+                          placeholder="e.g. 110020"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                         />
-                        <span className="text-xs text-slate-700 font-medium">ODA Pincode (+₹450)</span>
-                      </label>
+                        <div className="mt-2 flex items-center justify-between text-[11px]">
+                          <span className="text-indigo-700 font-semibold">{originZone.city}</span>
+                          <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
+                            {originZone.hub}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Destination PIN */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode (Drop)</label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={destPin}
+                          onChange={(e) => setDestPin(e.target.value)}
+                          placeholder="e.g. 400001"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        />
+                        <div className="mt-2 flex items-center justify-between text-[11px]">
+                          <span className="text-emerald-700 font-semibold">{destZone.city}</span>
+                          <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
+                            {destZone.hub}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Declared Cargo Value */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Declared Value (₹) for Insurance</label>
+                        <input
+                          type="number"
+                          value={declaredValue}
+                          onChange={(e) => setDeclaredValue(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
+                      </div>
+
+                      {/* Mode & ODA Checkbox */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Transport Mode</label>
+                          <select
+                            value={selectedMode}
+                            onChange={(e) => setSelectedMode(e.target.value as any)}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          >
+                            <option value="all">All Modes (Air, Surface, FTL)</option>
+                            <option value="surface">Surface Express Only</option>
+                            <option value="air">Air Cargo Only</option>
+                            <option value="ftl">Full Truck Load (FTL)</option>
+                          </select>
+                        </div>
+
+                        <label className="flex items-center space-x-2 mt-2 cursor-pointer pt-1">
+                          <input
+                            type="checkbox"
+                            checked={isOda}
+                            onChange={(e) => setIsOda(e.target.checked)}
+                            className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs text-slate-700 font-medium">ODA Pincode (+₹450)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Multi-Box Repeater Section */}
+                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                          Consignment Box Dimensions ({boxes.length} {boxes.length === 1 ? "box type" : "box types"})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={addBox}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1"
+                        >
+                          <PlusIcon className="w-3.5 h-3.5" />
+                          <span>Add Another Box Type</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {boxes.map((box, idx) => (
+                          <div
+                            key={box.id}
+                            className="grid grid-cols-2 sm:grid-cols-6 gap-2 bg-white p-3 rounded-lg border border-slate-200 items-center text-xs shadow-xs"
+                          >
+                            <div>
+                              <span className="text-[10px] text-slate-500 block mb-0.5">Box #{idx + 1} Qty</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={box.qty}
+                                onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
+                              <input
+                                type="number"
+                                min={0.5}
+                                step={0.5}
+                                value={box.weight}
+                                onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={box.length}
+                                onChange={(e) => updateBox(box.id, "length", parseFloat(e.target.value) || 1)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={box.width}
+                                onChange={(e) => updateBox(box.id, "width", parseFloat(e.target.value) || 1)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={box.height}
+                                onChange={(e) => updateBox(box.id, "height", parseFloat(e.target.value) || 1)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
+                              <span className="text-[11px] text-slate-500 font-mono">
+                                {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
+                              </span>
+                              {boxes.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeBox(box.id)}
+                                  className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
+                                >
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Weight Summary Banner */}
+                      <div className="flex flex-wrap items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 text-xs shadow-xs">
+                        <div className="flex flex-wrap gap-5">
+                          <div>
+                            <span className="text-slate-500">Total Actual Wt: </span>
+                            <span className="font-bold text-slate-900 font-mono">{totalActualWeight.toFixed(1)} kg</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Volumetric Wt: </span>
+                            <span className="font-bold text-indigo-700 font-mono">{totalVolumetricWeight.toFixed(2)} kg</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Billable Charge Wt: </span>
+                            <span className="font-bold text-emerald-700 font-mono text-sm">{billableWeight.toFixed(1)} kg</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleSearchRates}
+                          disabled={isSearching}
+                          className="mt-2 sm:mt-0 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg transition flex items-center space-x-2 shadow-sm"
+                        >
+                          <SearchIcon className="w-4 h-4" />
+                          <span>{isSearching ? "Searching..." : "Compare Carrier Rates"}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Multi-Box Repeater Section */}
-                  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+                  {/* 2. Rates Comparison Cards */}
+                  <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                        Consignment Box Dimensions ({boxes.length} {boxes.length === 1 ? "box type" : "box types"})
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">Verified Logistics Carrier Quotes</h3>
+                        <p className="text-xs text-slate-500">Includes Fuel, Handling, FOV Risk Insurance, & 18% GST</p>
+                      </div>
+                      <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full font-bold">
+                        {calculatedQuotes.length} Available Rates
                       </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {calculatedQuotes.map((quote) => (
+                        <div
+                          key={quote.rateCard.id}
+                          className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all shadow-xs hover:shadow-sm"
+                        >
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            {/* Carrier Branding & Route */}
+                            <div className="space-y-2">
+                              <div className="flex items-center space-x-3">
+                                <span className="text-base font-bold text-slate-900">{quote.vendor.name}</span>
+                                <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold px-2 py-0.5 rounded-full">
+                                  {quote.vendor.badge}
+                                </span>
+                                <span className="text-amber-500 text-xs font-bold flex items-center space-x-1">
+                                  <span>★</span>
+                                  <span>{quote.vendor.rating}</span>
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                                <span className="flex items-center space-x-1 text-slate-700 font-medium capitalize">
+                                  {quote.rateCard.mode === "air" ? (
+                                    <PlaneIcon className="w-4 h-4 text-sky-600" />
+                                  ) : (
+                                    <TruckIcon className="w-4 h-4 text-emerald-600" />
+                                  )}
+                                  <span>{quote.rateCard.mode} Freight</span>
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  SLA Transit: <strong className="text-slate-800">{quote.rateCard.sla_days} Days</strong>
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  Billable Wt: <strong className="text-slate-800">{quote.billableWeight} kg</strong>
+                                </span>
+                                <span>•</span>
+                                <span className="font-mono text-slate-500">GSTIN: {quote.vendor.gstin}</span>
+                              </div>
+                            </div>
+
+                            {/* Line-Item Grid */}
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2 text-center sm:text-left">
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Base Freight</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.base)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Fuel ({quote.rateCard.fuel_surcharge_pct}%)</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fuel)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">FOV Insur.</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fov)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Docket/AWB</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.docket)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">ODA Fee</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.oda)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">GST (18%)</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.gst)}</span>
+                              </div>
+                            </div>
+
+                            {/* Price & Book Action */}
+                            <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
+                              <div className="text-left sm:text-right">
+                                <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">All-Inclusive Total</span>
+                                <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
+                              </div>
+                              <button
+                                onClick={() => setSelectedQuoteForBooking(quote)}
+                                className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
+                              >
+                                <span>Book & Generate AWB</span>
+                                <ArrowRightIcon className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB B: MY SHIPMENTS & LABELS */}
+              {shipperSubTab === "shipments" && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">Consignment Bookings & Manifests</h2>
+                      <p className="text-xs text-slate-500">Generate shipping labels, track parcels, and monitor transit compliance</p>
+                    </div>
+                    <button
+                      onClick={fetchAllData}
+                      className="text-xs bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-medium shadow-xs"
+                    >
+                      Refresh List
+                    </button>
+                  </div>
+
+                  {bookings.length === 0 ? (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
+                      <p className="text-slate-500 text-sm">No shipments booked yet. Calculate rates to book your first load!</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                      <table className="w-full text-left text-xs text-slate-700">
+                        <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
+                          <tr>
+                            <th className="py-3 px-4">AWB Number</th>
+                            <th className="py-3 px-4">Carrier</th>
+                            <th className="py-3 px-4">Route & PIN</th>
+                            <th className="py-3 px-4">Mode / Wt</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4">Total Freight</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {bookings.map((booking) => (
+                            <tr key={booking.id} className="hover:bg-slate-50/70 transition">
+                              <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">
+                                {booking.awb_number}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-bold text-slate-900 block">{booking.vendors?.name || "Carrier Partner"}</span>
+                                <span className="text-[11px] text-slate-500">{booking.consignee_name}</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center space-x-1 font-mono font-semibold text-slate-800">
+                                  <span>{booking.origin_pin}</span>
+                                  <span>→</span>
+                                  <span>{booking.dest_pin}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-500">
+                                  {lookupPinZone(booking.origin_pin).city} to {lookupPinZone(booking.dest_pin).city}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="capitalize text-slate-800 block font-semibold">{booking.mode}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">{booking.billable_weight} kg</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                    booking.status === "Delivered"
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                      : booking.status === "In Transit"
+                                      ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                      : booking.status === "Picked Up"
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                      : "bg-slate-100 text-slate-700 border border-slate-200"
+                                  }`}
+                                >
+                                  {booking.status}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-slate-900">{formatINR(booking.final_total)}</td>
+                              <td className="py-3.5 px-4 text-right space-x-2">
+                                <button
+                                  onClick={() => setPrintableBooking(booking)}
+                                  className="bg-white hover:bg-slate-50 text-slate-700 px-2.5 py-1 rounded text-[11px] font-semibold border border-slate-300 inline-flex items-center space-x-1 shadow-xs"
+                                >
+                                  <PrinterIcon className="w-3.5 h-3.5" />
+                                  <span>Print Label</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveTrackingAwb(booking.awb_number);
+                                    setTrackingSearchInput(booking.awb_number);
+                                    setShipperSubTab("tracker");
+                                  }}
+                                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded text-[11px] font-semibold inline-flex items-center space-x-1"
+                                >
+                                  <span>Track</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-TAB C: LIVE AWB TRACKER */}
+              {shipperSubTab === "tracker" && (
+                <div className="space-y-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                    <h2 className="text-base font-bold text-slate-900 mb-1">Real-Time Indian Airway Bill (AWB) Tracking</h2>
+                    <p className="text-xs text-slate-500 mb-4">Enter your LogiCompare Pro AWB number (e.g. LC-894210 or LC-551923)</p>
+
+                    <div className="flex gap-2 max-w-md">
+                      <input
+                        type="text"
+                        value={trackingSearchInput}
+                        onChange={(e) => setTrackingSearchInput(e.target.value)}
+                        placeholder="Enter AWB Number..."
+                        className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                      />
                       <button
-                        type="button"
-                        onClick={addBox}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1"
+                        onClick={() => setActiveTrackingAwb(trackingSearchInput)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs"
                       >
-                        <PlusIcon className="w-3.5 h-3.5" />
-                        <span>Add Another Box Type</span>
+                        Track Shipment
                       </button>
                     </div>
+                  </div>
 
-                    <div className="space-y-2">
-                      {boxes.map((box, idx) => (
-                        <div
-                          key={box.id}
-                          className="grid grid-cols-2 sm:grid-cols-6 gap-2 bg-white p-3 rounded-lg border border-slate-200 items-center text-xs shadow-xs"
-                        >
-                          <div>
-                            <span className="text-[10px] text-slate-500 block mb-0.5">Box #{idx + 1} Qty</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={box.qty}
-                              onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
-                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                            />
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
-                            <input
-                              type="number"
-                              min={0.5}
-                              step={0.5}
-                              value={box.weight}
-                              onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
-                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                            />
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={box.length}
-                              onChange={(e) => updateBox(box.id, "length", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                            />
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={box.width}
-                              onChange={(e) => updateBox(box.id, "width", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                            />
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={box.height}
-                              onChange={(e) => updateBox(box.id, "height", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
-                            <span className="text-[11px] text-slate-500 font-mono">
-                              {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
+                  {activeTrackBooking ? (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-8 shadow-xs">
+                      {/* Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                        <div>
+                          <div className="flex items-center space-x-3">
+                            <span className="text-2xl font-mono font-black text-slate-900">{activeTrackBooking.awb_number}</span>
+                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase">
+                              {activeTrackBooking.status}
                             </span>
-                            {boxes.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removeBox(box.id)}
-                                className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
-                              >
-                                <TrashIcon className="w-4 h-4" />
-                              </button>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Carrier Partner: <strong className="text-slate-800">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
+                          </p>
+                        </div>
+
+                        <div className="text-right text-xs">
+                          <p className="text-slate-600">
+                            Route: <span className="font-mono font-bold text-slate-900">{activeTrackBooking.origin_pin}</span> ({lookupPinZone(activeTrackBooking.origin_pin).city}) →{" "}
+                            <span className="font-mono font-bold text-slate-900">{activeTrackBooking.dest_pin}</span> ({lookupPinZone(activeTrackBooking.dest_pin).city})
+                          </p>
+                          <p className="text-slate-500 mt-0.5">
+                            Consignee: <strong className="text-slate-800">{activeTrackBooking.consignee_name}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Clean 5-Step Visual Progress Bar */}
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-6">Delivery Milestone Progress</h4>
+                        {(() => {
+                          const steps = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
+                          const currentIdx = steps.indexOf(activeTrackBooking.status);
+
+                          return (
+                            <div className="relative">
+                              <div className="hidden sm:block absolute top-1/2 left-0 right-0 h-1 bg-slate-200 -translate-y-1/2 z-0"></div>
+                              <div
+                                className="hidden sm:block absolute top-1/2 left-0 h-1 bg-emerald-500 -translate-y-1/2 z-0 transition-all duration-500"
+                                style={{ width: `${Math.max(0, (currentIdx / (steps.length - 1)) * 100)}%` }}
+                              ></div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 relative z-10">
+                                {steps.map((st, i) => {
+                                  const isPassed = i <= currentIdx;
+                                  const isCurrent = i === currentIdx;
+
+                                  return (
+                                    <div key={st} className="flex sm:flex-col items-center sm:text-center space-x-3 sm:space-x-0">
+                                      <div
+                                        className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
+                                          isCurrent
+                                            ? "bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-sm"
+                                            : isPassed
+                                            ? "bg-emerald-600 text-white"
+                                            : "bg-white text-slate-400 border border-slate-300"
+                                        }`}
+                                      >
+                                        {isPassed && !isCurrent ? "✓" : i + 1}
+                                      </div>
+                                      <span
+                                        className={`text-xs mt-2 font-medium ${
+                                          isCurrent ? "text-indigo-700 font-bold" : isPassed ? "text-slate-800" : "text-slate-400"
+                                        }`}
+                                      >
+                                        {st}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Timestamp Audit Trail */}
+                      <div className="border-t border-slate-100 pt-6">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Milestone Timestamp Audit</h4>
+                        <div className="space-y-3">
+                          {(activeTrackBooking.tracking_history || []).map((step, idx) => (
+                            <div key={idx} className="flex items-start space-x-3 text-xs">
+                              <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 mt-1 shrink-0"></div>
+                              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-900">{step.status}</span>
+                                  <span className="text-[11px] text-slate-500 font-mono">
+                                    {new Date(step.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+                                  </span>
+                                </div>
+                                <p className="text-indigo-700 font-medium mt-0.5">{step.location}</p>
+                                <p className="text-slate-600 mt-1">{step.remarks}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
+                      <p className="text-slate-500 text-sm">AWB number "{activeTrackingAwb}" not found. Try searching LC-894210 or LC-551923.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-TAB D: RFQ REVERSE BIDDING */}
+              {shipperSubTab === "rfq" && (
+                <div className="space-y-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                    <h2 className="text-base font-bold text-slate-900 mb-1">Post Heavy/FTL Cargo Load for Reverse Auction</h2>
+                    <p className="text-xs text-slate-500 mb-6">
+                      Carriers and fleet operators will bid competitively below your ceiling target price.
+                    </p>
+
+                    <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode</label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={newRfqOrigin}
+                          onChange={(e) => setNewRfqOrigin(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode</label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={newRfqDest}
+                          onChange={(e) => setNewRfqDest(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Cargo Description</label>
+                        <input
+                          type="text"
+                          value={newRfqDesc}
+                          onChange={(e) => setNewRfqDesc(e.target.value)}
+                          placeholder="e.g. Electrical Panels / Steel Coils"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Total Weight (Kg)</label>
+                        <input
+                          type="number"
+                          value={newRfqWeight}
+                          onChange={(e) => setNewRfqWeight(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Required Truck Type</label>
+                        <select
+                          value={newRfqTruck}
+                          onChange={(e) => setNewRfqTruck(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
+                        >
+                          <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
+                          <option value="24ft Container Truck">24ft Container Truck</option>
+                          <option value="Taurus 21-Tonner (10-Tyre)">Taurus 21-Tonner (10-Tyre)</option>
+                          <option value="19ft Open Body Truck">19ft Open Body Truck</option>
+                          <option value="Tata 407 (3.5T)">Tata 407 (3.5T)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Ceiling Target Budget (₹)</label>
+                        <input
+                          type="number"
+                          value={newRfqBudget}
+                          onChange={(e) => setNewRfqBudget(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
+                          required
+                        />
+                      </div>
+
+                      <div className="md:col-span-3 flex justify-end">
+                        <button
+                          type="submit"
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg text-xs transition shadow-sm"
+                        >
+                          Broadcast RFQ to Verified Carriers
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* RFQ Cards */}
+                  <div className="space-y-4">
+                    <h3 className="text-base font-bold text-slate-900">Active Loads & Carrier Bids</h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      {rfqList.map((rfq) => (
+                        <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div>
+                              <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
+                                {rfq.origin_pin} → {rfq.dest_pin}
+                              </span>
+                              <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
+                            </div>
+
+                            <div className="text-right text-xs">
+                              <span className="text-slate-500">Target Budget: </span>
+                              <span className="font-bold text-emerald-700">{formatINR(rfq.target_price)}</span>
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-xs font-bold text-slate-600 block mb-2">
+                              Received Bids ({rfq.bids?.length || 0})
+                            </span>
+                            {!rfq.bids || rfq.bids.length === 0 ? (
+                              <p className="text-xs text-slate-400 italic">No bids placed yet. Broadcasting actively to fleet operators.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {rfq.bids.map((bid, bIdx) => (
+                                  <div key={bIdx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-slate-900">{bid.vendor_name}</span>
+                                      <span className="font-black text-emerald-700">{formatINR(bid.bid_amount)}</span>
+                                    </div>
+                                    <p className="text-slate-600 text-[11px]">
+                                      Transit SLA: <strong className="text-slate-800">{bid.transit_days} Days</strong>
+                                    </p>
+                                    <p className="text-slate-500 italic text-[11px]">"{bid.notes}"</p>
+                                  </div>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </div>
                       ))}
                     </div>
-
-                    {/* Weight Summary Banner */}
-                    <div className="flex flex-wrap items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 text-xs shadow-xs">
-                      <div className="flex flex-wrap gap-5">
-                        <div>
-                          <span className="text-slate-500">Total Actual Wt: </span>
-                          <span className="font-bold text-slate-900 font-mono">{totalActualWeight.toFixed(1)} kg</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Volumetric Wt: </span>
-                          <span className="font-bold text-indigo-700 font-mono">{totalVolumetricWeight.toFixed(2)} kg</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Billable Charge Wt: </span>
-                          <span className="font-bold text-emerald-700 font-mono text-sm">{billableWeight.toFixed(1)} kg</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={handleSearchRates}
-                        disabled={isSearching}
-                        className="mt-2 sm:mt-0 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg transition flex items-center space-x-2 shadow-sm"
-                      >
-                        <SearchIcon className="w-4 h-4" />
-                        <span>{isSearching ? "Searching..." : "Compare Carrier Rates"}</span>
-                      </button>
-                    </div>
                   </div>
                 </div>
+              )}
+            </div>
+          )}
 
-                {/* 2. Rates Comparison Cards */}
+          {/* ============================================================== */}
+          {/* CARRIER / VENDOR DASHBOARD MODULES */}
+          {/* ============================================================== */}
+          {activePortal === "vendor" && (
+            <div className="space-y-6">
+              {/* SUB-TAB A: INCOMING ORDERS & DISPATCH */}
+              {vendorSubTab === "orders" && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h3 className="text-base font-bold text-slate-900">Verified Logistics Carrier Quotes</h3>
-                      <p className="text-xs text-slate-500">Includes Fuel, Handling, FOV Risk Insurance, & 18% GST</p>
+                      <h2 className="text-lg font-bold text-slate-900">Assigned Consignments & Linehaul Status Dispatch</h2>
+                      <p className="text-xs text-slate-500">
+                        Operating as Carrier: <strong className="text-emerald-700">{currentUser.company_name}</strong>
+                      </p>
                     </div>
-                    <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full font-bold">
-                      {calculatedQuotes.length} Available Rates
+                    <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full font-mono font-bold">
+                      Hub Active
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4">
-                    {calculatedQuotes.map((quote) => (
-                      <div
-                        key={quote.rateCard.id}
-                        className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all shadow-xs hover:shadow-sm"
-                      >
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                          {/* Carrier Branding & Route */}
-                          <div className="space-y-2">
+                  <div className="space-y-4">
+                    {bookings.map((booking) => {
+                      const rowForm = statusUpdateMap[booking.id] || { status: "", location: "", remarks: "" };
+
+                      return (
+                        <div key={booking.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                             <div className="flex items-center space-x-3">
-                              <span className="text-base font-bold text-slate-900">{quote.vendor.name}</span>
-                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold px-2 py-0.5 rounded-full">
-                                {quote.vendor.badge}
+                              <span className="font-mono text-base font-bold text-indigo-700">{booking.awb_number}</span>
+                              <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded capitalize font-medium">
+                                {booking.mode}
                               </span>
-                              <span className="text-amber-500 text-xs font-bold flex items-center space-x-1">
-                                <span>★</span>
-                                <span>{quote.vendor.rating}</span>
+                              <span className="text-xs font-mono text-slate-500 font-semibold">
+                                {booking.origin_pin} → {booking.dest_pin}
                               </span>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                              <span className="flex items-center space-x-1 text-slate-700 font-medium capitalize">
-                                {quote.rateCard.mode === "air" ? (
-                                  <PlaneIcon className="w-4 h-4 text-sky-600" />
-                                ) : (
-                                  <TruckIcon className="w-4 h-4 text-emerald-600" />
-                                )}
-                                <span>{quote.rateCard.mode} Freight</span>
+                            <div className="flex items-center space-x-3 text-xs">
+                              <span className="text-slate-500">Current Status:</span>
+                              <span className="font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                                {booking.status}
                               </span>
-                              <span>•</span>
-                              <span>
-                                SLA Transit: <strong className="text-slate-800">{quote.rateCard.sla_days} Days</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Billable Wt: <strong className="text-slate-800">{quote.billableWeight} kg</strong>
-                              </span>
-                              <span>•</span>
-                              <span className="font-mono text-slate-500">GSTIN: {quote.vendor.gstin}</span>
                             </div>
                           </div>
 
-                          {/* Line-Item Grid */}
-                          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2 text-center sm:text-left">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-700">
                             <div>
-                              <span className="text-[10px] text-slate-500 block">Base Freight</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.base)}</span>
+                              <span className="text-slate-500 block mb-0.5">Shipper (Pickup Address):</span>
+                              <p className="font-bold text-slate-900">{booking.shipper_name}</p>
+                              <p className="text-slate-600">{booking.pickup_address}</p>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-500 block">Fuel ({quote.rateCard.fuel_surcharge_pct}%)</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fuel)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-500 block">FOV Insur.</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fov)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-500 block">Docket/AWB</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.docket)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-500 block">ODA Fee</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.oda)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-500 block">GST (18%)</span>
-                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.gst)}</span>
+                              <span className="text-slate-500 block mb-0.5">Consignee (Delivery Address):</span>
+                              <p className="font-bold text-slate-900">{booking.consignee_name} ({booking.consignee_phone})</p>
+                              <p className="text-slate-600">{booking.delivery_address}</p>
                             </div>
                           </div>
 
-                          {/* Price & Book Action */}
-                          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-                            <div className="text-left sm:text-right">
-                              <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">All-Inclusive Total</span>
-                              <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
-                            </div>
-                            <button
-                              onClick={() => setSelectedQuoteForBooking(quote)}
-                              className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
+                          {/* Interactive Status Dispatch Form */}
+                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
+                            <select
+                              value={rowForm.status}
+                              onChange={(e) =>
+                                setStatusUpdateMap({
+                                  ...statusUpdateMap,
+                                  [booking.id]: { ...rowForm, status: e.target.value }
+                                })
+                              }
+                              className="w-full md:w-44 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
                             >
-                              <span>Book & Generate AWB</span>
-                              <ArrowRightIcon className="w-3.5 h-3.5" />
+                              <option value="">Update Status...</option>
+                              <option value="Picked Up">Picked Up</option>
+                              <option value="In Transit">In Transit</option>
+                              <option value="Out for Delivery">Out for Delivery</option>
+                              <option value="Delivered">Delivered</option>
+                            </select>
+
+                            <input
+                              type="text"
+                              placeholder="Current Hub / City (e.g. Bilaspur Hub HR)"
+                              value={rowForm.location}
+                              onChange={(e) =>
+                                setStatusUpdateMap({
+                                  ...statusUpdateMap,
+                                  [booking.id]: { ...rowForm, location: e.target.value }
+                                })
+                              }
+                              className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
+                            />
+
+                            <input
+                              type="text"
+                              placeholder="Linehaul / Delivery Remarks"
+                              value={rowForm.remarks}
+                              onChange={(e) =>
+                                setStatusUpdateMap({
+                                  ...statusUpdateMap,
+                                  [booking.id]: { ...rowForm, remarks: e.target.value }
+                                })
+                              }
+                              className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
+                            />
+
+                            <button
+                              onClick={() => handleUpdateShipmentStatus(booking.id)}
+                              className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-lg transition shadow-xs"
+                            >
+                              Dispatch Update
                             </button>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* SUB-TAB B: MY SHIPMENTS & LABELS */}
-            {shipperSubTab === "shipments" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">Consignment Bookings & Manifests</h2>
-                    <p className="text-xs text-slate-500">Generate shipping labels, track parcels, and monitor transit compliance</p>
+              {/* SUB-TAB B: RATE CARD MASTER */}
+              {vendorSubTab === "rates" && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
+                      <p className="text-xs text-slate-500">Configure base rates, per kg rates, fuel indexes, and ODA surcharges</p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddRateCard(true)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
+                    >
+                      <PlusIcon className="w-3.5 h-3.5" />
+                      <span>Publish New Rate Card</span>
+                    </button>
                   </div>
-                  <button
-                    onClick={fetchAllData}
-                    className="text-xs bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-medium shadow-xs"
-                  >
-                    Refresh List
-                  </button>
-                </div>
 
-                {bookings.length === 0 ? (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
-                    <p className="text-slate-500 text-sm">No shipments booked yet. Calculate rates to book your first load!</p>
-                  </div>
-                ) : (
                   <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
                     <table className="w-full text-left text-xs text-slate-700">
                       <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
                         <tr>
-                          <th className="py-3 px-4">AWB Number</th>
-                          <th className="py-3 px-4">Carrier</th>
-                          <th className="py-3 px-4">Route & PIN</th>
-                          <th className="py-3 px-4">Mode / Wt</th>
+                          <th className="py-3 px-4">Origin / Dest</th>
+                          <th className="py-3 px-4">Mode</th>
+                          <th className="py-3 px-4">Min Wt</th>
+                          <th className="py-3 px-4">Base Rate</th>
+                          <th className="py-3 px-4">Per Kg</th>
+                          <th className="py-3 px-4">Fuel %</th>
+                          <th className="py-3 px-4">Docket Fee</th>
+                          <th className="py-3 px-4">SLA</th>
                           <th className="py-3 px-4">Status</th>
-                          <th className="py-3 px-4">Total Freight</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {bookings.map((booking) => (
-                          <tr key={booking.id} className="hover:bg-slate-50/70 transition">
-                            <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">
-                              {booking.awb_number}
+                      <tbody className="divide-y divide-slate-100 font-mono">
+                        {rateCards.map((rc) => (
+                          <tr key={rc.id} className="hover:bg-slate-50/70">
+                            <td className="py-3 px-4 text-slate-900 font-bold">
+                              {rc.origin_prefix} → {rc.dest_prefix}
                             </td>
-                            <td className="py-3.5 px-4">
-                              <span className="font-bold text-slate-900 block">{booking.vendors?.name || "Carrier Partner"}</span>
-                              <span className="text-[11px] text-slate-500">{booking.consignee_name}</span>
-                            </td>
-                            <td className="py-3.5 px-4">
-                              <div className="flex items-center space-x-1 font-mono font-semibold text-slate-800">
-                                <span>{booking.origin_pin}</span>
-                                <span>→</span>
-                                <span>{booking.dest_pin}</span>
-                              </div>
-                              <span className="text-[10px] text-slate-500">
-                                {lookupPinZone(booking.origin_pin).city} to {lookupPinZone(booking.dest_pin).city}
+                            <td className="py-3 px-4 uppercase text-slate-700 font-sans font-semibold">{rc.mode}</td>
+                            <td className="py-3 px-4">{rc.min_weight_kg} kg</td>
+                            <td className="py-3 px-4">{formatINR(rc.base_rate)}</td>
+                            <td className="py-3 px-4">{formatINR(rc.per_kg_rate)}/kg</td>
+                            <td className="py-3 px-4">{rc.fuel_surcharge_pct}%</td>
+                            <td className="py-3 px-4">{formatINR(rc.docket_charge)}</td>
+                            <td className="py-3 px-4 text-slate-800 font-sans">{rc.sla_days} Days</td>
+                            <td className="py-3 px-4">
+                              <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-sans font-bold">
+                                Active
                               </span>
-                            </td>
-                            <td className="py-3.5 px-4">
-                              <span className="capitalize text-slate-800 block font-semibold">{booking.mode}</span>
-                              <span className="text-[10px] text-slate-500 font-mono">{booking.billable_weight} kg</span>
-                            </td>
-                            <td className="py-3.5 px-4">
-                              <span
-                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                  booking.status === "Delivered"
-                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                    : booking.status === "In Transit"
-                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                    : booking.status === "Picked Up"
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                    : "bg-slate-100 text-slate-700 border border-slate-200"
-                                }`}
-                              >
-                                {booking.status}
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-4 font-bold text-slate-900">{formatINR(booking.final_total)}</td>
-                            <td className="py-3.5 px-4 text-right space-x-2">
-                              <button
-                                onClick={() => setPrintableBooking(booking)}
-                                className="bg-white hover:bg-slate-50 text-slate-700 px-2.5 py-1 rounded text-[11px] font-semibold border border-slate-300 inline-flex items-center space-x-1 shadow-xs"
-                              >
-                                <PrinterIcon className="w-3.5 h-3.5" />
-                                <span>Print Label</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setActiveTrackingAwb(booking.awb_number);
-                                  setTrackingSearchInput(booking.awb_number);
-                                  setShipperSubTab("tracker");
-                                }}
-                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded text-[11px] font-semibold inline-flex items-center space-x-1"
-                              >
-                                <span>Track</span>
-                              </button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* SUB-TAB C: LIVE AWB TRACKER */}
-            {shipperSubTab === "tracker" && (
-              <div className="space-y-6">
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <h2 className="text-base font-bold text-slate-900 mb-1">Real-Time Indian Airway Bill (AWB) Tracking</h2>
-                  <p className="text-xs text-slate-500 mb-4">Enter your LogiCompare Pro AWB number (e.g. LC-894210 or LC-551923)</p>
-
-                  <div className="flex gap-2 max-w-md">
-                    <input
-                      type="text"
-                      value={trackingSearchInput}
-                      onChange={(e) => setTrackingSearchInput(e.target.value)}
-                      placeholder="Enter AWB Number..."
-                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                    />
-                    <button
-                      onClick={() => setActiveTrackingAwb(trackingSearchInput)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs"
-                    >
-                      Track Shipment
-                    </button>
-                  </div>
                 </div>
+              )}
 
-                {activeTrackBooking ? (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-8 shadow-xs">
-                    {/* Header */}
-                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
-                      <div>
-                        <div className="flex items-center space-x-3">
-                          <span className="text-2xl font-mono font-black text-slate-900">{activeTrackBooking.awb_number}</span>
-                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase">
-                            {activeTrackBooking.status}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Carrier Partner: <strong className="text-slate-800">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
-                        </p>
-                      </div>
-
-                      <div className="text-right text-xs">
-                        <p className="text-slate-600">
-                          Route: <span className="font-mono font-bold text-slate-900">{activeTrackBooking.origin_pin}</span> ({lookupPinZone(activeTrackBooking.origin_pin).city}) →{" "}
-                          <span className="font-mono font-bold text-slate-900">{activeTrackBooking.dest_pin}</span> ({lookupPinZone(activeTrackBooking.dest_pin).city})
-                        </p>
-                        <p className="text-slate-500 mt-0.5">
-                          Consignee: <strong className="text-slate-800">{activeTrackBooking.consignee_name}</strong>
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Clean 5-Step Visual Progress Bar */}
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-6">Delivery Milestone Progress</h4>
-                      {(() => {
-                        const steps = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
-                        const currentIdx = steps.indexOf(activeTrackBooking.status);
-
-                        return (
-                          <div className="relative">
-                            <div className="hidden sm:block absolute top-1/2 left-0 right-0 h-1 bg-slate-200 -translate-y-1/2 z-0"></div>
-                            <div
-                              className="hidden sm:block absolute top-1/2 left-0 h-1 bg-emerald-500 -translate-y-1/2 z-0 transition-all duration-500"
-                              style={{ width: `${Math.max(0, (currentIdx / (steps.length - 1)) * 100)}%` }}
-                            ></div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 relative z-10">
-                              {steps.map((st, i) => {
-                                const isPassed = i <= currentIdx;
-                                const isCurrent = i === currentIdx;
-
-                                return (
-                                  <div key={st} className="flex sm:flex-col items-center sm:text-center space-x-3 sm:space-x-0">
-                                    <div
-                                      className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
-                                        isCurrent
-                                          ? "bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-sm"
-                                          : isPassed
-                                          ? "bg-emerald-600 text-white"
-                                          : "bg-white text-slate-400 border border-slate-300"
-                                      }`}
-                                    >
-                                      {isPassed && !isCurrent ? "✓" : i + 1}
-                                    </div>
-                                    <span
-                                      className={`text-xs mt-2 font-medium ${
-                                        isCurrent ? "text-indigo-700 font-bold" : isPassed ? "text-slate-800" : "text-slate-400"
-                                      }`}
-                                    >
-                                      {st}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Timestamp Audit Trail */}
-                    <div className="border-t border-slate-100 pt-6">
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Milestone Timestamp Audit</h4>
-                      <div className="space-y-3">
-                        {(activeTrackBooking.tracking_history || []).map((step, idx) => (
-                          <div key={idx} className="flex items-start space-x-3 text-xs">
-                            <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 mt-1 shrink-0"></div>
-                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-bold text-slate-900">{step.status}</span>
-                                <span className="text-[11px] text-slate-500 font-mono">
-                                  {new Date(step.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
-                                </span>
-                              </div>
-                              <p className="text-indigo-700 font-medium mt-0.5">{step.location}</p>
-                              <p className="text-slate-600 mt-1">{step.remarks}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
-                    <p className="text-slate-500 text-sm">AWB number "{activeTrackingAwb}" not found. Try searching LC-894210 or LC-551923.</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* SUB-TAB D: RFQ REVERSE BIDDING */}
-            {shipperSubTab === "rfq" && (
-              <div className="space-y-6">
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <h2 className="text-base font-bold text-slate-900 mb-1">Post Heavy/FTL Cargo Load for Reverse Auction</h2>
-                  <p className="text-xs text-slate-500 mb-6">
-                    Carriers and fleet operators will bid competitively below your ceiling target price.
-                  </p>
-
-                  <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode</label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={newRfqOrigin}
-                        onChange={(e) => setNewRfqOrigin(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode</label>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={newRfqDest}
-                        onChange={(e) => setNewRfqDest(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Cargo Description</label>
-                      <input
-                        type="text"
-                        value={newRfqDesc}
-                        onChange={(e) => setNewRfqDesc(e.target.value)}
-                        placeholder="e.g. Electrical Panels / Steel Coils"
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Total Weight (Kg)</label>
-                      <input
-                        type="number"
-                        value={newRfqWeight}
-                        onChange={(e) => setNewRfqWeight(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Required Truck Type</label>
-                      <select
-                        value={newRfqTruck}
-                        onChange={(e) => setNewRfqTruck(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
-                      >
-                        <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
-                        <option value="24ft Container Truck">24ft Container Truck</option>
-                        <option value="Taurus 21-Tonner (10-Tyre)">Taurus 21-Tonner (10-Tyre)</option>
-                        <option value="19ft Open Body Truck">19ft Open Body Truck</option>
-                        <option value="Tata 407 (3.5T)">Tata 407 (3.5T)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Ceiling Target Budget (₹)</label>
-                      <input
-                        type="number"
-                        value={newRfqBudget}
-                        onChange={(e) => setNewRfqBudget(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
-                        required
-                      />
-                    </div>
-
-                    <div className="md:col-span-3 flex justify-end">
-                      <button
-                        type="submit"
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg text-xs transition shadow-sm"
-                      >
-                        Broadcast RFQ to Verified Carriers
-                      </button>
-                    </div>
-                  </form>
-                </div>
-
-                {/* RFQ Cards */}
+              {/* SUB-TAB C: BID ON LIVE RFQS */}
+              {vendorSubTab === "bids" && (
                 <div className="space-y-4">
-                  <h3 className="text-base font-bold text-slate-900">Active Loads & Carrier Bids</h3>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Live Heavy Cargo RFQ Exchange</h2>
+                    <p className="text-xs text-slate-500">Bid on full truck load and project freight requirements posted by shippers</p>
+                  </div>
+
                   <div className="grid grid-cols-1 gap-4">
-                    {rfqList.map((rfq) => (
-                      <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                          <div>
-                            <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
-                              {rfq.origin_pin} → {rfq.dest_pin}
-                            </span>
-                            <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
+                    {rfqList.map((rfq) => {
+                      const form = bidFormMap[rfq.id] || { amount: 0, days: 0, notes: "" };
+
+                      return (
+                        <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div>
+                              <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
+                                PIN {rfq.origin_pin} → {rfq.dest_pin}
+                              </span>
+                              <h4 className="text-base font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
+                              <p className="text-xs text-slate-500">
+                                Posted by: <strong className="text-slate-800">{rfq.shipper_name}</strong>
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-xs text-slate-500 block">Ceiling Target Price</span>
+                              <span className="text-base font-black text-emerald-700">{formatINR(rfq.target_price)}</span>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
+                              </p>
+                            </div>
                           </div>
 
-                          <div className="text-right text-xs">
-                            <span className="text-slate-500">Target Budget: </span>
-                            <span className="font-bold text-emerald-700">{formatINR(rfq.target_price)}</span>
-                            <div className="text-[11px] text-slate-500 mt-0.5">
-                              {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
+                          {/* Bid Placement Box */}
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                            <span className="text-xs font-bold text-slate-700 block">Submit Competitive Carrier Quote</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-[11px] text-slate-600 mb-1">Quoted Price (₹)</label>
+                                <input
+                                  type="number"
+                                  placeholder="e.g. 72000"
+                                  value={form.amount || ""}
+                                  onChange={(e) =>
+                                    setBidFormMap({
+                                      ...bidFormMap,
+                                      [rfq.id]: { ...form, amount: Number(e.target.value) }
+                                    })
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] text-slate-600 mb-1">Transit SLA (Days)</label>
+                                <input
+                                  type="number"
+                                  placeholder="e.g. 4"
+                                  value={form.days || ""}
+                                  onChange={(e) =>
+                                    setBidFormMap({
+                                      ...bidFormMap,
+                                      [rfq.id]: { ...form, days: Number(e.target.value) }
+                                    })
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] text-slate-600 mb-1">Fleet / Driver Notes</label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. Dedicated 32ft MXL vehicle ready"
+                                  value={form.notes}
+                                  onChange={(e) =>
+                                    setBidFormMap({
+                                      ...bidFormMap,
+                                      [rfq.id]: { ...form, notes: e.target.value }
+                                    })
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => handleSubmitVendorBid(rfq.id)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-xs"
+                              >
+                                Place Official Bid
+                              </button>
                             </div>
                           </div>
                         </div>
-
-                        <div>
-                          <span className="text-xs font-bold text-slate-600 block mb-2">
-                            Received Bids ({rfq.bids?.length || 0})
-                          </span>
-                          {!rfq.bids || rfq.bids.length === 0 ? (
-                            <p className="text-xs text-slate-400 italic">No bids placed yet. Broadcasting actively to fleet operators.</p>
-                          ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {rfq.bids.map((bid, bIdx) => (
-                                <div key={bIdx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-bold text-slate-900">{bid.vendor_name}</span>
-                                    <span className="font-black text-emerald-700">{formatINR(bid.bid_amount)}</span>
-                                  </div>
-                                  <p className="text-slate-600 text-[11px]">
-                                    Transit SLA: <strong className="text-slate-800">{bid.transit_days} Days</strong>
-                                  </p>
-                                  <p className="text-slate-500 italic text-[11px]">"{bid.notes}"</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ============================================================== */}
-        {/* CARRIER / VENDOR DASHBOARD MODULES */}
-        {/* ============================================================== */}
-        {activePortal === "vendor" && (
-          <div className="space-y-6">
-            {/* SUB-TAB A: INCOMING ORDERS & DISPATCH */}
-            {vendorSubTab === "orders" && (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">Assigned Consignments & Linehaul Status Dispatch</h2>
-                    <p className="text-xs text-slate-500">
-                      Operating as Carrier: <strong className="text-emerald-700">{currentUser.company_name}</strong>
-                    </p>
-                  </div>
-                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full font-mono font-bold">
-                    Hub Active
-                  </span>
-                </div>
-
-                <div className="space-y-4">
-                  {bookings.map((booking) => {
-                    const rowForm = statusUpdateMap[booking.id] || { status: "", location: "", remarks: "" };
-
-                    return (
-                      <div key={booking.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                          <div className="flex items-center space-x-3">
-                            <span className="font-mono text-base font-bold text-indigo-700">{booking.awb_number}</span>
-                            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded capitalize font-medium">
-                              {booking.mode}
-                            </span>
-                            <span className="text-xs font-mono text-slate-500 font-semibold">
-                              {booking.origin_pin} → {booking.dest_pin}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center space-x-3 text-xs">
-                            <span className="text-slate-500">Current Status:</span>
-                            <span className="font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
-                              {booking.status}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-700">
-                          <div>
-                            <span className="text-slate-500 block mb-0.5">Shipper (Pickup Address):</span>
-                            <p className="font-bold text-slate-900">{booking.shipper_name}</p>
-                            <p className="text-slate-600">{booking.pickup_address}</p>
-                          </div>
-                          <div>
-                            <span className="text-slate-500 block mb-0.5">Consignee (Delivery Address):</span>
-                            <p className="font-bold text-slate-900">{booking.consignee_name} ({booking.consignee_phone})</p>
-                            <p className="text-slate-600">{booking.delivery_address}</p>
-                          </div>
-                        </div>
-
-                        {/* Interactive Status Dispatch Form */}
-                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
-                          <select
-                            value={rowForm.status}
-                            onChange={(e) =>
-                              setStatusUpdateMap({
-                                ...statusUpdateMap,
-                                [booking.id]: { ...rowForm, status: e.target.value }
-                              })
-                            }
-                            className="w-full md:w-44 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                          >
-                            <option value="">Update Status...</option>
-                            <option value="Picked Up">Picked Up</option>
-                            <option value="In Transit">In Transit</option>
-                            <option value="Out for Delivery">Out for Delivery</option>
-                            <option value="Delivered">Delivered</option>
-                          </select>
-
-                          <input
-                            type="text"
-                            placeholder="Current Hub / City (e.g. Bilaspur Hub HR)"
-                            value={rowForm.location}
-                            onChange={(e) =>
-                              setStatusUpdateMap({
-                                ...statusUpdateMap,
-                                [booking.id]: { ...rowForm, location: e.target.value }
-                              })
-                            }
-                            className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
-                          />
-
-                          <input
-                            type="text"
-                            placeholder="Linehaul / Delivery Remarks"
-                            value={rowForm.remarks}
-                            onChange={(e) =>
-                              setStatusUpdateMap({
-                                ...statusUpdateMap,
-                                [booking.id]: { ...rowForm, remarks: e.target.value }
-                              })
-                            }
-                            className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
-                          />
-
-                          <button
-                            onClick={() => handleUpdateShipmentStatus(booking.id)}
-                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-lg transition shadow-xs"
-                          >
-                            Dispatch Update
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* SUB-TAB B: RATE CARD MASTER */}
-            {vendorSubTab === "rates" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
-                    <p className="text-xs text-slate-500">Configure base rates, per kg rates, fuel indexes, and ODA surcharges</p>
-                  </div>
-                  <button
-                    onClick={() => setShowAddRateCard(true)}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
-                  >
-                    <PlusIcon className="w-3.5 h-3.5" />
-                    <span>Publish New Rate Card</span>
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
-                  <table className="w-full text-left text-xs text-slate-700">
-                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-3 px-4">Origin / Dest</th>
-                        <th className="py-3 px-4">Mode</th>
-                        <th className="py-3 px-4">Min Wt</th>
-                        <th className="py-3 px-4">Base Rate</th>
-                        <th className="py-3 px-4">Per Kg</th>
-                        <th className="py-3 px-4">Fuel %</th>
-                        <th className="py-3 px-4">Docket Fee</th>
-                        <th className="py-3 px-4">SLA</th>
-                        <th className="py-3 px-4">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono">
-                      {rateCards.map((rc) => (
-                        <tr key={rc.id} className="hover:bg-slate-50/70">
-                          <td className="py-3 px-4 text-slate-900 font-bold">
-                            {rc.origin_prefix} → {rc.dest_prefix}
-                          </td>
-                          <td className="py-3 px-4 uppercase text-slate-700 font-sans font-semibold">{rc.mode}</td>
-                          <td className="py-3 px-4">{rc.min_weight_kg} kg</td>
-                          <td className="py-3 px-4">{formatINR(rc.base_rate)}</td>
-                          <td className="py-3 px-4">{formatINR(rc.per_kg_rate)}/kg</td>
-                          <td className="py-3 px-4">{rc.fuel_surcharge_pct}%</td>
-                          <td className="py-3 px-4">{formatINR(rc.docket_charge)}</td>
-                          <td className="py-3 px-4 text-slate-800 font-sans">{rc.sla_days} Days</td>
-                          <td className="py-3 px-4">
-                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-sans font-bold">
-                              Active
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* SUB-TAB C: BID ON LIVE RFQS */}
-            {vendorSubTab === "bids" && (
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">Live Heavy Cargo RFQ Exchange</h2>
-                  <p className="text-xs text-slate-500">Bid on full truck load and project freight requirements posted by shippers</p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                  {rfqList.map((rfq) => {
-                    const form = bidFormMap[rfq.id] || { amount: 0, days: 0, notes: "" };
-
-                    return (
-                      <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                          <div>
-                            <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
-                              PIN {rfq.origin_pin} → {rfq.dest_pin}
-                            </span>
-                            <h4 className="text-base font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
-                            <p className="text-xs text-slate-500">
-                              Posted by: <strong className="text-slate-800">{rfq.shipper_name}</strong>
-                            </p>
-                          </div>
-
-                          <div className="text-right">
-                            <span className="text-xs text-slate-500 block">Ceiling Target Price</span>
-                            <span className="text-base font-black text-emerald-700">{formatINR(rfq.target_price)}</span>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Bid Placement Box */}
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                          <span className="text-xs font-bold text-slate-700 block">Submit Competitive Carrier Quote</span>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] text-slate-600 mb-1">Quoted Price (₹)</label>
-                              <input
-                                type="number"
-                                placeholder="e.g. 72000"
-                                value={form.amount || ""}
-                                onChange={(e) =>
-                                  setBidFormMap({
-                                    ...bidFormMap,
-                                    [rfq.id]: { ...form, amount: Number(e.target.value) }
-                                  })
-                                }
-                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-slate-600 mb-1">Transit SLA (Days)</label>
-                              <input
-                                type="number"
-                                placeholder="e.g. 4"
-                                value={form.days || ""}
-                                onChange={(e) =>
-                                  setBidFormMap({
-                                    ...bidFormMap,
-                                    [rfq.id]: { ...form, days: Number(e.target.value) }
-                                  })
-                                }
-                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-slate-600 mb-1">Fleet / Driver Notes</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. Dedicated 32ft MXL vehicle ready"
-                                value={form.notes}
-                                onChange={(e) =>
-                                  setBidFormMap({
-                                    ...bidFormMap,
-                                    [rfq.id]: { ...form, notes: e.target.value }
-                                  })
-                                }
-                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex justify-end">
-                            <button
-                              onClick={() => handleSubmitVendorBid(rfq.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-xs"
-                            >
-                              Place Official Bid
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
+              )}
+            </div>
+          )}
+        </main>
+      )}
 
       {/* ============================================================== */}
       {/* MODAL 1: LIGHT CHECKOUT & AWB GENERATOR */}
@@ -2326,17 +2787,75 @@ export default function LogiComparePro() {
       )}
 
       {/* ============================================================== */}
-      {/* ENTERPRISE FOOTER */}
+      {/* EXTENDED ENTERPRISE FOOTER WITH FAST JUMPS */}
       {/* ============================================================== */}
-      <footer className="mt-auto border-t border-slate-200 bg-white px-4 py-4 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© 2026 LogiCompare Pro • B2B Freight Logistics Marketplace for India</p>
-          <div className="flex items-center space-x-4">
-            <span>GTA GST 18% Compliant</span>
-            <span>•</span>
-            <span>Indian Pincode Hub Routing</span>
-            <span>•</span>
-            <span>Carriage of Goods Act 2007</span>
+      <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
+        <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-slate-100 pb-6">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                <TruckIcon className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="font-extrabold text-sm text-slate-900">LogiCompare Pro</span>
+                <p className="text-[11px] text-slate-500">Pan-India B2B Freight Logistics & AWB Infrastructure</p>
+              </div>
+            </div>
+
+            {/* Fast Navigation Jumps */}
+            <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
+              <button
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setActivePortal("shipper");
+                  setShipperSubTab("compare");
+                }}
+                className="hover:text-indigo-600"
+              >
+                Freight Calculator
+              </button>
+              <button
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setActivePortal("shipper");
+                  setShipperSubTab("tracker");
+                }}
+                className="hover:text-indigo-600"
+              >
+                Live AWB Tracker
+              </button>
+              <button
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setActivePortal("shipper");
+                  setShipperSubTab("rfq");
+                }}
+                className="hover:text-indigo-600"
+              >
+                Heavy RFQ Board
+              </button>
+              <button
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setActivePortal("vendor");
+                  setVendorSubTab("rates");
+                }}
+                className="hover:text-indigo-600"
+              >
+                Carrier Console
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-500 text-[11px]">
+            <p>© 2026 LogiCompare Pro. All rights reserved across 28 Indian States & 8 Union Territories.</p>
+            <div className="flex items-center space-x-3">
+              <span>Carriage by Road Act 2007</span>
+              <span>•</span>
+              <span>GTA GST 18% Input Credit Support</span>
+              <span>•</span>
+              <span>ISO 9001:2015 Hub Routing</span>
+            </div>
           </div>
         </div>
       </footer>
