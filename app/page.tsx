@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // Safe Supabase client initialization
@@ -138,7 +138,7 @@ export interface UserProfile {
   vendor_id?: string;
 }
 
-// Fallback Indian Logistics Seed for offline or first-run demo testing
+// Fallback Indian Logistics Seed for offline or initial demo testing
 const FALLBACK_VENDORS: Vendor[] = [
   { id: "11111111-1111-1111-1111-111111111111", name: "Delhivery B2B Express", badge: "Market Leader", rating: 4.8, gstin: "06AAACD9876Q1ZB", fleet_types: ["Surface Express", "Air Express", "Part Truck Load"] },
   { id: "22222222-2222-2222-2222-222222222222", name: "Blue Dart Aviation", badge: "Fastest Air SLA", rating: 4.9, gstin: "27AAACB0982G1ZL", fleet_types: ["Air Express Priority", "Critical Cargo"] },
@@ -147,9 +147,9 @@ const FALLBACK_VENDORS: Vendor[] = [
   { id: "55555555-5555-5555-5555-555555555555", name: "Safexpress Logistics", badge: "Secure 3PL", rating: 4.7, gstin: "07AAACS7788P1ZZ", fleet_types: ["SafeAir Cargo", "Surface Cargo Hub"] }
 ];
 
-// Pincode Hub Lookup
+// Indian Pincode Hub Lookup
 function lookupPinZone(pin: string): { city: string; state: string; hub: string } {
-  if (!pin || pin.length < 3) return { city: "Unknown City", state: "India", hub: "HUB-GEN" };
+  if (!pin || pin.length < 3) return { city: "Detecting City...", state: "India", hub: "HUB-GEN" };
   const p3 = pin.substring(0, 3);
   const p2 = pin.substring(0, 2);
 
@@ -165,7 +165,7 @@ function lookupPinZone(pin: string): { city: string; state: string; hub: string 
   if (p3 === "700") return { city: "Kolkata", state: "West Bengal", hub: "CCU-EAST-PORT" };
   if (p3 === "380") return { city: "Ahmedabad", state: "Gujarat", hub: "AMD-WEST-01" };
   if (p3 === "302") return { city: "Jaipur", state: "Rajasthan", hub: "JAI-NORTH-WEST" };
-  if (p2 === "68") return { city: "Kochi / Kerala Region", state: "Kerala", hub: "COK-SOUTH-HUB" };
+  if (p2 === "68") return { city: "Kochi Region", state: "Kerala", hub: "COK-SOUTH-HUB" };
 
   return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
 }
@@ -181,41 +181,35 @@ const formatINR = (val: number) => {
 };
 
 // ==========================================
-// INLINE SVG ICONS
+// INLINE ICONS
 // ==========================================
 const TruckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
   </svg>
 );
 
 const PlaneIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
   </svg>
 );
 
 const BoxIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
   </svg>
 );
 
-const ShieldCheckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-  </svg>
-);
-
 const PrinterIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
   </svg>
 );
 
 const SearchIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
   </svg>
 );
@@ -227,7 +221,7 @@ const PlusIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
 );
 
 const TrashIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
@@ -254,7 +248,7 @@ const XMarkIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
 // MAIN COMPONENT
 // ==========================================
 export default function LogiComparePro() {
-  // Demo Users
+  // Demo Personas
   const DEMO_SHIPPER: UserProfile = {
     id: "demo-shipper-uuid",
     email: "dispatch@apexlogistics.in",
@@ -276,7 +270,7 @@ export default function LogiComparePro() {
     vendor_id: "11111111-1111-1111-1111-111111111111"
   };
 
-  // User State
+  // State Management
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
   const [activePortal, setActivePortal] = useState<"shipper" | "vendor">("shipper");
   const [shipperSubTab, setShipperSubTab] = useState<"compare" | "shipments" | "tracker" | "rfq">("compare");
@@ -295,7 +289,7 @@ export default function LogiComparePro() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMsg, setAuthMsg] = useState("");
 
-  // Rate Search & Calculator State
+  // Rate Search & Multi-Box Calculator State
   const [originPin, setOriginPin] = useState("110020");
   const [destPin, setDestPin] = useState("400001");
   const [isOda, setIsOda] = useState(false);
@@ -359,36 +353,22 @@ export default function LogiComparePro() {
   // RFQ Vendor Bidding State
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
 
-  // ==========================================
-  // INITIAL DATA FETCH & SYNC
-  // ==========================================
+  // Sync Supabase Data
   const fetchAllData = async () => {
     try {
-      // 1. Fetch Vendors
       const { data: vData } = await supabase.from("vendors").select("*");
-      if (vData && vData.length > 0) {
-        setVendors(vData);
-      }
+      if (vData && vData.length > 0) setVendors(vData);
 
-      // 2. Fetch Rate Cards
       const { data: rData } = await supabase.from("rate_cards").select("*, vendors(*)");
-      if (rData && rData.length > 0) {
-        setRateCards(rData as RateCard[]);
-      }
+      if (rData && rData.length > 0) setRateCards(rData as RateCard[]);
 
-      // 3. Fetch Bookings
       const { data: bData } = await supabase.from("bookings").select("*, vendors(*)").order("created_at", { ascending: false });
-      if (bData && bData.length > 0) {
-        setBookings(bData as Booking[]);
-      }
+      if (bData && bData.length > 0) setBookings(bData as Booking[]);
 
-      // 4. Fetch RFQ
       const { data: qData } = await supabase.from("rfq_bids").select("*").order("created_at", { ascending: false });
-      if (qData && qData.length > 0) {
-        setRfqList(qData as RfqBid[]);
-      }
+      if (qData && qData.length > 0) setRfqList(qData as RfqBid[]);
     } catch (err) {
-      console.warn("Supabase initial fetch warning, utilizing loaded data or seed.", err);
+      console.warn("Supabase fetch warning:", err);
     }
   };
 
@@ -407,13 +387,12 @@ export default function LogiComparePro() {
     }
   };
 
-  // Multi-box calculations
+  // Multi-box weight computation
   const totalActualWeight = useMemo(() => {
     return boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0);
   }, [boxes]);
 
   const totalVolumetricWeight = useMemo(() => {
-    // Air divisor: 5000 | Surface standard Indian cargo divisor: 4500
     const divisor = selectedMode === "air" ? 5000 : 4500;
     return boxes.reduce((acc, b) => {
       const volKg = ((Number(b.length) || 0) * (Number(b.width) || 0) * (Number(b.height) || 0)) / divisor;
@@ -425,7 +404,7 @@ export default function LogiComparePro() {
     return Math.max(totalActualWeight, Math.round(totalVolumetricWeight * 100) / 100);
   }, [totalActualWeight, totalVolumetricWeight]);
 
-  // Box Repeater Handlers
+  // Box Actions
   const addBox = () => {
     setBoxes([...boxes, { id: `box-${Date.now()}`, qty: 1, weight: 10, length: 30, width: 30, height: 30 }]);
   };
@@ -439,20 +418,16 @@ export default function LogiComparePro() {
     setBoxes(boxes.map((b) => (b.id === id ? { ...b, [field]: value } : b)));
   };
 
-  // Indian Pincode Auto Detection
   const originZone = useMemo(() => lookupPinZone(originPin), [originPin]);
   const destZone = useMemo(() => lookupPinZone(destPin), [destPin]);
 
-  // ==========================================
-  // FREIGHT QUOTE GENERATION ENGINE
-  // ==========================================
+  // Freight Quote Calculations
   const calculatedQuotes: CalculatedQuote[] = useMemo(() => {
     if (!searchTriggered && rateCards.length === 0) return [];
 
     const oPrefix = originPin.substring(0, 3);
     const dPrefix = destPin.substring(0, 3);
 
-    // Filter rate cards matching prefixes or wildcard %
     const matchedCards = rateCards.filter((card) => {
       if (!card.is_active) return false;
       if (selectedMode !== "all" && card.mode !== selectedMode) return false;
@@ -477,7 +452,7 @@ export default function LogiComparePro() {
       const oda = isOda ? Number(card.oda_charge) : 0;
 
       const subtotal = baseFreight + fuelSurcharge + docket + fov + handling + oda;
-      const gst = subtotal * 0.18; // 18% GST for GTA / Logistics
+      const gst = subtotal * 0.18;
       const total = subtotal + gst;
 
       return {
@@ -505,12 +480,10 @@ export default function LogiComparePro() {
     setTimeout(() => {
       setSearchTriggered(true);
       setIsSearching(false);
-    }, 400);
+    }, 350);
   };
 
-  // ==========================================
-  // BOOKING SUBMISSION & AWB GENERATION
-  // ==========================================
+  // Confirm Booking
   const handleConfirmBooking = async () => {
     if (!selectedQuoteForBooking) return;
     setIsSubmittingBooking(true);
@@ -559,7 +532,6 @@ export default function LogiComparePro() {
       if (!error && data && data[0]) {
         setBookings([data[0] as Booking, ...bookings]);
       } else {
-        // Fallback local addition if database is in mock or read-only mode
         const localMock: Booking = {
           ...(newBookingRecord as Booking),
           id: `book-${Date.now()}`,
@@ -569,7 +541,7 @@ export default function LogiComparePro() {
         setBookings([localMock, ...bookings]);
       }
     } catch (err) {
-      console.warn("Saving to local state fallback", err);
+      console.warn("Fallback local booking:", err);
     } finally {
       setIsSubmittingBooking(false);
       setSelectedQuoteForBooking(null);
@@ -577,9 +549,7 @@ export default function LogiComparePro() {
     }
   };
 
-  // ==========================================
-  // CARRIER / VENDOR STATUS UPDATER
-  // ==========================================
+  // Status Updater (Vendor)
   const handleUpdateShipmentStatus = async (bookingId: string) => {
     const updateData = statusUpdateMap[bookingId];
     if (!updateData || !updateData.status) {
@@ -594,7 +564,7 @@ export default function LogiComparePro() {
       status: updateData.status,
       location: updateData.location || "En-route Hub",
       timestamp: new Date().toISOString(),
-      remarks: updateData.remarks || `Status transitioned to ${updateData.status}`
+      remarks: updateData.remarks || `Status updated to ${updateData.status}`
     };
 
     const updatedHistory = [...(booking.tracking_history || []), newStep];
@@ -608,7 +578,6 @@ export default function LogiComparePro() {
         })
         .eq("id", bookingId);
 
-      // Local state update
       setBookings(
         bookings.map((b) =>
           b.id === bookingId
@@ -621,20 +590,17 @@ export default function LogiComparePro() {
         )
       );
 
-      // Reset row input
       setStatusUpdateMap({
         ...statusUpdateMap,
         [bookingId]: { status: "", location: "", remarks: "" }
       });
-      alert(`AWB ${booking.awb_number} updated to ${updateData.status}!`);
+      alert(`Consignment ${booking.awb_number} updated to ${updateData.status}!`);
     } catch (err) {
       console.error("Failed to update status", err);
     }
   };
 
-  // ==========================================
-  // RFQ REVERSE BIDDING HANDLERS
-  // ==========================================
+  // RFQ Creation
   const handleCreateRfq = async (e: React.FormEvent) => {
     e.preventDefault();
     const newRecord: Partial<RfqBid> = {
@@ -661,12 +627,13 @@ export default function LogiComparePro() {
         };
         setRfqList([localRfq, ...rfqList]);
       }
-      alert("Heavy Cargo Load Posted for Live Reverse Bidding!");
+      alert("Load successfully posted for reverse bidding!");
     } catch (err) {
       console.error(err);
     }
   };
 
+  // Vendor Submit Bid
   const handleSubmitVendorBid = async (rfqId: string) => {
     const form = bidFormMap[rfqId];
     if (!form || !form.amount || !form.days) {
@@ -681,7 +648,7 @@ export default function LogiComparePro() {
       vendor_name: currentUser.company_name || "Delhivery B2B Express",
       bid_amount: Number(form.amount),
       transit_days: Number(form.days),
-      notes: form.notes || "Available container truck with GPS real-time tracking.",
+      notes: form.notes || "Ready container vehicle with GPS tracking.",
       created_at: new Date().toISOString()
     };
 
@@ -689,10 +656,9 @@ export default function LogiComparePro() {
 
     try {
       await supabase.from("rfq_bids").update({ bids: updatedBids }).eq("id", rfqId);
-
       setRfqList(rfqList.map((r) => (r.id === rfqId ? { ...r, bids: updatedBids } : r)));
       setBidFormMap({ ...bidFormMap, [rfqId]: { amount: 0, days: 0, notes: "" } });
-      alert("Your bid has been officially submitted to the shipper!");
+      alert("Bid placed successfully!");
     } catch (err) {
       console.error("Failed to submit bid", err);
     }
@@ -721,13 +687,13 @@ export default function LogiComparePro() {
         setRateCards([localCard, ...rateCards]);
       }
       setShowAddRateCard(false);
-      alert("New Commercial Rate Card Activated Successfully!");
+      alert("New Rate Card published and active!");
     } catch (err) {
       console.error(err);
     }
   };
 
-  // Auth Handler
+  // Real Auth Handling
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -773,80 +739,77 @@ export default function LogiComparePro() {
         }
       }
     } catch (err: any) {
-      setAuthMsg(err.message || "Authentication failed. You can continue using Instant Demo modes.");
+      setAuthMsg(err.message || "Auth error. You can continue using demo roles seamlessly.");
     } finally {
       setAuthLoading(false);
     }
   };
 
-  // Find booking for live tracking
   const activeTrackBooking = useMemo(() => {
     return bookings.find((b) => b.awb_number.toLowerCase() === activeTrackingAwb.trim().toLowerCase());
   }, [bookings, activeTrackingAwb]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
       {/* ============================================================== */}
-      {/* TOP ENTERPRISE NAVIGATION BAR */}
+      {/* CLEAN LIGHT NAVIGATION BAR */}
       {/* ============================================================== */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 lg:px-8 py-3">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          {/* Logo & Brand */}
+          {/* Logo & Platform Name */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-blue-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
               <TruckIcon className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-extrabold text-xl tracking-tight text-white">LogiCompare</span>
-                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                <span className="font-extrabold text-xl tracking-tight text-slate-900">LogiCompare</span>
+                <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   Pro B2B
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Pan-India Freight Exchange & AWB Hub</p>
+              <p className="text-xs text-slate-500">Pan-India Freight Exchange & Commercial AWB Hub</p>
             </div>
           </div>
 
-          {/* Quick Demo Switchers */}
-          <div className="flex items-center space-x-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+          {/* Quick Demo Role Switcher */}
+          <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
               onClick={() => switchDemoRole("shipper")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
                 currentUser.role === "shipper"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-indigo-700 shadow-xs border border-slate-200/60"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <span>⚡ Shipper Demo</span>
-              <span className="text-[10px] bg-indigo-900/60 px-1.5 py-0.2 rounded text-indigo-200">Apex</span>
+              <span>⚡ Shipper Mode</span>
+              <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.2 rounded font-medium">Apex</span>
             </button>
             <button
               onClick={() => switchDemoRole("vendor")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
                 currentUser.role === "vendor"
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-white text-emerald-700 shadow-xs border border-slate-200/60"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <span>⚡ Vendor Demo</span>
-              <span className="text-[10px] bg-emerald-900/60 px-1.5 py-0.2 rounded text-emerald-200">Delhivery</span>
+              <span>⚡ Carrier Mode</span>
+              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.2 rounded font-medium">Delhivery</span>
             </button>
           </div>
 
-          {/* Profile / Auth Button */}
+          {/* Active Profile & Auth Button */}
           <div className="flex items-center space-x-3">
             <div className="hidden sm:block text-right">
-              <p className="text-xs font-medium text-slate-200">{currentUser.company_name}</p>
-              <p className="text-[11px] text-slate-400">
-                GSTIN: <span className="font-mono text-slate-300">{currentUser.gstin || "N/A"}</span>
-              </p>
+              <p className="text-xs font-bold text-slate-900">{currentUser.company_name}</p>
+              <p className="text-[11px] text-slate-500 font-mono">GSTIN: {currentUser.gstin || "Unregistered"}</p>
             </div>
 
             <button
               onClick={() => setShowAuthModal(true)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5"
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition shadow-xs flex items-center space-x-2"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>Account / Login</span>
             </button>
           </div>
@@ -854,40 +817,36 @@ export default function LogiComparePro() {
       </header>
 
       {/* ============================================================== */}
-      {/* MAIN CONTAINER */}
+      {/* MAIN CONTENT AREA */}
       {/* ============================================================== */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
-        {/* Navigation Tabs (Shipper vs Vendor views) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-3">
-          <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800 w-fit">
+        {/* Navigation Selector Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
+          <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit">
             <button
-              onClick={() => {
-                setActivePortal("shipper");
-              }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                activePortal === "shipper" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-slate-200"
+              onClick={() => setActivePortal("shipper")}
+              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+                activePortal === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               Shipper Portal
             </button>
             <button
-              onClick={() => {
-                setActivePortal("vendor");
-              }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                activePortal === "vendor" ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:text-slate-200"
+              onClick={() => setActivePortal("vendor")}
+              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+                activePortal === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Carrier / Vendor Hub
+              Carrier & Fleet Hub
             </button>
           </div>
 
-          {/* Secondary Sub-Tabs */}
+          {/* Sub-Tabs Navigation */}
           {activePortal === "shipper" ? (
-            <div className="flex flex-wrap gap-2 text-xs">
+            <div className="flex flex-wrap gap-1.5 text-xs">
               {[
                 { id: "compare", label: "🔍 Compare & Book Rates" },
-                { id: "shipments", label: "📦 My Shipments & AWBs" },
+                { id: "shipments", label: "📦 My Shipments & Labels" },
                 { id: "tracker", label: "📍 Live AWB Tracker" },
                 { id: "rfq", label: "⚖️ Heavy Load RFQ Bidding" }
               ].map((t) => (
@@ -896,8 +855,8 @@ export default function LogiComparePro() {
                   onClick={() => setShipperSubTab(t.id as any)}
                   className={`px-3 py-1.5 rounded-lg font-medium transition ${
                     shipperSubTab === t.id
-                      ? "bg-slate-800 text-indigo-400 border border-indigo-500/30"
-                      : "text-slate-400 hover:bg-slate-900"
+                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold"
+                      : "text-slate-600 hover:bg-slate-200/50"
                   }`}
                 >
                   {t.label}
@@ -905,9 +864,9 @@ export default function LogiComparePro() {
               ))}
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2 text-xs">
+            <div className="flex flex-wrap gap-1.5 text-xs">
               {[
-                { id: "orders", label: "📋 Incoming Orders & Status Updater" },
+                { id: "orders", label: "📋 Incoming Orders & Dispatch" },
                 { id: "rates", label: "🏷️ Rate Card Manager" },
                 { id: "bids", label: "🎯 Bid on Live RFQs" }
               ].map((t) => (
@@ -916,8 +875,8 @@ export default function LogiComparePro() {
                   onClick={() => setVendorSubTab(t.id as any)}
                   className={`px-3 py-1.5 rounded-lg font-medium transition ${
                     vendorSubTab === t.id
-                      ? "bg-slate-800 text-emerald-400 border border-emerald-500/30"
-                      : "text-slate-400 hover:bg-slate-900"
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold"
+                      : "text-slate-600 hover:bg-slate-200/50"
                   }`}
                 >
                   {t.label}
@@ -932,76 +891,80 @@ export default function LogiComparePro() {
         {/* ============================================================== */}
         {activePortal === "shipper" && (
           <div className="space-y-6">
-            {/* SUB-TAB A: COMPARE & BOOK RATES */}
+            {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
             {shipperSubTab === "compare" && (
               <div className="space-y-6">
-                {/* 1. Indian Route & Multi-Box Calculator Widget */}
-                <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur">
-                  <div className="border-b border-slate-800 pb-4 mb-6">
-                    <h2 className="text-lg font-bold text-white flex items-center space-x-2">
-                      <BoxIcon className="w-5 h-5 text-indigo-400" />
+                {/* 1. Light Calculator Form Card */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                  <div className="border-b border-slate-100 pb-4 mb-6">
+                    <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                      <BoxIcon className="w-5 h-5 text-indigo-600" />
                       <span>Pan-India Commercial Freight Calculator</span>
                     </h2>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-500 mt-0.5">
                       Auto-detects hub routing codes, computes volumetric divisors (Air 5000 / Surface 4500), and calculates statutory B2B logistics taxes.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     {/* Origin PIN */}
-                    <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Origin Pincode (Pickup)</label>
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode (Pickup)</label>
                       <input
                         type="text"
                         maxLength={6}
                         value={originPin}
                         onChange={(e) => setOriginPin(e.target.value)}
                         placeholder="e.g. 110020"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                       />
                       <div className="mt-2 flex items-center justify-between text-[11px]">
-                        <span className="text-indigo-400 font-medium">{originZone.city}</span>
-                        <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">{originZone.hub}</span>
+                        <span className="text-indigo-700 font-semibold">{originZone.city}</span>
+                        <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
+                          {originZone.hub}
+                        </span>
                       </div>
                     </div>
 
                     {/* Destination PIN */}
-                    <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Destination Pincode (Drop)</label>
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode (Drop)</label>
                       <input
                         type="text"
                         maxLength={6}
                         value={destPin}
                         onChange={(e) => setDestPin(e.target.value)}
                         placeholder="e.g. 400001"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                       />
                       <div className="mt-2 flex items-center justify-between text-[11px]">
-                        <span className="text-emerald-400 font-medium">{destZone.city}</span>
-                        <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono">{destZone.hub}</span>
+                        <span className="text-emerald-700 font-semibold">{destZone.city}</span>
+                        <span className="bg-slate-200/80 px-2 py-0.5 rounded text-slate-700 font-mono text-[10px]">
+                          {destZone.hub}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Declared Cargo Value (for FOV insurance) */}
-                    <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Declared Value (₹) for FOV</label>
+                    {/* Declared Cargo Value */}
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Declared Value (₹) for Insurance</label>
                       <input
                         type="number"
                         value={declaredValue}
                         onChange={(e) => setDeclaredValue(Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-medium text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                       />
-                      <p className="text-[10px] text-slate-400 mt-2">Freight on Value (0.2% transit risk coverage)</p>
+                      <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
                     </div>
 
-                    {/* Mode & ODA toggles */}
-                    <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                    {/* Mode & ODA Checkbox */}
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-400 mb-1">Transport Mode Filter</label>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Transport Mode</label>
                         <select
                           value={selectedMode}
                           onChange={(e) => setSelectedMode(e.target.value as any)}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                         >
                           <option value="all">All Modes (Air, Surface, FTL)</option>
                           <option value="surface">Surface Express Only</option>
@@ -1010,28 +973,28 @@ export default function LogiComparePro() {
                         </select>
                       </div>
 
-                      <label className="flex items-center space-x-2 mt-2 cursor-pointer">
+                      <label className="flex items-center space-x-2 mt-2 cursor-pointer pt-1">
                         <input
                           type="checkbox"
                           checked={isOda}
                           onChange={(e) => setIsOda(e.target.checked)}
-                          className="w-4 h-4 rounded text-indigo-600 bg-slate-800 border-slate-700"
+                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
                         />
-                        <span className="text-xs text-slate-300 font-medium">ODA Pincode Simulation (+₹450)</span>
+                        <span className="text-xs text-slate-700 font-medium">ODA Pincode (+₹450)</span>
                       </label>
                     </div>
                   </div>
 
-                  {/* Multi-Box Repeater */}
-                  <div className="border border-slate-800 rounded-xl p-4 bg-slate-950/40 space-y-3">
+                  {/* Multi-Box Repeater Section */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                        Package Consignment Dimensions ({boxes.length} {boxes.length === 1 ? "box type" : "box types"})
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Consignment Box Dimensions ({boxes.length} {boxes.length === 1 ? "box type" : "box types"})
                       </span>
                       <button
                         type="button"
                         onClick={addBox}
-                        className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center space-x-1"
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1"
                       >
                         <PlusIcon className="w-3.5 h-3.5" />
                         <span>Add Another Box Type</span>
@@ -1042,73 +1005,73 @@ export default function LogiComparePro() {
                       {boxes.map((box, idx) => (
                         <div
                           key={box.id}
-                          className="grid grid-cols-2 sm:grid-cols-6 gap-2 bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 items-center text-xs"
+                          className="grid grid-cols-2 sm:grid-cols-6 gap-2 bg-white p-3 rounded-lg border border-slate-200 items-center text-xs shadow-xs"
                         >
                           <div>
-                            <span className="text-[10px] text-slate-400 block mb-0.5">Box #{idx + 1} Qty</span>
+                            <span className="text-[10px] text-slate-500 block mb-0.5">Box #{idx + 1} Qty</span>
                             <input
                               type="number"
                               min={1}
                               value={box.qty}
                               onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
-                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono"
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                             />
                           </div>
 
                           <div>
-                            <span className="text-[10px] text-slate-400 block mb-0.5">Weight (Kg/box)</span>
+                            <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
                             <input
                               type="number"
                               min={0.5}
                               step={0.5}
                               value={box.weight}
                               onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono"
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                             />
                           </div>
 
                           <div>
-                            <span className="text-[10px] text-slate-400 block mb-0.5">Length (cm)</span>
+                            <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
                             <input
                               type="number"
                               min={1}
                               value={box.length}
                               onChange={(e) => updateBox(box.id, "length", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono"
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                             />
                           </div>
 
                           <div>
-                            <span className="text-[10px] text-slate-400 block mb-0.5">Width (cm)</span>
+                            <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
                             <input
                               type="number"
                               min={1}
                               value={box.width}
                               onChange={(e) => updateBox(box.id, "width", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono"
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                             />
                           </div>
 
                           <div>
-                            <span className="text-[10px] text-slate-400 block mb-0.5">Height (cm)</span>
+                            <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
                             <input
                               type="number"
                               min={1}
                               value={box.height}
                               onChange={(e) => updateBox(box.id, "height", parseFloat(e.target.value) || 1)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono"
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                             />
                           </div>
 
-                          <div className="flex items-center justify-between sm:justify-end space-x-2 pt-3 sm:pt-0">
-                            <span className="text-[11px] text-slate-400 font-mono">
+                          <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
+                            <span className="text-[11px] text-slate-500 font-mono">
                               {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
                             </span>
                             {boxes.length > 1 && (
                               <button
                                 type="button"
                                 onClick={() => removeBox(box.id)}
-                                className="text-rose-400 hover:text-rose-300 p-1 rounded hover:bg-slate-800"
+                                className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
                               >
                                 <TrashIcon className="w-4 h-4" />
                               </button>
@@ -1118,126 +1081,126 @@ export default function LogiComparePro() {
                       ))}
                     </div>
 
-                    {/* Weight Summary Bar */}
-                    <div className="flex flex-wrap items-center justify-between bg-slate-900 p-3 rounded-lg border border-slate-800 text-xs">
-                      <div className="flex flex-wrap gap-4">
+                    {/* Weight Summary Banner */}
+                    <div className="flex flex-wrap items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 text-xs shadow-xs">
+                      <div className="flex flex-wrap gap-5">
                         <div>
-                          <span className="text-slate-400">Total Actual Wt: </span>
-                          <span className="font-bold text-white font-mono">{totalActualWeight.toFixed(1)} kg</span>
+                          <span className="text-slate-500">Total Actual Wt: </span>
+                          <span className="font-bold text-slate-900 font-mono">{totalActualWeight.toFixed(1)} kg</span>
                         </div>
                         <div>
-                          <span className="text-slate-400">Total Volumetric Wt: </span>
-                          <span className="font-bold text-indigo-400 font-mono">{totalVolumetricWeight.toFixed(2)} kg</span>
+                          <span className="text-slate-500">Volumetric Wt: </span>
+                          <span className="font-bold text-indigo-700 font-mono">{totalVolumetricWeight.toFixed(2)} kg</span>
                         </div>
                         <div>
-                          <span className="text-slate-400">Billable Charge Wt: </span>
-                          <span className="font-bold text-emerald-400 font-mono text-sm">{billableWeight.toFixed(1)} kg</span>
+                          <span className="text-slate-500">Billable Charge Wt: </span>
+                          <span className="font-bold text-emerald-700 font-mono text-sm">{billableWeight.toFixed(1)} kg</span>
                         </div>
                       </div>
 
                       <button
                         onClick={handleSearchRates}
                         disabled={isSearching}
-                        className="mt-2 sm:mt-0 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2 rounded-lg transition flex items-center space-x-2 shadow-lg shadow-indigo-600/30"
+                        className="mt-2 sm:mt-0 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg transition flex items-center space-x-2 shadow-sm"
                       >
                         <SearchIcon className="w-4 h-4" />
-                        <span>{isSearching ? "Calculating..." : "Compare Carrier Rates"}</span>
+                        <span>{isSearching ? "Searching..." : "Compare Carrier Rates"}</span>
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Rates Comparison Matrix */}
+                {/* 2. Rates Comparison Cards */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                      <span>Available B2B Carrier Quotes</span>
-                      <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono">
-                        {calculatedQuotes.length} Verified Rates
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-400">Includes Fuel, Handling, FOV Risk Insurance, & 18% GST</p>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">Verified Logistics Carrier Quotes</h3>
+                      <p className="text-xs text-slate-500">Includes Fuel, Handling, FOV Risk Insurance, & 18% GST</p>
+                    </div>
+                    <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full font-bold">
+                      {calculatedQuotes.length} Available Rates
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4">
                     {calculatedQuotes.map((quote) => (
                       <div
                         key={quote.rateCard.id}
-                        className="bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-xl p-5 transition-all shadow-md hover:shadow-indigo-500/5"
+                        className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all shadow-xs hover:shadow-sm"
                       >
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                          {/* Left: Carrier Brand & Mode */}
+                          {/* Carrier Branding & Route */}
                           <div className="space-y-2">
                             <div className="flex items-center space-x-3">
-                              <span className="text-base font-bold text-white">{quote.vendor.name}</span>
-                              <span className="bg-indigo-950 text-indigo-300 border border-indigo-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                              <span className="text-base font-bold text-slate-900">{quote.vendor.name}</span>
+                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold px-2 py-0.5 rounded-full">
                                 {quote.vendor.badge}
                               </span>
-                              <span className="text-amber-400 text-xs font-bold flex items-center space-x-1">
+                              <span className="text-amber-500 text-xs font-bold flex items-center space-x-1">
                                 <span>★</span>
                                 <span>{quote.vendor.rating}</span>
                               </span>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                              <span className="flex items-center space-x-1 text-slate-300 capitalize">
+                            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                              <span className="flex items-center space-x-1 text-slate-700 font-medium capitalize">
                                 {quote.rateCard.mode === "air" ? (
-                                  <PlaneIcon className="w-4 h-4 text-sky-400" />
+                                  <PlaneIcon className="w-4 h-4 text-sky-600" />
                                 ) : (
-                                  <TruckIcon className="w-4 h-4 text-emerald-400" />
+                                  <TruckIcon className="w-4 h-4 text-emerald-600" />
                                 )}
                                 <span>{quote.rateCard.mode} Freight</span>
                               </span>
                               <span>•</span>
                               <span>
-                                SLA Transit: <strong className="text-slate-200">{quote.rateCard.sla_days} Days</strong>
+                                SLA Transit: <strong className="text-slate-800">{quote.rateCard.sla_days} Days</strong>
                               </span>
                               <span>•</span>
                               <span>
-                                Billable Wt: <strong className="text-slate-200">{quote.billableWeight} kg</strong>
+                                Billable Wt: <strong className="text-slate-800">{quote.billableWeight} kg</strong>
                               </span>
                               <span>•</span>
-                              <span className="text-slate-400 font-mono">GSTIN: {quote.vendor.gstin}</span>
+                              <span className="font-mono text-slate-500">GSTIN: {quote.vendor.gstin}</span>
                             </div>
                           </div>
 
-                          {/* Center: Line-Item Cost Preview Chips */}
-                          <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2">
+                          {/* Line-Item Grid */}
+                          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2 text-center sm:text-left">
                             <div>
-                              <span className="text-[10px] text-slate-400 block">Base Freight</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.base)}</span>
+                              <span className="text-[10px] text-slate-500 block">Base Freight</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.base)}</span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">Fuel ({quote.rateCard.fuel_surcharge_pct}%)</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.fuel)}</span>
+                              <span className="text-[10px] text-slate-500 block">Fuel ({quote.rateCard.fuel_surcharge_pct}%)</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fuel)}</span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">FOV Insur.</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.fov)}</span>
+                              <span className="text-[10px] text-slate-500 block">FOV Insur.</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fov)}</span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">Docket/AWB</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.docket)}</span>
+                              <span className="text-[10px] text-slate-500 block">Docket/AWB</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.docket)}</span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">ODA Fee</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.oda)}</span>
+                              <span className="text-[10px] text-slate-500 block">ODA Fee</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.oda)}</span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">GST (18%)</span>
-                              <span className="font-semibold text-slate-200">{formatINR(quote.breakdown.gst)}</span>
+                              <span className="text-[10px] text-slate-500 block">GST (18%)</span>
+                              <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.gst)}</span>
                             </div>
                           </div>
 
-                          {/* Right: Final Price & Action Button */}
-                          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-800">
+                          {/* Price & Book Action */}
+                          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
                             <div className="text-left sm:text-right">
-                              <span className="text-[10px] text-slate-400 block uppercase tracking-wider">All-Inclusive Total</span>
-                              <span className="text-xl font-extrabold text-emerald-400">{formatINR(quote.breakdown.total)}</span>
+                              <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">All-Inclusive Total</span>
+                              <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
                             </div>
                             <button
                               onClick={() => setSelectedQuoteForBooking(quote)}
-                              className="mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-md shadow-emerald-600/20"
+                              className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
                             >
                               <span>Book & Generate AWB</span>
                               <ArrowRightIcon className="w-3.5 h-3.5" />
@@ -1251,30 +1214,30 @@ export default function LogiComparePro() {
               </div>
             )}
 
-            {/* SUB-TAB B: MY SHIPMENTS & AWB LABELS */}
+            {/* SUB-TAB B: MY SHIPMENTS & LABELS */}
             {shipperSubTab === "shipments" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-bold text-white">Consignment Bookings & Manifests</h2>
-                    <p className="text-xs text-slate-400">View live shipments, generate official commercial labels, and monitor SLAs</p>
+                    <h2 className="text-lg font-bold text-slate-900">Consignment Bookings & Manifests</h2>
+                    <p className="text-xs text-slate-500">Generate shipping labels, track parcels, and monitor transit compliance</p>
                   </div>
                   <button
                     onClick={fetchAllData}
-                    className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300"
+                    className="text-xs bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-medium shadow-xs"
                   >
-                    Refresh Shipments
+                    Refresh List
                   </button>
                 </div>
 
                 {bookings.length === 0 ? (
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-                    <p className="text-slate-400 text-sm">No shipments booked yet. Calculate and compare rates to book your first load!</p>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
+                    <p className="text-slate-500 text-sm">No shipments booked yet. Calculate rates to book your first load!</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
-                    <table className="w-full text-left text-xs text-slate-300">
-                      <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                    <table className="w-full text-left text-xs text-slate-700">
+                      <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
                         <tr>
                           <th className="py-3 px-4">AWB Number</th>
                           <th className="py-3 px-4">Carrier</th>
@@ -1285,50 +1248,50 @@ export default function LogiComparePro() {
                           <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800">
+                      <tbody className="divide-y divide-slate-100">
                         {bookings.map((booking) => (
-                          <tr key={booking.id} className="hover:bg-slate-800/40 transition">
-                            <td className="py-3.5 px-4 font-mono font-bold text-indigo-400 flex items-center space-x-1.5">
-                              <span>{booking.awb_number}</span>
+                          <tr key={booking.id} className="hover:bg-slate-50/70 transition">
+                            <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">
+                              {booking.awb_number}
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className="font-semibold text-white block">{booking.vendors?.name || "Carrier Partner"}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">{booking.consignee_name}</span>
+                              <span className="font-bold text-slate-900 block">{booking.vendors?.name || "Carrier Partner"}</span>
+                              <span className="text-[11px] text-slate-500">{booking.consignee_name}</span>
                             </td>
                             <td className="py-3.5 px-4">
-                              <div className="flex items-center space-x-1 font-mono">
+                              <div className="flex items-center space-x-1 font-mono font-semibold text-slate-800">
                                 <span>{booking.origin_pin}</span>
                                 <span>→</span>
                                 <span>{booking.dest_pin}</span>
                               </div>
-                              <span className="text-[10px] text-slate-400">
+                              <span className="text-[10px] text-slate-500">
                                 {lookupPinZone(booking.origin_pin).city} to {lookupPinZone(booking.dest_pin).city}
                               </span>
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className="capitalize text-slate-200 block font-medium">{booking.mode}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">{booking.billable_weight} kg</span>
+                              <span className="capitalize text-slate-800 block font-semibold">{booking.mode}</span>
+                              <span className="text-[10px] text-slate-500 font-mono">{booking.billable_weight} kg</span>
                             </td>
                             <td className="py-3.5 px-4">
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                                   booking.status === "Delivered"
-                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                     : booking.status === "In Transit"
-                                    ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
                                     : booking.status === "Picked Up"
-                                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                                    : "bg-slate-700/50 text-slate-300"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-slate-100 text-slate-700 border border-slate-200"
                                 }`}
                               >
                                 {booking.status}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 font-bold text-slate-100">{formatINR(booking.final_total)}</td>
+                            <td className="py-3.5 px-4 font-bold text-slate-900">{formatINR(booking.final_total)}</td>
                             <td className="py-3.5 px-4 text-right space-x-2">
                               <button
                                 onClick={() => setPrintableBooking(booking)}
-                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded text-[11px] font-semibold border border-slate-700 inline-flex items-center space-x-1"
+                                className="bg-white hover:bg-slate-50 text-slate-700 px-2.5 py-1 rounded text-[11px] font-semibold border border-slate-300 inline-flex items-center space-x-1 shadow-xs"
                               >
                                 <PrinterIcon className="w-3.5 h-3.5" />
                                 <span>Print Label</span>
@@ -1339,7 +1302,7 @@ export default function LogiComparePro() {
                                   setTrackingSearchInput(booking.awb_number);
                                   setShipperSubTab("tracker");
                                 }}
-                                className="bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded text-[11px] font-semibold inline-flex items-center space-x-1"
+                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded text-[11px] font-semibold inline-flex items-center space-x-1"
                               >
                                 <span>Track</span>
                               </button>
@@ -1356,10 +1319,9 @@ export default function LogiComparePro() {
             {/* SUB-TAB C: LIVE AWB TRACKER */}
             {shipperSubTab === "tracker" && (
               <div className="space-y-6">
-                {/* Search Bar */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                  <h2 className="text-base font-bold text-white mb-2">Real-Time Indian Airway Bill (AWB) Tracking</h2>
-                  <p className="text-xs text-slate-400 mb-4">Enter your LogiCompare Pro AWB number (e.g. LC-894210 or LC-551923)</p>
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                  <h2 className="text-base font-bold text-slate-900 mb-1">Real-Time Indian Airway Bill (AWB) Tracking</h2>
+                  <p className="text-xs text-slate-500 mb-4">Enter your LogiCompare Pro AWB number (e.g. LC-894210 or LC-551923)</p>
 
                   <div className="flex gap-2 max-w-md">
                     <input
@@ -1367,56 +1329,56 @@ export default function LogiComparePro() {
                       value={trackingSearchInput}
                       onChange={(e) => setTrackingSearchInput(e.target.value)}
                       placeholder="Enter AWB Number..."
-                      className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-indigo-500"
+                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                     />
                     <button
                       onClick={() => setActiveTrackingAwb(trackingSearchInput)}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs"
                     >
-                      Search
+                      Track Shipment
                     </button>
                   </div>
                 </div>
 
                 {activeTrackBooking ? (
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-8">
-                    {/* Header Details */}
-                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-8 shadow-xs">
+                    {/* Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
                       <div>
                         <div className="flex items-center space-x-3">
-                          <span className="text-2xl font-mono font-black text-white">{activeTrackBooking.awb_number}</span>
-                          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase">
+                          <span className="text-2xl font-mono font-black text-slate-900">{activeTrackBooking.awb_number}</span>
+                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase">
                             {activeTrackBooking.status}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Carrier Partner: <strong className="text-slate-200">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Carrier Partner: <strong className="text-slate-800">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
                         </p>
                       </div>
 
                       <div className="text-right text-xs">
-                        <p className="text-slate-400">
-                          Route: <span className="font-mono text-slate-200">{activeTrackBooking.origin_pin}</span> ({lookupPinZone(activeTrackBooking.origin_pin).city}) →{" "}
-                          <span className="font-mono text-slate-200">{activeTrackBooking.dest_pin}</span> ({lookupPinZone(activeTrackBooking.dest_pin).city})
+                        <p className="text-slate-600">
+                          Route: <span className="font-mono font-bold text-slate-900">{activeTrackBooking.origin_pin}</span> ({lookupPinZone(activeTrackBooking.origin_pin).city}) →{" "}
+                          <span className="font-mono font-bold text-slate-900">{activeTrackBooking.dest_pin}</span> ({lookupPinZone(activeTrackBooking.dest_pin).city})
                         </p>
-                        <p className="text-slate-400 mt-0.5">
-                          Consignee: <strong className="text-slate-200">{activeTrackBooking.consignee_name}</strong>
+                        <p className="text-slate-500 mt-0.5">
+                          Consignee: <strong className="text-slate-800">{activeTrackBooking.consignee_name}</strong>
                         </p>
                       </div>
                     </div>
 
-                    {/* Visual 5-Step Progress Bar */}
+                    {/* Clean 5-Step Visual Progress Bar */}
                     <div>
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6">Delivery Milestone Progress</h4>
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-6">Delivery Milestone Progress</h4>
                       {(() => {
                         const steps = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
                         const currentIdx = steps.indexOf(activeTrackBooking.status);
 
                         return (
                           <div className="relative">
-                            <div className="hidden sm:block absolute top-1/2 left-0 right-0 h-1 bg-slate-800 -translate-y-1/2 z-0"></div>
+                            <div className="hidden sm:block absolute top-1/2 left-0 right-0 h-1 bg-slate-200 -translate-y-1/2 z-0"></div>
                             <div
-                              className="hidden sm:block absolute top-1/2 left-0 h-1 bg-gradient-to-r from-indigo-500 to-emerald-400 -translate-y-1/2 z-0 transition-all duration-500"
+                              className="hidden sm:block absolute top-1/2 left-0 h-1 bg-emerald-500 -translate-y-1/2 z-0 transition-all duration-500"
                               style={{ width: `${Math.max(0, (currentIdx / (steps.length - 1)) * 100)}%` }}
                             ></div>
 
@@ -1430,17 +1392,17 @@ export default function LogiComparePro() {
                                     <div
                                       className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
                                         isCurrent
-                                          ? "bg-indigo-600 text-white ring-4 ring-indigo-500/30 scale-110"
+                                          ? "bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-sm"
                                           : isPassed
-                                          ? "bg-emerald-500 text-slate-950"
-                                          : "bg-slate-800 text-slate-500 border border-slate-700"
+                                          ? "bg-emerald-600 text-white"
+                                          : "bg-white text-slate-400 border border-slate-300"
                                       }`}
                                     >
                                       {isPassed && !isCurrent ? "✓" : i + 1}
                                     </div>
                                     <span
                                       className={`text-xs mt-2 font-medium ${
-                                        isCurrent ? "text-indigo-400 font-bold" : isPassed ? "text-slate-200" : "text-slate-500"
+                                        isCurrent ? "text-indigo-700 font-bold" : isPassed ? "text-slate-800" : "text-slate-400"
                                       }`}
                                     >
                                       {st}
@@ -1454,22 +1416,22 @@ export default function LogiComparePro() {
                       })()}
                     </div>
 
-                    {/* Detailed Timeline Audit */}
-                    <div className="border-t border-slate-800 pt-6">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Milestone Timestamp Audit</h4>
-                      <div className="space-y-4">
+                    {/* Timestamp Audit Trail */}
+                    <div className="border-t border-slate-100 pt-6">
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Milestone Timestamp Audit</h4>
+                      <div className="space-y-3">
                         {(activeTrackBooking.tracking_history || []).map((step, idx) => (
                           <div key={idx} className="flex items-start space-x-3 text-xs">
-                            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 mt-1 shrink-0"></div>
-                            <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800 flex-1">
+                            <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 mt-1 shrink-0"></div>
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex-1">
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-bold text-white">{step.status}</span>
-                                <span className="text-[11px] text-slate-400 font-mono">
+                                <span className="font-bold text-slate-900">{step.status}</span>
+                                <span className="text-[11px] text-slate-500 font-mono">
                                   {new Date(step.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                                 </span>
                               </div>
-                              <p className="text-indigo-400 font-medium mt-0.5">{step.location}</p>
-                              <p className="text-slate-400 mt-1">{step.remarks}</p>
+                              <p className="text-indigo-700 font-medium mt-0.5">{step.location}</p>
+                              <p className="text-slate-600 mt-1">{step.remarks}</p>
                             </div>
                           </div>
                         ))}
@@ -1477,73 +1439,72 @@ export default function LogiComparePro() {
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-                    <p className="text-slate-400 text-sm">AWB number "{activeTrackingAwb}" not found. Try search with LC-894210 or LC-551923.</p>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
+                    <p className="text-slate-500 text-sm">AWB number "{activeTrackingAwb}" not found. Try searching LC-894210 or LC-551923.</p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* SUB-TAB D: HEAVY LOAD RFQ REVERSE BIDDING */}
+            {/* SUB-TAB D: RFQ REVERSE BIDDING */}
             {shipperSubTab === "rfq" && (
               <div className="space-y-6">
-                {/* Post New Load Card */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                  <h2 className="text-base font-bold text-white mb-1">Post Heavy/FTL Cargo Load for Reverse Auction</h2>
-                  <p className="text-xs text-slate-400 mb-6">
-                    Carriers and fleet operators will bid competitively below your target ceiling price.
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                  <h2 className="text-base font-bold text-slate-900 mb-1">Post Heavy/FTL Cargo Load for Reverse Auction</h2>
+                  <p className="text-xs text-slate-500 mb-6">
+                    Carriers and fleet operators will bid competitively below your ceiling target price.
                   </p>
 
                   <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Origin Pincode</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode</label>
                       <input
                         type="text"
                         maxLength={6}
                         value={newRfqOrigin}
                         onChange={(e) => setNewRfqOrigin(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Destination Pincode</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode</label>
                       <input
                         type="text"
                         maxLength={6}
                         value={newRfqDest}
                         onChange={(e) => setNewRfqDest(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Cargo Description</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Cargo Description</label>
                       <input
                         type="text"
                         value={newRfqDesc}
                         onChange={(e) => setNewRfqDesc(e.target.value)}
                         placeholder="e.g. Electrical Panels / Steel Coils"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Total Weight (Kg)</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Total Weight (Kg)</label>
                       <input
                         type="number"
                         value={newRfqWeight}
                         onChange={(e) => setNewRfqWeight(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Required Truck Type</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Required Truck Type</label>
                       <select
                         value={newRfqTruck}
                         onChange={(e) => setNewRfqTruck(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900"
                       >
                         <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
                         <option value="24ft Container Truck">24ft Container Truck</option>
@@ -1553,12 +1514,12 @@ export default function LogiComparePro() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1">Target Ceiling Price (₹)</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Ceiling Target Budget (₹)</label>
                       <input
                         type="number"
                         value={newRfqBudget}
                         onChange={(e) => setNewRfqBudget(Number(e.target.value))}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900"
                         required
                       />
                     </div>
@@ -1566,7 +1527,7 @@ export default function LogiComparePro() {
                     <div className="md:col-span-3 flex justify-end">
                       <button
                         type="submit"
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2.5 rounded-lg text-xs transition"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-lg text-xs transition shadow-sm"
                       >
                         Broadcast RFQ to Verified Carriers
                       </button>
@@ -1574,48 +1535,47 @@ export default function LogiComparePro() {
                   </form>
                 </div>
 
-                {/* Live RFQ Feed */}
+                {/* RFQ Cards */}
                 <div className="space-y-4">
-                  <h3 className="text-base font-bold text-white">Active Loads & Carrier Bids</h3>
+                  <h3 className="text-base font-bold text-slate-900">Active Loads & Carrier Bids</h3>
                   <div className="grid grid-cols-1 gap-4">
                     {rfqList.map((rfq) => (
-                      <div key={rfq.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                      <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                           <div>
-                            <span className="text-xs bg-slate-800 text-indigo-400 px-2 py-0.5 rounded font-mono font-semibold">
+                            <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
                               {rfq.origin_pin} → {rfq.dest_pin}
                             </span>
-                            <h4 className="text-sm font-bold text-white mt-1">{rfq.cargo_description}</h4>
+                            <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
                           </div>
 
                           <div className="text-right text-xs">
-                            <span className="text-slate-400">Target Budget: </span>
-                            <span className="font-bold text-emerald-400">{formatINR(rfq.target_price)}</span>
-                            <div className="text-[11px] text-slate-400 mt-0.5">
+                            <span className="text-slate-500">Target Budget: </span>
+                            <span className="font-bold text-emerald-700">{formatINR(rfq.target_price)}</span>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
                               {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
                             </div>
                           </div>
                         </div>
 
-                        {/* Incoming Bids */}
                         <div>
-                          <span className="text-xs font-bold text-slate-400 block mb-2">
+                          <span className="text-xs font-bold text-slate-600 block mb-2">
                             Received Bids ({rfq.bids?.length || 0})
                           </span>
-                          {(!rfq.bids || rfq.bids.length === 0) ? (
-                            <p className="text-xs text-slate-500 italic">No carrier bids received yet. Load is actively broadcasted.</p>
+                          {!rfq.bids || rfq.bids.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic">No bids placed yet. Broadcasting actively to fleet operators.</p>
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {rfq.bids.map((bid, bIdx) => (
-                                <div key={bIdx} className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs space-y-1">
+                                <div key={bIdx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1">
                                   <div className="flex items-center justify-between">
-                                    <span className="font-bold text-white">{bid.vendor_name}</span>
-                                    <span className="font-extrabold text-emerald-400">{formatINR(bid.bid_amount)}</span>
+                                    <span className="font-bold text-slate-900">{bid.vendor_name}</span>
+                                    <span className="font-black text-emerald-700">{formatINR(bid.bid_amount)}</span>
                                   </div>
-                                  <p className="text-slate-400 text-[11px]">
-                                    Transit SLA: <strong className="text-slate-200">{bid.transit_days} Days</strong>
+                                  <p className="text-slate-600 text-[11px]">
+                                    Transit SLA: <strong className="text-slate-800">{bid.transit_days} Days</strong>
                                   </p>
-                                  <p className="text-slate-400 italic text-[11px]">"{bid.notes}"</p>
+                                  <p className="text-slate-500 italic text-[11px]">"{bid.notes}"</p>
                                 </div>
                               ))}
                             </div>
@@ -1635,17 +1595,17 @@ export default function LogiComparePro() {
         {/* ============================================================== */}
         {activePortal === "vendor" && (
           <div className="space-y-6">
-            {/* SUB-TAB A: INCOMING ORDERS & STATUS UPDATER */}
+            {/* SUB-TAB A: INCOMING ORDERS & DISPATCH */}
             {vendorSubTab === "orders" && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-lg font-bold text-white">Assigned Consignments & Linehaul Status Dispatch</h2>
-                    <p className="text-xs text-slate-400">
-                      Operating as Carrier: <strong className="text-emerald-400">{currentUser.company_name}</strong>
+                    <h2 className="text-lg font-bold text-slate-900">Assigned Consignments & Linehaul Status Dispatch</h2>
+                    <p className="text-xs text-slate-500">
+                      Operating as Carrier: <strong className="text-emerald-700">{currentUser.company_name}</strong>
                     </p>
                   </div>
-                  <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-mono">
+                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full font-mono font-bold">
                     Hub Active
                   </span>
                 </div>
@@ -1655,41 +1615,41 @@ export default function LogiComparePro() {
                     const rowForm = statusUpdateMap[booking.id] || { status: "", location: "", remarks: "" };
 
                     return (
-                      <div key={booking.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                      <div key={booking.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                           <div className="flex items-center space-x-3">
-                            <span className="font-mono text-base font-bold text-indigo-400">{booking.awb_number}</span>
-                            <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded capitalize">
+                            <span className="font-mono text-base font-bold text-indigo-700">{booking.awb_number}</span>
+                            <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded capitalize font-medium">
                               {booking.mode}
                             </span>
-                            <span className="text-xs font-mono text-slate-400">
+                            <span className="text-xs font-mono text-slate-500 font-semibold">
                               {booking.origin_pin} → {booking.dest_pin}
                             </span>
                           </div>
 
                           <div className="flex items-center space-x-3 text-xs">
-                            <span className="text-slate-400">Current Status:</span>
-                            <span className="font-bold text-white bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                            <span className="text-slate-500">Current Status:</span>
+                            <span className="font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                               {booking.status}
                             </span>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-700">
                           <div>
-                            <span className="text-slate-400 block mb-0.5">Shipper (Pickup Address):</span>
-                            <p className="font-semibold text-white">{booking.shipper_name}</p>
-                            <p className="text-slate-400">{booking.pickup_address}</p>
+                            <span className="text-slate-500 block mb-0.5">Shipper (Pickup Address):</span>
+                            <p className="font-bold text-slate-900">{booking.shipper_name}</p>
+                            <p className="text-slate-600">{booking.pickup_address}</p>
                           </div>
                           <div>
-                            <span className="text-slate-400 block mb-0.5">Consignee (Delivery Address):</span>
-                            <p className="font-semibold text-white">{booking.consignee_name} ({booking.consignee_phone})</p>
-                            <p className="text-slate-400">{booking.delivery_address}</p>
+                            <span className="text-slate-500 block mb-0.5">Consignee (Delivery Address):</span>
+                            <p className="font-bold text-slate-900">{booking.consignee_name} ({booking.consignee_phone})</p>
+                            <p className="text-slate-600">{booking.delivery_address}</p>
                           </div>
                         </div>
 
-                        {/* Interactive Status Update Controls */}
-                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col md:flex-row items-center gap-2">
+                        {/* Interactive Status Dispatch Form */}
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
                           <select
                             value={rowForm.status}
                             onChange={(e) =>
@@ -1698,7 +1658,7 @@ export default function LogiComparePro() {
                                 [booking.id]: { ...rowForm, status: e.target.value }
                               })
                             }
-                            className="w-full md:w-44 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                            className="w-full md:w-44 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
                           >
                             <option value="">Update Status...</option>
                             <option value="Picked Up">Picked Up</option>
@@ -1717,7 +1677,7 @@ export default function LogiComparePro() {
                                 [booking.id]: { ...rowForm, location: e.target.value }
                               })
                             }
-                            className="w-full md:flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                            className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
                           />
 
                           <input
@@ -1730,14 +1690,14 @@ export default function LogiComparePro() {
                                 [booking.id]: { ...rowForm, remarks: e.target.value }
                               })
                             }
-                            className="w-full md:flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                            className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
                           />
 
                           <button
                             onClick={() => handleUpdateShipmentStatus(booking.id)}
-                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-4 py-1.5 rounded-lg transition"
+                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-lg transition shadow-xs"
                           >
-                            Push Update
+                            Dispatch Update
                           </button>
                         </div>
                       </div>
@@ -1747,26 +1707,26 @@ export default function LogiComparePro() {
               </div>
             )}
 
-            {/* SUB-TAB B: RATE CARD MANAGER */}
+            {/* SUB-TAB B: RATE CARD MASTER */}
             {vendorSubTab === "rates" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-bold text-white">Commercial Rate Card Master</h2>
-                    <p className="text-xs text-slate-400">Configure base tariffs, per kg rates, fuel indexes, and ODA surcharges</p>
+                    <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
+                    <p className="text-xs text-slate-500">Configure base rates, per kg rates, fuel indexes, and ODA surcharges</p>
                   </div>
                   <button
                     onClick={() => setShowAddRateCard(true)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
                   >
                     <PlusIcon className="w-3.5 h-3.5" />
                     <span>Publish New Rate Card</span>
                   </button>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[11px] border-b border-slate-800">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                  <table className="w-full text-left text-xs text-slate-700">
+                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
                       <tr>
                         <th className="py-3 px-4">Origin / Dest</th>
                         <th className="py-3 px-4">Mode</th>
@@ -1779,21 +1739,21 @@ export default function LogiComparePro() {
                         <th className="py-3 px-4">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-100 font-mono">
                       {rateCards.map((rc) => (
-                        <tr key={rc.id} className="hover:bg-slate-800/40 font-mono">
-                          <td className="py-3 px-4 text-white font-bold">
+                        <tr key={rc.id} className="hover:bg-slate-50/70">
+                          <td className="py-3 px-4 text-slate-900 font-bold">
                             {rc.origin_prefix} → {rc.dest_prefix}
                           </td>
-                          <td className="py-3 px-4 uppercase text-slate-300 font-sans">{rc.mode}</td>
+                          <td className="py-3 px-4 uppercase text-slate-700 font-sans font-semibold">{rc.mode}</td>
                           <td className="py-3 px-4">{rc.min_weight_kg} kg</td>
                           <td className="py-3 px-4">{formatINR(rc.base_rate)}</td>
                           <td className="py-3 px-4">{formatINR(rc.per_kg_rate)}/kg</td>
                           <td className="py-3 px-4">{rc.fuel_surcharge_pct}%</td>
                           <td className="py-3 px-4">{formatINR(rc.docket_charge)}</td>
-                          <td className="py-3 px-4 text-slate-200 font-sans">{rc.sla_days} Days</td>
+                          <td className="py-3 px-4 text-slate-800 font-sans">{rc.sla_days} Days</td>
                           <td className="py-3 px-4">
-                            <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-sans">
+                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-sans font-bold">
                               Active
                             </span>
                           </td>
@@ -1809,8 +1769,8 @@ export default function LogiComparePro() {
             {vendorSubTab === "bids" && (
               <div className="space-y-4">
                 <div>
-                  <h2 className="text-lg font-bold text-white">Live Heavy Cargo RFQ Exchange</h2>
-                  <p className="text-xs text-slate-400">Bid on full truck load and project freight requirements posted by shippers</p>
+                  <h2 className="text-lg font-bold text-slate-900">Live Heavy Cargo RFQ Exchange</h2>
+                  <p className="text-xs text-slate-500">Bid on full truck load and project freight requirements posted by shippers</p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
@@ -1818,33 +1778,33 @@ export default function LogiComparePro() {
                     const form = bidFormMap[rfq.id] || { amount: 0, days: 0, notes: "" };
 
                     return (
-                      <div key={rfq.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                      <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                           <div>
-                            <span className="text-xs bg-slate-800 text-indigo-400 px-2 py-0.5 rounded font-mono font-semibold">
+                            <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
                               PIN {rfq.origin_pin} → {rfq.dest_pin}
                             </span>
-                            <h4 className="text-base font-bold text-white mt-1">{rfq.cargo_description}</h4>
-                            <p className="text-xs text-slate-400">
-                              Posted by: <strong className="text-slate-200">{rfq.shipper_name}</strong>
+                            <h4 className="text-base font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
+                            <p className="text-xs text-slate-500">
+                              Posted by: <strong className="text-slate-800">{rfq.shipper_name}</strong>
                             </p>
                           </div>
 
                           <div className="text-right">
-                            <span className="text-xs text-slate-400 block">Ceiling Target Price</span>
-                            <span className="text-base font-extrabold text-emerald-400">{formatINR(rfq.target_price)}</span>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
+                            <span className="text-xs text-slate-500 block">Ceiling Target Price</span>
+                            <span className="text-base font-black text-emerald-700">{formatINR(rfq.target_price)}</span>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
                               {rfq.truck_type} • {(rfq.total_weight_kg / 1000).toFixed(1)} MT
                             </p>
                           </div>
                         </div>
 
-                        {/* Bid Submission Box */}
-                        <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3">
-                          <span className="text-xs font-bold text-slate-300 block">Submit Competitive Carrier Quote</span>
+                        {/* Bid Placement Box */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                          <span className="text-xs font-bold text-slate-700 block">Submit Competitive Carrier Quote</span>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div>
-                              <label className="block text-[11px] text-slate-400 mb-1">Quoted Price (₹)</label>
+                              <label className="block text-[11px] text-slate-600 mb-1">Quoted Price (₹)</label>
                               <input
                                 type="number"
                                 placeholder="e.g. 72000"
@@ -1855,11 +1815,11 @@ export default function LogiComparePro() {
                                     [rfq.id]: { ...form, amount: Number(e.target.value) }
                                   })
                                 }
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] text-slate-400 mb-1">Transit SLA (Days)</label>
+                              <label className="block text-[11px] text-slate-600 mb-1">Transit SLA (Days)</label>
                               <input
                                 type="number"
                                 placeholder="e.g. 4"
@@ -1870,11 +1830,11 @@ export default function LogiComparePro() {
                                     [rfq.id]: { ...form, days: Number(e.target.value) }
                                   })
                                 }
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] text-slate-400 mb-1">Fleet / Tracking Notes</label>
+                              <label className="block text-[11px] text-slate-600 mb-1">Fleet / Driver Notes</label>
                               <input
                                 type="text"
                                 placeholder="e.g. Dedicated 32ft MXL vehicle ready"
@@ -1885,7 +1845,7 @@ export default function LogiComparePro() {
                                     [rfq.id]: { ...form, notes: e.target.value }
                                   })
                                 }
-                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
                               />
                             </div>
                           </div>
@@ -1893,7 +1853,7 @@ export default function LogiComparePro() {
                           <div className="flex justify-end">
                             <button
                               onClick={() => handleSubmitVendorBid(rfq.id)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-4 py-2 rounded-lg transition"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-xs"
                             >
                               Place Official Bid
                             </button>
@@ -1910,100 +1870,98 @@ export default function LogiComparePro() {
       </main>
 
       {/* ============================================================== */}
-      {/* MODAL 1: BOOKING CHECKOUT MODAL */}
+      {/* MODAL 1: LIGHT CHECKOUT & AWB GENERATOR */}
       {/* ============================================================== */}
       {selectedQuoteForBooking && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-2xl my-8">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-xl my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-white">Commercial Consignment Booking</h3>
-                <p className="text-xs text-slate-400">
-                  Carrier: <strong className="text-indigo-400">{selectedQuoteForBooking.vendor.name}</strong> • Mode:{" "}
-                  <span className="uppercase">{selectedQuoteForBooking.rateCard.mode}</span>
+                <h3 className="text-lg font-bold text-slate-900">Commercial Consignment Booking</h3>
+                <p className="text-xs text-slate-500">
+                  Carrier: <strong className="text-indigo-700">{selectedQuoteForBooking.vendor.name}</strong> • Mode:{" "}
+                  <span className="uppercase font-semibold">{selectedQuoteForBooking.rateCard.mode}</span>
                 </p>
               </div>
               <button
                 onClick={() => setSelectedQuoteForBooking(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-700 p-1"
               >
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Price Preview Header */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
               <div>
-                <span className="text-xs text-slate-400 block">Total Freight Charges (with 18% GST)</span>
-                <span className="text-2xl font-black text-emerald-400">
+                <span className="text-xs text-slate-500 block">Total Freight Charges (with 18% GST)</span>
+                <span className="text-2xl font-black text-emerald-700">
                   {formatINR(selectedQuoteForBooking.breakdown.total)}
                 </span>
               </div>
-              <div className="text-right text-xs text-slate-400 font-mono">
-                <p>Billable: {selectedQuoteForBooking.billableWeight} kg</p>
-                <p>SLA: {selectedQuoteForBooking.rateCard.sla_days} Days</p>
+              <div className="text-right text-xs text-slate-600 font-mono">
+                <p>Billable: <strong>{selectedQuoteForBooking.billableWeight} kg</strong></p>
+                <p>Transit: <strong>{selectedQuoteForBooking.rateCard.sla_days} Days SLA</strong></p>
               </div>
             </div>
 
-            {/* Address & GSTIN Inputs */}
             <div className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Pickup Address & Warehouse Details</label>
+                <label className="block text-slate-700 font-semibold mb-1">Pickup Address & Warehouse Details</label>
                 <textarea
                   rows={2}
                   value={pickupAddress}
                   onChange={(e) => setPickupAddress(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Consignee Business Name</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Consignee Business Name</label>
                   <input
                     type="text"
                     value={consigneeName}
                     onChange={(e) => setConsigneeName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Consignee Phone</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Consignee Phone</label>
                   <input
                     type="text"
                     value={consigneePhone}
                     onChange={(e) => setConsigneePhone(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Consignee GSTIN</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Consignee GSTIN</label>
                   <input
                     type="text"
                     maxLength={15}
                     value={consigneeGstin}
                     onChange={(e) => setConsigneeGstin(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Delivery Destination Address</label>
+                <label className="block text-slate-700 font-semibold mb-1">Delivery Destination Address</label>
                 <textarea
                   rows={2}
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 border-t border-slate-800 pt-4">
+            <div className="flex items-center justify-end space-x-3 border-t border-slate-100 pt-4">
               <button
                 type="button"
                 onClick={() => setSelectedQuoteForBooking(null)}
-                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
@@ -2011,7 +1969,7 @@ export default function LogiComparePro() {
                 type="button"
                 disabled={isSubmittingBooking}
                 onClick={handleConfirmBooking}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 shadow-xs"
               >
                 <span>{isSubmittingBooking ? "Manifesting AWB..." : "Confirm & Generate AWB"}</span>
                 <CheckCircleIcon className="w-4 h-4" />
@@ -2025,15 +1983,14 @@ export default function LogiComparePro() {
       {/* MODAL 2: PRINTABLE COMMERCIAL AWB SHIPPING LABEL */}
       {/* ============================================================== */}
       {printableBooking && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white text-slate-950 rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-4 print:p-0 print:m-0 print:border-none print:shadow-none">
-            {/* Action Bar (hidden on print) */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-3 print:hidden">
               <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Commercial Airway Bill (AWB)</span>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => window.print()}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
                 >
                   <PrinterIcon className="w-4 h-4" />
                   <span>Print Label (A4 / 4x6)</span>
@@ -2047,9 +2004,8 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* PHYSICAL SHIPPING LABEL CONTAINER (Standard Indian B2B Spec) */}
+            {/* Indian B2B Shipping Label Spec */}
             <div className="border-4 border-black p-4 space-y-3 font-sans text-black">
-              {/* Header: Carrier Name & Routing Hub */}
               <div className="flex items-center justify-between border-b-2 border-black pb-2">
                 <div>
                   <h2 className="text-xl font-black uppercase tracking-tight">{printableBooking.vendors?.name || "LOGICOMPARE B2B"}</h2>
@@ -2063,7 +2019,7 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* Barcode Simulation (CSS Bars) */}
+              {/* Barcode Mock */}
               <div className="text-center py-2 border-b-2 border-black space-y-1">
                 <div className="flex justify-center items-center space-x-1 h-14 overflow-hidden">
                   {[2, 1, 3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 3, 4, 1, 2, 3, 2, 4, 1].map((w, i) => (
@@ -2073,7 +2029,7 @@ export default function LogiComparePro() {
                 <span className="text-lg font-mono font-black tracking-widest block">{printableBooking.awb_number}</span>
               </div>
 
-              {/* Shipper & Consignee Columns */}
+              {/* Shipper & Consignee */}
               <div className="grid grid-cols-2 gap-3 border-b-2 border-black pb-2 text-xs">
                 <div className="border-r border-black pr-2">
                   <span className="text-[9px] font-black uppercase block">SHIPPER (FROM):</span>
@@ -2093,7 +2049,7 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* Cargo Details Grid */}
+              {/* Weight Grid */}
               <div className="grid grid-cols-4 gap-2 text-center border-b-2 border-black pb-2 text-xs">
                 <div>
                   <span className="text-[9px] font-bold uppercase block">BOXES</span>
@@ -2113,11 +2069,11 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* Footer Disclaimers & QR Mock */}
+              {/* Footer */}
               <div className="flex items-center justify-between pt-1 text-[9px] leading-tight text-slate-700">
                 <div className="space-y-0.5">
-                  <p className="font-bold">HANDLE WITH CARE • FRAGILE ELECTRONICS / B2B FREIGHT</p>
-                  <p>Carrier liability subject to Indian Carriage of Goods by Road Act, 2007.</p>
+                  <p className="font-bold">HANDLE WITH CARE • B2B COMMERCIAL FREIGHT</p>
+                  <p>Carrier liability subject to Carriage of Goods by Road Act, 2007.</p>
                   <p className="font-mono">Created: {new Date(printableBooking.created_at).toLocaleString("en-IN")}</p>
                 </div>
                 <div className="w-12 h-12 border-2 border-black flex items-center justify-center font-mono font-bold text-[8px] text-center">
@@ -2133,44 +2089,44 @@ export default function LogiComparePro() {
       {/* MODAL 3: PUBLISH NEW RATE CARD (VENDOR) */}
       {/* ============================================================== */}
       {showAddRateCard && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl my-8">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Publish New Commercial Rate Tariff</h3>
-              <button onClick={() => setShowAddRateCard(false)} className="text-slate-400 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900">Publish New Commercial Rate Tariff</h3>
+              <button onClick={() => setShowAddRateCard(false)} className="text-slate-400 hover:text-slate-700">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handlePublishRateCard} className="grid grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1">Origin Prefix (e.g. 110 or %)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Origin Prefix (e.g. 110 or %)</label>
                 <input
                   type="text"
                   value={newRateCard.origin_prefix}
                   onChange={(e) => setNewRateCard({ ...newRateCard, origin_prefix: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white font-mono"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900 font-mono"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Dest Prefix (e.g. 400 or %)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Dest Prefix (e.g. 400 or %)</label>
                 <input
                   type="text"
                   value={newRateCard.dest_prefix}
                   onChange={(e) => setNewRateCard({ ...newRateCard, dest_prefix: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white font-mono"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900 font-mono"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Transport Mode</label>
+                <label className="block text-slate-600 mb-1 font-medium">Transport Mode</label>
                 <select
                   value={newRateCard.mode}
                   onChange={(e) => setNewRateCard({ ...newRateCard, mode: e.target.value as any })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                 >
                   <option value="surface">Surface Express</option>
                   <option value="air">Air Cargo</option>
@@ -2179,73 +2135,73 @@ export default function LogiComparePro() {
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Transit SLA (Days)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Transit SLA (Days)</label>
                 <input
                   type="number"
                   value={newRateCard.sla_days}
                   onChange={(e) => setNewRateCard({ ...newRateCard, sla_days: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Base Rate (₹)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Base Rate (₹)</label>
                 <input
                   type="number"
                   value={newRateCard.base_rate}
                   onChange={(e) => setNewRateCard({ ...newRateCard, base_rate: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Rate Per Kg (₹)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Rate Per Kg (₹)</label>
                 <input
                   type="number"
                   step={0.1}
                   value={newRateCard.per_kg_rate}
                   onChange={(e) => setNewRateCard({ ...newRateCard, per_kg_rate: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Fuel Surcharge (%)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Fuel Surcharge (%)</label>
                 <input
                   type="number"
                   step={0.5}
                   value={newRateCard.fuel_surcharge_pct}
                   onChange={(e) => setNewRateCard({ ...newRateCard, fuel_surcharge_pct: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Docket / AWB Charge (₹)</label>
+                <label className="block text-slate-600 mb-1 font-medium">Docket / AWB Charge (₹)</label>
                 <input
                   type="number"
                   value={newRateCard.docket_charge}
                   onChange={(e) => setNewRateCard({ ...newRateCard, docket_charge: Number(e.target.value) })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
-              <div className="col-span-2 flex justify-end space-x-2 pt-2 border-t border-slate-800">
+              <div className="col-span-2 flex justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowAddRateCard(false)}
-                  className="px-3 py-1.5 rounded text-slate-400 hover:text-white"
+                  className="px-3 py-1.5 rounded text-slate-600 hover:text-slate-900"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-1.5 rounded text-xs"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-1.5 rounded text-xs shadow-xs"
                 >
                   Publish Tariff Card
                 </button>
@@ -2259,38 +2215,38 @@ export default function LogiComparePro() {
       {/* MODAL 4: AUTHENTICATION / SIGN IN / SIGN UP */}
       {/* ============================================================== */}
       {showAuthModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900">
                 {authMode === "login" ? "Account Sign In" : "Register Logistics Enterprise"}
               </h3>
-              <button onClick={() => setShowAuthModal(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setShowAuthModal(false)} className="text-slate-400 hover:text-slate-700">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
 
-            {authMsg && <p className="text-xs text-rose-400 bg-rose-950/40 p-2 rounded border border-rose-900">{authMsg}</p>}
+            {authMsg && <p className="text-xs text-rose-700 bg-rose-50 p-2 rounded border border-rose-200">{authMsg}</p>}
 
             <form onSubmit={handleAuthSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1">Business Email</label>
+                <label className="block text-slate-600 mb-1 font-medium">Business Email</label>
                 <input
                   type="email"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Password</label>
+                <label className="block text-slate-600 mb-1 font-medium">Password</label>
                 <input
                   type="password"
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                  className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                   required
                 />
               </div>
@@ -2298,45 +2254,45 @@ export default function LogiComparePro() {
               {authMode === "signup" && (
                 <>
                   <div>
-                    <label className="block text-slate-400 mb-1">Full Name</label>
+                    <label className="block text-slate-600 mb-1 font-medium">Full Name</label>
                     <input
                       type="text"
                       value={authFullName}
                       onChange={(e) => setAuthFullName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1">Company / Enterprise Name</label>
+                    <label className="block text-slate-600 mb-1 font-medium">Company / Enterprise Name</label>
                     <input
                       type="text"
                       value={authCompanyName}
                       onChange={(e) => setAuthCompanyName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1">GSTIN (15 Digits)</label>
+                    <label className="block text-slate-600 mb-1 font-medium">GSTIN (15 Digits)</label>
                     <input
                       type="text"
                       maxLength={15}
                       value={authGstin}
                       onChange={(e) => setAuthGstin(e.target.value)}
                       placeholder="e.g. 07AAACA1234A1Z5"
-                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white font-mono"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900 font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1">Account Role</label>
+                    <label className="block text-slate-600 mb-1 font-medium">Account Role</label>
                     <select
                       value={authRole}
                       onChange={(e) => setAuthRole(e.target.value as any)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-white"
+                      className="w-full bg-white border border-slate-300 rounded p-2 text-slate-900"
                     >
                       <option value="shipper">Shipper (Manufacturer / Retailer / Trader)</option>
                       <option value="vendor">Logistics Vendor / Carrier / Fleet Owner</option>
@@ -2348,19 +2304,19 @@ export default function LogiComparePro() {
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded text-xs transition"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded text-xs transition shadow-xs"
               >
                 {authLoading ? "Processing..." : authMode === "login" ? "Sign In" : "Create Account"}
               </button>
             </form>
 
-            <div className="text-center text-xs text-slate-400 pt-2 border-t border-slate-800">
+            <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-100">
               {authMode === "login" ? (
-                <button onClick={() => setAuthMode("signup")} className="text-indigo-400 hover:underline">
+                <button onClick={() => setAuthMode("signup")} className="text-indigo-600 font-semibold hover:underline">
                   Don't have an enterprise account? Sign up
                 </button>
               ) : (
-                <button onClick={() => setAuthMode("login")} className="text-indigo-400 hover:underline">
+                <button onClick={() => setAuthMode("login")} className="text-indigo-600 font-semibold hover:underline">
                   Already registered? Sign in
                 </button>
               )}
@@ -2372,7 +2328,7 @@ export default function LogiComparePro() {
       {/* ============================================================== */}
       {/* ENTERPRISE FOOTER */}
       {/* ============================================================== */}
-      <footer className="mt-auto border-t border-slate-900 bg-slate-950 px-4 py-4 text-xs text-slate-500">
+      <footer className="mt-auto border-t border-slate-200 bg-white px-4 py-4 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>© 2026 LogiCompare Pro • B2B Freight Logistics Marketplace for India</p>
           <div className="flex items-center space-x-4">
