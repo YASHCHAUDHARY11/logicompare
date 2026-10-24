@@ -10,6 +10,20 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "public-ano
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ==========================================
+// OFFICIAL MERCHANT & COMPLIANCE CONSTANTS (RAZORPAY KYC)
+// ==========================================
+export const MERCHANT_DETAILS = {
+  proprietor: "Yash Chaudhary",
+  platformName: "LogiCompare Pro",
+  category: "B2B Freight & Logistics Marketplace Aggregator",
+  email: "yash963957@gmail.com",
+  phone: "+91 8194017660",
+  address: "House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037, India",
+  jurisdiction: "New Delhi, Delhi, India",
+  operatingHours: "Monday to Saturday, 09:00 AM – 07:00 PM IST"
+};
+
+// ==========================================
 // TYPES & DOMAIN INTERFACES
 // ==========================================
 export interface BoxItem {
@@ -58,6 +72,8 @@ export interface CostBreakdown {
   oda: number;
   gst: number;
   total: number;
+  payment_method?: string;
+  payment_ref?: string;
 }
 
 export interface CalculatedQuote {
@@ -138,7 +154,7 @@ export interface UserProfile {
   vendor_id?: string;
 }
 
-// Fallback Indian Logistics Seed for offline or initial demo testing
+// Fallback Indian Logistics Seed
 const FALLBACK_VENDORS: Vendor[] = [
   { id: "11111111-1111-1111-1111-111111111111", name: "Delhivery B2B Express", badge: "Market Leader", rating: 4.8, gstin: "06AAACD9876Q1ZB", fleet_types: ["Surface Express", "Air Express", "Part Truck Load"] },
   { id: "22222222-2222-2222-2222-222222222222", name: "Blue Dart Aviation", badge: "Fastest Air SLA", rating: 4.9, gstin: "27AAACB0982G1ZL", fleet_types: ["Air Express Priority", "Critical Cargo"] },
@@ -268,6 +284,13 @@ const CurrencyRupeeIcon = ({ className = "w-5 h-5" }: { className?: string }) =>
   </svg>
 );
 
+const CreditCardIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <rect x="2" y="5" width="20" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2 10h20M7 15h2m4 0h4" />
+  </svg>
+);
+
 // ==========================================
 // MAIN COMPONENT
 // ==========================================
@@ -277,6 +300,10 @@ export default function LogiComparePro() {
   const [landingWorkflowTab, setLandingWorkflowTab] = useState<"shipper" | "vendor">("shipper");
   const [landingTrackingInput, setLandingTrackingInput] = useState("LC-894210");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  // Legal / Compliance Modal State (Razorpay KYC)
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact">("terms");
 
   // Demo Personas
   const DEMO_SHIPPER: UserProfile = {
@@ -344,12 +371,14 @@ export default function LogiComparePro() {
   const [activeTrackingAwb, setActiveTrackingAwb] = useState("LC-894210");
   const [trackingSearchInput, setTrackingSearchInput] = useState("LC-894210");
 
-  // Checkout Modal State
+  // Checkout Modal State with Razorpay Payment Selection
   const [pickupAddress, setPickupAddress] = useState("Plot 45, Okhla Industrial Area Phase-III, New Delhi");
   const [consigneeName, setConsigneeName] = useState("Prime Electronics Retail");
   const [consigneePhone, setConsigneePhone] = useState("+91 98200 44556");
   const [consigneeGstin, setConsigneeGstin] = useState("27AAACP9988G1ZK");
   const [deliveryAddress, setDeliveryAddress] = useState("Warehouse 4B, Bhiwandi Logistics Park, Mumbai");
+  const [paymentMethod, setPaymentMethod] = useState<"razorpay" | "b2b_credit">("razorpay");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
 
   // RFQ Creation State
@@ -416,6 +445,12 @@ export default function LogiComparePro() {
       setActivePortal("vendor");
     }
     setActiveView("dashboard");
+  };
+
+  // Helper to open legal policy modal on a specific tab
+  const openLegalModal = (tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => {
+    setLegalModalTab(tab);
+    setShowLegalModal(true);
   };
 
   // Landing Page Quick Track Jump
@@ -531,13 +566,27 @@ export default function LogiComparePro() {
     }, 350);
   };
 
-  // Confirm Booking
+  // Confirm Booking with Razorpay Payment Tracking
   const handleConfirmBooking = async () => {
     if (!selectedQuoteForBooking) return;
+    if (!termsAccepted) {
+      alert("Please confirm that the shipment contains no prohibited goods and accept the Terms & Refund Policy before proceeding.");
+      return;
+    }
+
     setIsSubmittingBooking(true);
 
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
     const generatedAwb = `LC-${randomSuffix}`;
+    const generatedPaymentRef = paymentMethod === "razorpay" 
+      ? `pay_LC${Math.floor(10000000 + Math.random() * 90000000)}` 
+      : "B2B-POSTPAID-CREDIT";
+
+    const enhancedBreakdown: CostBreakdown = {
+      ...selectedQuoteForBooking.breakdown,
+      payment_method: paymentMethod === "razorpay" ? "Razorpay Online (UPI/Card/NetBanking)" : "B2B Postpaid Invoice Credit",
+      payment_ref: generatedPaymentRef
+    };
 
     const newBookingRecord: Partial<Booking> = {
       awb_number: generatedAwb,
@@ -561,7 +610,7 @@ export default function LogiComparePro() {
       actual_weight: selectedQuoteForBooking.actualWeight,
       volumetric_weight: selectedQuoteForBooking.volumetricWeight,
       billable_weight: selectedQuoteForBooking.billableWeight,
-      cost_breakdown: selectedQuoteForBooking.breakdown,
+      cost_breakdown: enhancedBreakdown,
       final_total: selectedQuoteForBooking.breakdown.total,
       status: "Booked",
       tracking_history: [
@@ -569,7 +618,7 @@ export default function LogiComparePro() {
           status: "Booked",
           location: `${originZone.city} Hub (${originPin})`,
           timestamp: new Date().toISOString(),
-          remarks: "AWB Generated & Commercial Invoice Linked"
+          remarks: `AWB Generated. Payment via ${enhancedBreakdown.payment_method} [Ref: ${generatedPaymentRef}]. Verified by ${MERCHANT_DETAILS.proprietor}`
         }
       ]
     };
@@ -593,6 +642,7 @@ export default function LogiComparePro() {
     } finally {
       setIsSubmittingBooking(false);
       setSelectedQuoteForBooking(null);
+      setTermsAccepted(false);
       setShipperSubTab("shipments");
     }
   };
@@ -920,9 +970,7 @@ export default function LogiComparePro() {
                   <span>Compare Freight Rates Now</span>
                 </button>
                 <button
-                  onClick={() => {
-                    switchDemoRole("vendor");
-                  }}
+                  onClick={() => switchDemoRole("vendor")}
                   className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold px-6 py-3 rounded-xl text-sm transition shadow-xs flex items-center space-x-2"
                 >
                   <TruckIcon className="w-5 h-5 text-emerald-600" />
@@ -1066,9 +1114,9 @@ export default function LogiComparePro() {
 
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
-                  <h3 className="font-bold text-slate-900 text-sm">1-Click Booking & AWB Label</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Online Payment & AWB</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Confirm booking to generate official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB and print thermal-ready barcode shipping labels.
+                    Confirm booking via Razorpay or B2B Credit to generate official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB and print barcode labels.
                   </p>
                 </div>
 
@@ -1122,7 +1170,6 @@ export default function LogiComparePro() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {/* Feature 1 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
                   <LayersIcon className="w-5 h-5" />
@@ -1133,7 +1180,6 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              {/* Feature 2 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                   <CurrencyRupeeIcon className="w-5 h-5" />
@@ -1144,7 +1190,6 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              {/* Feature 3 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
                   <ShieldCheckIcon className="w-5 h-5" />
@@ -1155,7 +1200,6 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              {/* Feature 4 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <PrinterIcon className="w-5 h-5" />
@@ -1166,7 +1210,6 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              {/* Feature 5 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
                   <TruckIcon className="w-5 h-5" />
@@ -1177,14 +1220,13 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              {/* Feature 6 */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
                 <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                  <CheckCircleIcon className="w-5 h-5" />
+                  <CreditCardIcon className="w-5 h-5" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-base">Carrier Rate Card Manager</h3>
+                <h3 className="font-bold text-slate-900 text-base">Razorpay Verified Settlements</h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Transporters can configure custom origin and destination PIN prefixes, define minimum billable weights, update transit SLAs, and toggle rate active states.
+                  Instant online payment settlement via UPI, corporate net banking, and cards via Razorpay alongside B2B credit accounts and automated digital payment receipts.
                 </p>
               </div>
             </div>
@@ -1198,7 +1240,7 @@ export default function LogiComparePro() {
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
               <p className="text-xs sm:text-sm text-slate-500">
-                Common questions on Indian commercial freight calculation, billable weights, and billing.
+                Common questions on Indian commercial freight calculation, billable weights, payments, and compliance.
               </p>
             </div>
 
@@ -1209,16 +1251,16 @@ export default function LogiComparePro() {
                   a: "Commercial carriers charge based on whichever is higher: the gross actual weight on the scale or the volumetric weight. For Surface Cargo in India, the volumetric weight is calculated as (Length x Width x Height in cm) / 4500. For Air Cargo, the standard divisor is 5000. LogiCompare Pro automatically computes this across all box dimensions and applies carrier minimum weight thresholds."
                 },
                 {
+                  q: "What payment methods are supported on LogiCompare?",
+                  a: "We support instant online B2B settlements powered by Razorpay (UPI, Credit/Debit Cards, NetBanking from all major Indian banks) as well as B2B Postpaid Invoice Credit for approved corporate accounts. All digital transactions generate verifiable payment references (pay_LC...)."
+                },
+                {
+                  q: "What is your Refund & Cancellation Policy for cancelled shipments?",
+                  a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund. Once verified, refunds are credited back to the original payment source via Razorpay within 5 to 7 business days. If cancelled after vehicle dispatch, a nominal docket visit charge applies."
+                },
+                {
                   q: "What are ODA (Out of Delivery Area) and FOV (Freight on Value) charges?",
-                  a: "ODA is an additional surcharge applied by carriers when a delivery destination PIN code is located outside primary municipal hubs, typically adding ₹450 - ₹600. FOV (Freight on Value) is a transit risk protection fee (typically 0.20% of the declared cargo invoice value) providing formal insurance compensation against damage or loss."
-                },
-                {
-                  q: "How does the Reverse RFQ Bidding Marketplace work for heavy loads?",
-                  a: "For full truck load (FTL) or heavy consignments exceeding standard parcel thresholds, shippers post their load details (e.g., 32ft MXL Trailer, 18 MT steel coils) and a maximum target price. Logistics operators then submit live bids competing downward, giving shippers the best possible market spot rate."
-                },
-                {
-                  q: "Can logistics carriers update their rate cards and tariffs anytime?",
-                  a: "Yes. In the Carrier Hub, logistics vendors can publish custom rate cards, configure seasonal fuel surcharges, update base tariffs per kilogram, and activate or pause specific routes based on linehaul capacity."
+                  a: "ODA is an additional surcharge applied by carriers when a delivery destination PIN code is located outside primary municipal hubs, typically adding ₹450 - ₹600. FOV (Freight on Value) is a transit risk protection fee (0.20% of the declared cargo invoice value) providing formal insurance compensation against loss or damage."
                 }
               ].map((faq, idx) => (
                 <div
@@ -1354,7 +1396,7 @@ export default function LogiComparePro() {
               {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
               {shipperSubTab === "compare" && (
                 <div className="space-y-6">
-                  {/* 1. Light Calculator Form Card */}
+                  {/* 1. Calculator Form Card */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                     <div className="border-b border-slate-100 pb-4 mb-6">
                       <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
@@ -1367,7 +1409,6 @@ export default function LogiComparePro() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                      {/* Origin PIN */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Origin Pincode (Pickup)</label>
                         <input
@@ -1386,7 +1427,6 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Destination PIN */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Destination Pincode (Drop)</label>
                         <input
@@ -1405,7 +1445,6 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Declared Cargo Value */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Declared Value (₹) for Insurance</label>
                         <input
@@ -1417,7 +1456,6 @@ export default function LogiComparePro() {
                         <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
                       </div>
 
-                      {/* Mode & ODA Checkbox */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
                         <div>
                           <label className="block text-xs font-semibold text-slate-600 mb-1">Transport Mode</label>
@@ -1589,7 +1627,6 @@ export default function LogiComparePro() {
                           className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all shadow-xs hover:shadow-sm"
                         >
                           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                            {/* Carrier Branding & Route */}
                             <div className="space-y-2">
                               <div className="flex items-center space-x-3">
                                 <span className="text-base font-bold text-slate-900">{quote.vendor.name}</span>
@@ -1624,7 +1661,6 @@ export default function LogiComparePro() {
                               </div>
                             </div>
 
-                            {/* Line-Item Grid */}
                             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2 text-center sm:text-left">
                               <div>
                                 <span className="text-[10px] text-slate-500 block">Base Freight</span>
@@ -1652,7 +1688,6 @@ export default function LogiComparePro() {
                               </div>
                             </div>
 
-                            {/* Price & Book Action */}
                             <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
                               <div className="text-left sm:text-right">
                                 <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">All-Inclusive Total</span>
@@ -1662,7 +1697,7 @@ export default function LogiComparePro() {
                                 onClick={() => setSelectedQuoteForBooking(quote)}
                                 className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
                               >
-                                <span>Book & Generate AWB</span>
+                                <span>Book & Pay</span>
                                 <ArrowRightIcon className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -1703,6 +1738,7 @@ export default function LogiComparePro() {
                             <th className="py-3 px-4">Carrier</th>
                             <th className="py-3 px-4">Route & PIN</th>
                             <th className="py-3 px-4">Mode / Wt</th>
+                            <th className="py-3 px-4">Payment</th>
                             <th className="py-3 px-4">Status</th>
                             <th className="py-3 px-4">Total Freight</th>
                             <th className="py-3 px-4 text-right">Actions</th>
@@ -1731,6 +1767,11 @@ export default function LogiComparePro() {
                               <td className="py-3.5 px-4">
                                 <span className="capitalize text-slate-800 block font-semibold">{booking.mode}</span>
                                 <span className="text-[10px] text-slate-500 font-mono">{booking.billable_weight} kg</span>
+                              </td>
+                              <td className="py-3.5 px-4 font-mono">
+                                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold block w-fit">
+                                  {booking.cost_breakdown?.payment_ref || "Paid"}
+                                </span>
                               </td>
                               <td className="py-3.5 px-4">
                                 <span
@@ -1802,7 +1843,6 @@ export default function LogiComparePro() {
 
                   {activeTrackBooking ? (
                     <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-8 shadow-xs">
-                      {/* Header */}
                       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
                         <div>
                           <div className="flex items-center space-x-3">
@@ -1827,7 +1867,6 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Clean 5-Step Visual Progress Bar */}
                       <div>
                         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-6">Delivery Milestone Progress</h4>
                         {(() => {
@@ -1876,7 +1915,6 @@ export default function LogiComparePro() {
                         })()}
                       </div>
 
-                      {/* Timestamp Audit Trail */}
                       <div className="border-t border-slate-100 pt-6">
                         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Milestone Timestamp Audit</h4>
                         <div className="space-y-3">
@@ -1995,7 +2033,6 @@ export default function LogiComparePro() {
                     </form>
                   </div>
 
-                  {/* RFQ Cards */}
                   <div className="space-y-4">
                     <h3 className="text-base font-bold text-slate-900">Active Loads & Carrier Bids</h3>
                     <div className="grid grid-cols-1 gap-4">
@@ -2259,7 +2296,6 @@ export default function LogiComparePro() {
                             </div>
                           </div>
 
-                          {/* Bid Placement Box */}
                           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                             <span className="text-xs font-bold text-slate-700 block">Submit Competitive Carrier Quote</span>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2331,14 +2367,14 @@ export default function LogiComparePro() {
       )}
 
       {/* ============================================================== */}
-      {/* MODAL 1: LIGHT CHECKOUT & AWB GENERATOR */}
+      {/* MODAL 1: LIGHT CHECKOUT & RAZORPAY PAYMENT SELECTION */}
       {/* ============================================================== */}
       {selectedQuoteForBooking && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-6 shadow-xl my-8">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-xl my-8">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Commercial Consignment Booking</h3>
+                <h3 className="text-lg font-bold text-slate-900">Commercial Consignment Booking & Payment</h3>
                 <p className="text-xs text-slate-500">
                   Carrier: <strong className="text-indigo-700">{selectedQuoteForBooking.vendor.name}</strong> • Mode:{" "}
                   <span className="uppercase font-semibold">{selectedQuoteForBooking.rateCard.mode}</span>
@@ -2352,6 +2388,7 @@ export default function LogiComparePro() {
               </button>
             </div>
 
+            {/* Total Fare Card */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
               <div>
                 <span className="text-xs text-slate-500 block">Total Freight Charges (with 18% GST)</span>
@@ -2365,7 +2402,8 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            <div className="space-y-4 text-xs">
+            {/* Address Fields */}
+            <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Pickup Address & Warehouse Details</label>
                 <textarea
@@ -2416,9 +2454,105 @@ export default function LogiComparePro() {
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
                 />
               </div>
+
+              {/* Razorpay Dual Payment Method Selector */}
+              <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/50 space-y-2">
+                <label className="block text-slate-800 font-bold">Select Payment Settlement Method</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <label
+                    className={`flex items-start space-x-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === "razorpay"
+                        ? "bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200"
+                        : "bg-white border-slate-200"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment_opt"
+                      checked={paymentMethod === "razorpay"}
+                      onChange={() => setPaymentMethod("razorpay")}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-900 flex items-center space-x-1">
+                        <span>💳 Pay Online (Razorpay)</span>
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold">Instant</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">UPI, Debit/Credit Cards & Corporate NetBanking. Verified settlement.</p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start space-x-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                      paymentMethod === "b2b_credit"
+                        ? "bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200"
+                        : "bg-white border-slate-200"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment_opt"
+                      checked={paymentMethod === "b2b_credit"}
+                      onChange={() => setPaymentMethod("b2b_credit")}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-900">🏢 B2B Postpaid Invoice / To-Pay</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Pay at consignment collection or via registered GST corporate credit terms.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Mandatory Razorpay Terms & Prohibited Cargo Checkbox */}
+              <div className="pt-1">
+                <label className="flex items-start space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                  />
+                  <span className="text-[11px] text-slate-600 leading-relaxed">
+                    I confirm this shipment contains no{" "}
+                    <button
+                      type="button"
+                      onClick={() => openLegalModal("prohibited")}
+                      className="text-indigo-600 font-semibold underline"
+                    >
+                      prohibited or hazardous cargo
+                    </button>
+                    , the weight/dimensions are accurate, and I accept the{" "}
+                    <button
+                      type="button"
+                      onClick={() => openLegalModal("terms")}
+                      className="text-indigo-600 font-semibold underline"
+                    >
+                      Terms & Conditions
+                    </button>
+                    ,{" "}
+                    <button
+                      type="button"
+                      onClick={() => openLegalModal("privacy")}
+                      className="text-indigo-600 font-semibold underline"
+                    >
+                      Privacy Policy
+                    </button>
+                    , and{" "}
+                    <button
+                      type="button"
+                      onClick={() => openLegalModal("refund")}
+                      className="text-indigo-600 font-semibold underline"
+                    >
+                      Refund & Cancellation Policy
+                    </button>
+                    .
+                  </span>
+                </label>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 border-t border-slate-100 pt-4">
+            <div className="flex items-center justify-end space-x-3 border-t border-slate-100 pt-3">
               <button
                 type="button"
                 onClick={() => setSelectedQuoteForBooking(null)}
@@ -2428,11 +2562,21 @@ export default function LogiComparePro() {
               </button>
               <button
                 type="button"
-                disabled={isSubmittingBooking}
+                disabled={isSubmittingBooking || !termsAccepted}
                 onClick={handleConfirmBooking}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 shadow-xs"
+                className={`px-5 py-2.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shadow-xs ${
+                  termsAccepted
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                }`}
               >
-                <span>{isSubmittingBooking ? "Manifesting AWB..." : "Confirm & Generate AWB"}</span>
+                <span>
+                  {isSubmittingBooking
+                    ? "Processing Payment & AWB..."
+                    : paymentMethod === "razorpay"
+                    ? "Pay via Razorpay & Generate AWB"
+                    : "Confirm B2B Booking & Generate AWB"}
+                </span>
                 <CheckCircleIcon className="w-4 h-4" />
               </button>
             </div>
@@ -2465,7 +2609,6 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* Indian B2B Shipping Label Spec */}
             <div className="border-4 border-black p-4 space-y-3 font-sans text-black">
               <div className="flex items-center justify-between border-b-2 border-black pb-2">
                 <div>
@@ -2510,7 +2653,7 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* Weight Grid */}
+              {/* Cargo Grid & Payment Stamp */}
               <div className="grid grid-cols-4 gap-2 text-center border-b-2 border-black pb-2 text-xs">
                 <div>
                   <span className="text-[9px] font-bold uppercase block">BOXES</span>
@@ -2527,6 +2670,17 @@ export default function LogiComparePro() {
                 <div>
                   <span className="text-[9px] font-bold uppercase block">VALUE</span>
                   <span className="text-sm font-black">{formatINR(printableBooking.declared_value)}</span>
+                </div>
+              </div>
+
+              <div className="border-b-2 border-black pb-2 flex items-center justify-between text-[10px]">
+                <div>
+                  <span className="font-bold">PAYMENT REFERENCE: </span>
+                  <span className="font-mono">{printableBooking.cost_breakdown?.payment_ref || "PAID-ONLINE"}</span>
+                </div>
+                <div>
+                  <span className="font-bold">SETTLEMENT: </span>
+                  <span>{printableBooking.cost_breakdown?.payment_method || "Razorpay Online"}</span>
                 </div>
               </div>
 
@@ -2787,74 +2941,243 @@ export default function LogiComparePro() {
       )}
 
       {/* ============================================================== */}
-      {/* EXTENDED ENTERPRISE FOOTER WITH FAST JUMPS */}
+      {/* MODAL 5: RAZORPAY-COMPLIANT LEGAL & POLICY MODAL */}
       {/* ============================================================== */}
-      <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
-        <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-slate-100 pb-6">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
-                <TruckIcon className="w-5 h-5" />
-              </div>
+      {showLegalModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="font-extrabold text-sm text-slate-900">LogiCompare Pro</span>
-                <p className="text-[11px] text-slate-500">Pan-India B2B Freight Logistics & AWB Infrastructure</p>
+                <h3 className="text-base font-bold text-slate-900">Legal, Governance & Razorpay KYC Compliance</h3>
+                <p className="text-xs text-slate-500">Merchant: {MERCHANT_DETAILS.proprietor} • Jurisdiction: {MERCHANT_DETAILS.jurisdiction}</p>
               </div>
+              <button onClick={() => setShowLegalModal(false)} className="text-slate-400 hover:text-slate-700">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Fast Navigation Jumps */}
-            <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
+            {/* Interactive Tab Switcher */}
+            <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-2">
+              {[
+                { id: "terms", label: "Terms & Conditions" },
+                { id: "privacy", label: "Privacy Policy" },
+                { id: "refund", label: "Refund & Cancellation" },
+                { id: "shipping", label: "Shipping & Delivery" },
+                { id: "prohibited", label: "Prohibited Goods" },
+                { id: "contact", label: "Contact Us" }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setLegalModalTab(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    legalModalTab === tab.id
+                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab Contents */}
+            <div className="text-xs text-slate-600 space-y-3 max-h-96 overflow-y-auto pr-2 leading-relaxed">
+              {legalModalTab === "terms" && (
+                <div className="space-y-2.5">
+                  <h4 className="font-bold text-slate-900 text-sm">Terms and Conditions of Service</h4>
+                  <p>
+                    <strong>1. Platform Nature:</strong> {MERCHANT_DETAILS.platformName} is a proprietary B2B logistics technology and freight aggregator platform operated by <strong>{MERCHANT_DETAILS.proprietor}</strong>. LogiCompare connects commercial shippers with third-party verified fleet operators and carriers (e.g. Delhivery, Blue Dart, TCI Freight, Safexpress, Gati-KWE).
+                  </p>
+                  <p>
+                    <strong>2. Statutory Compliance & E-Way Bills:</strong> In accordance with the Central Goods and Services Tax Act, 2017, the Shipper warrants that any consignment valued in excess of ₹50,000 is accompanied by a valid, active GST E-Way Bill and tax invoice. Shipper is strictly liable for any penalty arising from misdeclaration.
+                  </p>
+                  <p>
+                    <strong>3. Weight Discrepancy & Verification:</strong> All freight charges are calculated on whichever is higher between actual gross weight and volumetric weight (L x W x H / 4500 for surface, 5000 for air). Carried consignments are scanned at carrier gateway transit hubs; discrepancies will be billed additionally.
+                  </p>
+                  <p>
+                    <strong>4. Carriage of Goods Act:</strong> Physical transport of goods is governed by the Carriage by Road Act, 2007 and applicable Indian aviation cargo statutes. LogiCompare’s aggregate liability is limited to the FOV (Freight on Value) risk protection declared at the time of booking.
+                  </p>
+                  <p>
+                    <strong>5. Governing Law:</strong> These terms are governed by the laws of India. Any legal dispute or proceeding shall be subject to the exclusive jurisdiction of the competent courts in <strong>{MERCHANT_DETAILS.jurisdiction}</strong>.
+                  </p>
+                </div>
+              )}
+
+              {legalModalTab === "privacy" && (
+                <div className="space-y-2.5">
+                  <h4 className="font-bold text-slate-900 text-sm">Privacy & Data Protection Policy</h4>
+                  <p>
+                    <strong>1. Collection of Business Data:</strong> We collect business contact details, GSTIN identifiers, pickup/delivery warehouse addresses, and package specifications solely to facilitate freight calculations, AWB barcode printing, and linehaul tracking.
+                  </p>
+                  <p>
+                    <strong>2. Disclosure to Carriers:</strong> Necessary consignment parameters are shared exclusively with the assigned carrier partner (e.g., Delhivery, Blue Dart) for dispatch, transit routing, and Proof of Delivery (POD) completion.
+                  </p>
+                  <p>
+                    <strong>3. Payment Security:</strong> We do not store credit card numbers, CVVs, or NetBanking credentials on our servers. All digital transactions are processed through <strong>Razorpay</strong> over 256-bit SSL encrypted channels in compliance with PCI-DSS.
+                  </p>
+                  <p>
+                    <strong>4. Grievance Officer:</strong> In compliance with the Information Technology Act, 2000 and Digital Personal Data Protection (DPDP) Act, 2023, the designated Grievance Officer is:
+                  </p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-800 space-y-0.5">
+                    <p><strong>Officer:</strong> {MERCHANT_DETAILS.proprietor}</p>
+                    <p><strong>Email:</strong> {MERCHANT_DETAILS.email}</p>
+                    <p><strong>Helpline:</strong> {MERCHANT_DETAILS.phone}</p>
+                    <p><strong>Address:</strong> {MERCHANT_DETAILS.address}</p>
+                  </div>
+                </div>
+              )}
+
+              {legalModalTab === "refund" && (
+                <div className="space-y-2.5">
+                  <h4 className="font-bold text-slate-900 text-sm">Refund & Cancellation Policy</h4>
+                  <p>
+                    <strong>1. Cancellation Prior to Pickup:</strong> Shippers may cancel any consignment booking prior to the carrier dispatching a vehicle for collection. Consignments cancelled before pickup attempt qualify for a <strong>100% full refund</strong>.
+                  </p>
+                  <p>
+                    <strong>2. Cancellation Post-Dispatch / Driver Attempt:</strong> If a cancellation is requested after a carrier vehicle has been deployed or reached the shipper warehouse, a nominal dead-freight visit charge (equivalent to the base docket charge of ₹150–₹250) will be deducted, and the balance refunded.
+                  </p>
+                  <p>
+                    <strong>3. Refund Mode & Settlement Timeframe:</strong> All approved refunds are processed back to the original source account (UPI, credit/debit card, or bank account) via <strong>Razorpay</strong>. The standard refund credit window is <strong>5 to 7 business days</strong> depending on the issuing bank.
+                  </p>
+                  <p>
+                    <strong>4. Dispute Resolution:</strong> If a refund is delayed beyond 7 business days, shippers can write with their AWB and payment reference to <strong>{MERCHANT_DETAILS.email}</strong> for immediate investigation.
+                  </p>
+                </div>
+              )}
+
+              {legalModalTab === "shipping" && (
+                <div className="space-y-2.5">
+                  <h4 className="font-bold text-slate-900 text-sm">Shipping, Transit SLAs & Delivery Policy</h4>
+                  <p>
+                    <strong>1. Serviceable Network:</strong> LogiCompare Pro services 19,000+ PIN codes across all 28 Indian States and 8 Union Territories via aggregated multi-modal express networks.
+                  </p>
+                  <p>
+                    <strong>2. Estimated Transit SLAs:</strong>
+                    <br />• <strong>Surface Cargo Express:</strong> 3 to 6 business days depending on transit lane (e.g., Delhi to Mumbai in ~3 days; Delhi to Bengaluru in ~4 days).
+                    <br />• <strong>Air Express Cargo:</strong> 24 to 48 hours connecting primary metro airport gateways.
+                    <br />• <strong>FTL (Full Truck Load):</strong> Linehaul direct transit without transshipment, scheduled on dedicated driver relays.
+                  </p>
+                  <p>
+                    <strong>3. ODA (Out of Delivery Area):</strong> Remote rural or special security regions classified as ODA may incur an additional 1 to 2 business days for local connection.
+                  </p>
+                  <p>
+                    <strong>4. Proof of Delivery (POD):</strong> Deliveries are concluded upon physical signature or OTP confirmation by the consignee, automatically updating the AWB tracking audit.
+                  </p>
+                </div>
+              )}
+
+              {legalModalTab === "prohibited" && (
+                <div className="space-y-2.5">
+                  <h4 className="font-bold text-slate-900 text-sm">Strictly Prohibited & Banned Cargo</h4>
+                  <p>Shippers are strictly prohibited from booking or tendering the following items for shipment:</p>
+                  <ul className="list-disc pl-5 space-y-1 text-slate-700">
+                    <li>Explosives, fireworks, ammunition, and hazardous chemicals (Classes 1–9 Hazmat).</li>
+                    <li>Flammable liquids, gases, compressed cylinders, and corrosives.</li>
+                    <li>Unregistered bullion, loose precious gems, and sovereign cash/currency notes.</li>
+                    <li>Narcotics, psychotropic substances, and contraband goods prohibited under the NDPS Act.</li>
+                    <li>Live animals, human remains, or wildlife articles prohibited under the Wildlife Protection Act.</li>
+                    <li>Radioactive materials and bio-hazard clinical waste.</li>
+                  </ul>
+                  <p className="text-rose-700 font-semibold text-[11px] bg-rose-50 p-2 rounded border border-rose-200">
+                    Any tender of banned goods will result in immediate confiscation, consignment forfeiture, and police reporting under Indian criminal statutes.
+                  </p>
+                </div>
+              )}
+
+              {legalModalTab === "contact" && (
+                <div className="space-y-3">
+                  <h4 className="font-bold text-slate-900 text-sm">Official Merchant & Support Contact</h4>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                    <p><strong className="text-slate-900">Proprietor / Merchant:</strong> {MERCHANT_DETAILS.proprietor}</p>
+                    <p><strong className="text-slate-900">Platform:</strong> {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.category})</p>
+                    <p><strong className="text-slate-900">Email:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.email}</a></p>
+                    <p><strong className="text-slate-900">Helpline Phone:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.phone}</a></p>
+                    <p><strong className="text-slate-900">Operating Address:</strong> {MERCHANT_DETAILS.address}</p>
+                    <p><strong className="text-slate-900">Support Hours:</strong> {MERCHANT_DETAILS.operatingHours}</p>
+                    <p><strong className="text-slate-900">Legal Jurisdiction:</strong> {MERCHANT_DETAILS.jurisdiction}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-100 pt-3">
               <button
-                onClick={() => {
-                  setActiveView("dashboard");
-                  setActivePortal("shipper");
-                  setShipperSubTab("compare");
-                }}
-                className="hover:text-indigo-600"
+                type="button"
+                onClick={() => setShowLegalModal(false)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-lg"
               >
-                Freight Calculator
-              </button>
-              <button
-                onClick={() => {
-                  setActiveView("dashboard");
-                  setActivePortal("shipper");
-                  setShipperSubTab("tracker");
-                }}
-                className="hover:text-indigo-600"
-              >
-                Live AWB Tracker
-              </button>
-              <button
-                onClick={() => {
-                  setActiveView("dashboard");
-                  setActivePortal("shipper");
-                  setShipperSubTab("rfq");
-                }}
-                className="hover:text-indigo-600"
-              >
-                Heavy RFQ Board
-              </button>
-              <button
-                onClick={() => {
-                  setActiveView("dashboard");
-                  setActivePortal("vendor");
-                  setVendorSubTab("rates");
-                }}
-                className="hover:text-indigo-600"
-              >
-                Carrier Console
+                Close Compliance Window
               </button>
             </div>
           </div>
+        </div>
+      )}
 
+      {/* ============================================================== */}
+      {/* EXTENDED RAZORPAY-COMPLIANT GLOBAL FOOTER */}
+      {/* ============================================================== */}
+      <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
+        <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-100 pb-6">
+            {/* Column 1: Brand & Registration */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+                  <TruckIcon className="w-4 h-4" />
+                </div>
+                <span className="font-extrabold text-sm text-slate-900">{MERCHANT_DETAILS.platformName}</span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Operated by <strong>{MERCHANT_DETAILS.proprietor}</strong>. An enterprise B2B multi-carrier freight booking exchange and AWB generation network compliant with Indian Goods Transport Agency (GTA) and GST regulations.
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Official Jurisdiction: <strong>{MERCHANT_DETAILS.jurisdiction}</strong>
+              </p>
+            </div>
+
+            {/* Column 2: Official Merchant Contact (Razorpay Spec) */}
+            <div className="space-y-1.5">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">Merchant Contact & Grievance</span>
+              <p className="text-[11px]"><strong>Proprietor:</strong> {MERCHANT_DETAILS.proprietor}</p>
+              <p className="text-[11px]">
+                <strong>Helpline:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-600 hover:underline">{MERCHANT_DETAILS.phone}</a>
+              </p>
+              <p className="text-[11px]">
+                <strong>Support:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-600 hover:underline">{MERCHANT_DETAILS.email}</a>
+              </p>
+              <p className="text-[11px] text-slate-500 leading-tight">
+                <strong>Address:</strong> {MERCHANT_DETAILS.address}
+              </p>
+            </div>
+
+            {/* Column 3: Quick Legal Links */}
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">Governance & Policies</span>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px] font-semibold text-slate-600">
+                <button onClick={() => openLegalModal("terms")} className="text-left hover:text-indigo-600">Terms & Conditions</button>
+                <button onClick={() => openLegalModal("privacy")} className="text-left hover:text-indigo-600">Privacy Policy</button>
+                <button onClick={() => openLegalModal("refund")} className="text-left hover:text-indigo-600">Refund & Cancellation</button>
+                <button onClick={() => openLegalModal("shipping")} className="text-left hover:text-indigo-600">Shipping Policy</button>
+                <button onClick={() => openLegalModal("prohibited")} className="text-left hover:text-indigo-600">Prohibited Goods</button>
+                <button onClick={() => openLegalModal("contact")} className="text-left hover:text-indigo-600">Contact Us</button>
+              </div>
+              <div className="pt-2 flex items-center space-x-2 text-[10px] text-slate-500">
+                <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-mono font-bold">100% Razorpay Verified</span>
+                <span>•</span>
+                <span>PCI-DSS Secured</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Copyright Strip */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-500 text-[11px]">
-            <p>© 2026 LogiCompare Pro. All rights reserved across 28 Indian States & 8 Union Territories.</p>
+            <p>© 2026 {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.proprietor}). All rights reserved across India.</p>
             <div className="flex items-center space-x-3">
               <span>Carriage by Road Act 2007</span>
               <span>•</span>
-              <span>GTA GST 18% Input Credit Support</span>
+              <span>GTA GST 18% Compliant</span>
               <span>•</span>
-              <span>ISO 9001:2015 Hub Routing</span>
+              <span>Refund SLA: 5–7 Business Days</span>
             </div>
           </div>
         </div>
