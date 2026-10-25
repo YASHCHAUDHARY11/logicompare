@@ -19,11 +19,13 @@ const MERCHANT_DETAILS = {
   phone: "+91 8194017660",
   address: "House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037, India",
   jurisdiction: "New Delhi, Delhi, India",
-  operatingHours: "Monday to Saturday, 09:00 AM – 07:00 PM IST"
+  operatingHours: "Monday to Saturday, 09:00 AM – 07:00 PM IST",
+  platformFeePct: 2, // 2% Dynamic Platform Fee
+  minPlatformFeeINR: 25 // Minimum ₹25 floor cap
 };
 
 // ==========================================
-// INTERNAL TYPES (NO EXTERNAL EXPORTS)
+// INTERNAL TYPES & DOMAIN INTERFACES
 // ==========================================
 interface BoxItem {
   id: string;
@@ -41,6 +43,9 @@ interface Vendor {
   rating: number;
   gstin: string;
   fleet_types: string[];
+  upi_id?: string;
+  bank_account?: string;
+  ifsc_code?: string;
 }
 
 interface RateCard {
@@ -70,9 +75,13 @@ interface CostBreakdown {
   handling: number;
   oda: number;
   gst: number;
+  freightSubtotal: number;
+  platformConvenienceFee: number;
   total: number;
+  settlement_type?: "direct_to_pay" | "direct_upi" | "corporate_credit";
   payment_method?: string;
   payment_ref?: string;
+  carrier_upi?: string;
 }
 
 interface CalculatedQuote {
@@ -179,14 +188,13 @@ interface PinLookupResult {
 
 // Fallback Indian Logistics Seed
 const FALLBACK_VENDORS: Vendor[] = [
-  { id: "11111111-1111-1111-1111-111111111111", name: "Delhivery B2B Express", badge: "Market Leader", rating: 4.8, gstin: "06AAACD9876Q1ZB", fleet_types: ["Surface Express", "Air Express", "Part Truck Load"] },
-  { id: "22222222-2222-2222-2222-222222222222", name: "Blue Dart Aviation", badge: "Fastest Air SLA", rating: 4.9, gstin: "27AAACB0982G1ZL", fleet_types: ["Air Express Priority", "Critical Cargo"] },
-  { id: "33333333-3333-3333-3333-333333333333", name: "TCI Freight", badge: "Heavy Haulage", rating: 4.6, gstin: "08AAACT1234F1ZX", fleet_types: ["FTL 32ft MXL", "Taurus 21T", "Heavy Surface"] },
-  { id: "44444444-4444-4444-4444-444444444444", name: "Gati-KWE Multi-Modal", badge: "Extensive Reach", rating: 4.4, gstin: "36AAACG4455H1ZP", fleet_types: ["Surface Express", "Air Freight"] },
-  { id: "55555555-5555-5555-5555-555555555555", name: "Safexpress Logistics", badge: "Secure 3PL", rating: 4.7, gstin: "07AAACS7788P1ZZ", fleet_types: ["SafeAir Cargo", "Surface Cargo Hub"] }
+  { id: "11111111-1111-1111-1111-111111111111", name: "Delhivery B2B Express", badge: "Market Leader", rating: 4.8, gstin: "06AAACD9876Q1ZB", fleet_types: ["Surface Express", "Air Express", "Part Truck Load"], upi_id: "delhivery.b2b@icici", bank_account: "50200088910234", ifsc_code: "HDFC0000240" },
+  { id: "22222222-2222-2222-2222-222222222222", name: "Blue Dart Aviation", badge: "Fastest Air SLA", rating: 4.9, gstin: "27AAACB0982G1ZL", fleet_types: ["Air Express Priority", "Critical Cargo"], upi_id: "bluedart.freight@axisbank", bank_account: "91802003445511", ifsc_code: "UTIB0000045" },
+  { id: "33333333-3333-3333-3333-333333333333", name: "TCI Freight", badge: "Heavy Haulage", rating: 4.6, gstin: "08AAACT1234F1ZX", fleet_types: ["FTL 32ft MXL", "Taurus 21T", "Heavy Surface"], upi_id: "tcilogistics@sbi", bank_account: "30882194012", ifsc_code: "SBIN0001245" },
+  { id: "44444444-4444-4444-4444-444444444444", name: "Gati-KWE Multi-Modal", badge: "Extensive Reach", rating: 4.4, gstin: "36AAACG4455H1ZP", fleet_types: ["Surface Express", "Air Freight"], upi_id: "gatikwe.ops@kotak", bank_account: "181290445566", ifsc_code: "KKBK0000192" },
+  { id: "55555555-5555-5555-5555-555555555555", name: "Safexpress Logistics", badge: "Secure 3PL", rating: 4.7, gstin: "07AAACS7788P1ZZ", fleet_types: ["SafeAir Cargo", "Surface Cargo Hub"], upi_id: "safexpress.pay@yesbank", bank_account: "001284400192", ifsc_code: "YESB0000012" }
 ];
 
-// Fallback static zone lookup
 function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
   if (!pin || pin.length < 3) return { city: "Detecting Location...", state: "India", hub: "HUB-GEN" };
   const p3 = pin.substring(0, 3);
@@ -214,7 +222,6 @@ function getLocalFallbackZone(pin: string): { city: string; state: string; hub: 
   return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
 }
 
-// Indian Rupee Formatter
 const formatINR = (val: number) => {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -224,9 +231,7 @@ const formatINR = (val: number) => {
   }).format(val || 0);
 };
 
-// ==========================================
-// DYNAMIC CLIENT-SIDE MEMORY CACHE & RESOLVER FOR BULK CSV
-// ==========================================
+// Client memory cache for fast in-browser city resolution
 const clientLocationCache: Record<string, string> = {
   delhi: "110",
   "new delhi": "110",
@@ -247,20 +252,10 @@ const clientLocationCache: Record<string, string> = {
 const resolveLocationToPrefix = async (rawInput: string): Promise<string> => {
   if (!rawInput) return "%";
   const clean = rawInput.trim().toLowerCase();
-
   if (clean === "%") return "%";
+  if (/^\d{3,6}$/.test(clean)) return clean.substring(0, 3);
+  if (clientLocationCache[clean]) return clientLocationCache[clean];
 
-  // 1. If already 3-digit prefix or 6-digit PIN
-  if (/^\d{3,6}$/.test(clean)) {
-    return clean.substring(0, 3);
-  }
-
-  // 2. Check client-side memory cache
-  if (clientLocationCache[clean]) {
-    return clientLocationCache[clean];
-  }
-
-  // 3. Fallback direct call to India Post API
   try {
     const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(clean)}`);
     const data = await res.json();
@@ -273,7 +268,6 @@ const resolveLocationToPrefix = async (rawInput: string): Promise<string> => {
   } catch (err) {
     console.warn("API lookup fallback failed for:", clean, err);
   }
-
   return clean.substring(0, 3);
 };
 
@@ -341,9 +335,34 @@ const XMarkIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   </svg>
 );
 
+const ShieldCheckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+);
+
 const ChevronDownIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
+const LayersIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+  </svg>
+);
+
+const CurrencyRupeeIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 8h6m-5 0h.01M9 12h5m-5 0h.01M9 4v16m0-12a4 4 0 014 4 4 4 0 01-4 4l6 6" />
+  </svg>
+);
+
+const CreditCardIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <rect x="2" y="5" width="20" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2 10h20M7 15h2m4 0h4" />
   </svg>
 );
 
@@ -370,19 +389,23 @@ const MapPinIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
 // MAIN COMPONENT
 // ==========================================
 export default function LogiComparePro() {
+  // Navigation View State
   const [activeView, setActiveView] = useState<"landing" | "dashboard">("landing");
   const [landingWorkflowTab, setLandingWorkflowTab] = useState<"shipper" | "vendor">("shipper");
   const [landingTrackingInput, setLandingTrackingInput] = useState("LC-894210");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
+  // Legal / Compliance Modal State (Razorpay KYC)
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact">("terms");
 
+  // Reverse City Search Modal State
   const [showCitySearchModal, setShowCitySearchModal] = useState<"origin" | "dest" | null>(null);
   const [citySearchQuery, setCitySearchQuery] = useState("");
   const [citySearchResults, setCitySearchResults] = useState<Array<{ name: string; district: string; state: string; pincode: string }>>([]);
   const [isSearchingCity, setIsSearchingCity] = useState(false);
 
+  // Demo Personas
   const DEMO_SHIPPER: UserProfile = {
     id: "demo-shipper-uuid",
     email: "dispatch@apexlogistics.in",
@@ -404,11 +427,13 @@ export default function LogiComparePro() {
     vendor_id: "11111111-1111-1111-1111-111111111111"
   };
 
+  // State Management
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
   const [activePortal, setActivePortal] = useState<"shipper" | "vendor">("shipper");
   const [shipperSubTab, setShipperSubTab] = useState<"compare" | "shipments" | "tracker" | "rfq">("compare");
   const [vendorSubTab, setVendorSubTab] = useState<"orders" | "rates" | "bids">("orders");
 
+  // Auth Modal State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -421,6 +446,7 @@ export default function LogiComparePro() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMsg, setAuthMsg] = useState("");
 
+  // Rate Search & Multi-Box Calculator State
   const [originPin, setOriginPin] = useState("110037");
   const [destPin, setDestPin] = useState("400001");
   const [isOda, setIsOda] = useState(false);
@@ -431,6 +457,7 @@ export default function LogiComparePro() {
     { id: "box-2", qty: 1, weight: 15, length: 30, width: 30, height: 25 }
   ]);
 
+  // Live Pincode API State
   const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
     city: "South West Delhi",
     state: "Delhi",
@@ -444,6 +471,7 @@ export default function LogiComparePro() {
     loading: false
   });
 
+  // Data Collections
   const [rateCards, setRateCards] = useState<RateCard[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>(FALLBACK_VENDORS);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -451,20 +479,24 @@ export default function LogiComparePro() {
   const [searchTriggered, setSearchTriggered] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
+  // Modals & Active Selections
   const [selectedQuoteForBooking, setSelectedQuoteForBooking] = useState<CalculatedQuote | null>(null);
   const [printableBooking, setPrintableBooking] = useState<Booking | null>(null);
   const [activeTrackingAwb, setActiveTrackingAwb] = useState("LC-894210");
   const [trackingSearchInput, setTrackingSearchInput] = useState("LC-894210");
 
+  // Checkout State with Direct Settlement Choice
   const [pickupAddress, setPickupAddress] = useState("House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037");
   const [consigneeName, setConsigneeName] = useState("Prime Electronics Retail");
   const [consigneePhone, setConsigneePhone] = useState("+91 98200 44556");
   const [consigneeGstin, setConsigneeGstin] = useState("27AAACP9988G1ZK");
   const [deliveryAddress, setDeliveryAddress] = useState("Warehouse 4B, Bhiwandi Logistics Park, Mumbai");
-  const [paymentMethod, setPaymentMethod] = useState<"razorpay" | "b2b_credit">("razorpay");
+  const [settlementType, setSettlementType] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">("direct_to_pay");
+  const [directPaymentUtr, setDirectPaymentUtr] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
 
+  // RFQ Creation State
   const [newRfqOrigin, setNewRfqOrigin] = useState("110001");
   const [newRfqDest, setNewRfqDest] = useState("560001");
   const [newRfqDesc, setNewRfqDesc] = useState("Industrial Gearboxes and Heavy Machinery Parts");
@@ -472,8 +504,10 @@ export default function LogiComparePro() {
   const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
   const [newRfqBudget, setNewRfqBudget] = useState(65000);
 
+  // Vendor Status Update Row State
   const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string }>>({});
 
+  // Rate Card Publish Modal (Manual Form)
   const [showAddRateCard, setShowAddRateCard] = useState(false);
   const [newRateCard, setNewRateCard] = useState({
     origin_prefix: "110",
@@ -490,6 +524,7 @@ export default function LogiComparePro() {
     sla_days: 3
   });
 
+  // Bulk CSV Upload State
   const [csvFileName, setCsvFileName] = useState("");
   const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRateCard[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
@@ -497,9 +532,10 @@ export default function LogiComparePro() {
   const [csvUploadStatus, setCsvUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // RFQ Vendor Bidding State
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
 
-  // Pincode Lookup Listener
+  // Real-Time India Post Pincode Lookup
   useEffect(() => {
     if (originPin.trim().length === 6) {
       setOriginZoneData((prev) => ({ ...prev, loading: true, error: undefined }));
@@ -515,17 +551,10 @@ export default function LogiComparePro() {
               loading: false
             });
           } else {
-            const fallback = getLocalFallbackZone(originPin);
-            setOriginZoneData({ ...fallback, loading: false });
+            setOriginZoneData({ ...getLocalFallbackZone(originPin), loading: false });
           }
         })
-        .catch(() => {
-          const fallback = getLocalFallbackZone(originPin);
-          setOriginZoneData({ ...fallback, loading: false });
-        });
-    } else {
-      const fallback = getLocalFallbackZone(originPin);
-      setOriginZoneData({ ...fallback, loading: false });
+        .catch(() => setOriginZoneData({ ...getLocalFallbackZone(originPin), loading: false }));
     }
   }, [originPin]);
 
@@ -544,21 +573,14 @@ export default function LogiComparePro() {
               loading: false
             });
           } else {
-            const fallback = getLocalFallbackZone(destPin);
-            setDestZoneData({ ...fallback, loading: false });
+            setDestZoneData({ ...getLocalFallbackZone(destPin), loading: false });
           }
         })
-        .catch(() => {
-          const fallback = getLocalFallbackZone(destPin);
-          setDestZoneData({ ...fallback, loading: false });
-        });
-    } else {
-      const fallback = getLocalFallbackZone(destPin);
-      setDestZoneData({ ...fallback, loading: false });
+        .catch(() => setDestZoneData({ ...getLocalFallbackZone(destPin), loading: false }));
     }
   }, [destPin]);
 
-  // Reverse Search City to PIN
+  // Reverse Search City to Pincode
   const handleSearchCityToPin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!citySearchQuery || citySearchQuery.length < 3) return;
@@ -567,18 +589,18 @@ export default function LogiComparePro() {
       const res = await fetch(`https://api.postalpincode.in/postoffice/${citySearchQuery.trim()}`);
       const data = await res.json();
       if (data && data[0]?.Status === "Success" && data[0]?.PostOffice) {
-        const mapped = data[0].PostOffice.map((item: any) => ({
-          name: item.Name,
-          district: item.District,
-          state: item.State,
-          pincode: item.Pincode
-        }));
-        setCitySearchResults(mapped);
+        setCitySearchResults(
+          data[0].PostOffice.map((item: any) => ({
+            name: item.Name,
+            district: item.District,
+            state: item.State,
+            pincode: item.Pincode
+          }))
+        );
       } else {
         setCitySearchResults([]);
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
       setCitySearchResults([]);
     } finally {
       setIsSearchingCity(false);
@@ -676,6 +698,7 @@ export default function LogiComparePro() {
     setBoxes(boxes.map((b) => (b.id === id ? { ...b, [field]: value } : b)));
   };
 
+  // Quotes with DYNAMIC PERCENTAGE PLATFORM FEE (2% with ₹25 floor cap)
   const calculatedQuotes: CalculatedQuote[] = useMemo(() => {
     if (!searchTriggered && rateCards.length === 0) return [];
 
@@ -707,7 +730,11 @@ export default function LogiComparePro() {
 
       const subtotal = baseFreight + fuelSurcharge + docket + fov + handling + oda;
       const gst = subtotal * 0.18;
-      const total = subtotal + gst;
+      const freightDirectTotal = subtotal + gst;
+
+      // 2% Dynamic Platform Fee with ₹25 Floor Cap
+      const rawPctFee = (freightDirectTotal * MERCHANT_DETAILS.platformFeePct) / 100;
+      const convenienceFee = Math.max(MERCHANT_DETAILS.minPlatformFeeINR, Math.round(rawPctFee));
 
       return {
         rateCard: card,
@@ -723,7 +750,9 @@ export default function LogiComparePro() {
           handling: Math.round(handling * 100) / 100,
           oda: Math.round(oda * 100) / 100,
           gst: Math.round(gst * 100) / 100,
-          total: Math.round(total * 100) / 100
+          freightSubtotal: Math.round(freightDirectTotal * 100) / 100,
+          platformConvenienceFee: convenienceFee,
+          total: Math.round((freightDirectTotal + convenienceFee) * 100) / 100
         }
       };
     });
@@ -737,25 +766,31 @@ export default function LogiComparePro() {
     }, 350);
   };
 
-  const handleConfirmBooking = async () => {
+  // Confirm Booking with Direct Carrier Settlement & 2% Platform Fee
+  const handleConfirmDirectBooking = async () => {
     if (!selectedQuoteForBooking) return;
     if (!termsAccepted) {
-      alert("Please confirm that the shipment contains no prohibited goods and accept the Terms & Refund Policy before proceeding.");
+      alert("Please accept the consignment booking terms before proceeding.");
       return;
     }
 
     setIsSubmittingBooking(true);
-
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
     const generatedAwb = `LC-${randomSuffix}`;
-    const generatedPaymentRef = paymentMethod === "razorpay" 
-      ? `pay_LC${Math.floor(10000000 + Math.random() * 90000000)}` 
-      : "B2B-POSTPAID-CREDIT";
+
+    let refString = "DIRECT-TO-PAY-POD";
+    if (settlementType === "direct_upi") {
+      refString = directPaymentUtr ? `UPI-UTR-${directPaymentUtr}` : `DIRECT-UPI-${selectedQuoteForBooking.vendor.upi_id}`;
+    } else if (settlementType === "corporate_credit") {
+      refString = "B2B-DIRECT-CREDIT-TERMS";
+    }
 
     const enhancedBreakdown: CostBreakdown = {
       ...selectedQuoteForBooking.breakdown,
-      payment_method: paymentMethod === "razorpay" ? "Razorpay Online (UPI/Card/NetBanking)" : "B2B Postpaid Invoice Credit",
-      payment_ref: generatedPaymentRef
+      settlement_type: settlementType,
+      payment_method: settlementType === "direct_upi" ? "Direct Carrier UPI" : settlementType === "corporate_credit" ? "B2B Monthly Credit" : "Direct To-Pay POD",
+      payment_ref: refString,
+      carrier_upi: selectedQuoteForBooking.vendor.upi_id
     };
 
     const newBookingRecord: Partial<Booking> = {
@@ -788,14 +823,13 @@ export default function LogiComparePro() {
           status: "Booked",
           location: `${originZoneData.city} Hub (${originPin})`,
           timestamp: new Date().toISOString(),
-          remarks: `AWB Generated. Payment via ${enhancedBreakdown.payment_method} [Ref: ${generatedPaymentRef}]. Verified by ${MERCHANT_DETAILS.proprietor}`
+          remarks: `Direct Booking Generated. Freight (${formatINR(enhancedBreakdown.freightSubtotal)}) payable direct to ${selectedQuoteForBooking.vendor.name} [Ref: ${refString}]. Platform 2% AWB Fee (₹${enhancedBreakdown.platformConvenienceFee}) logged.`
         }
       ]
     };
 
     try {
       const { data, error } = await supabase.from("bookings").insert([newBookingRecord]).select("*, vendors(*)");
-
       if (!error && data && data[0]) {
         setBookings([data[0] as Booking, ...bookings]);
       } else {
@@ -807,12 +841,13 @@ export default function LogiComparePro() {
         };
         setBookings([localMock, ...bookings]);
       }
-    } catch (err) {
-      console.warn("Fallback local booking:", err);
+    } catch {
+      // Local fallback
     } finally {
       setIsSubmittingBooking(false);
       setSelectedQuoteForBooking(null);
       setTermsAccepted(false);
+      setDirectPaymentUtr("");
       setShipperSubTab("shipments");
     }
   };
@@ -977,7 +1012,6 @@ export default function LogiComparePro() {
     document.body.removeChild(link);
   };
 
-  // Bulk CSV File Parser with Dynamic Memory Cache
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1010,7 +1044,6 @@ export default function LogiComparePro() {
           const [origRaw, destRaw, modeRaw, minWtRaw, baseRateRaw, perKgRaw, fuelRaw, docketRaw, slaRaw] = cols;
           const modeClean = modeRaw.toLowerCase();
 
-          // Resolve city name or prefix via dynamic memory cache + API
           const origin_prefix = await resolveLocationToPrefix(origRaw);
           const dest_prefix = await resolveLocationToPrefix(destRaw);
 
@@ -1164,7 +1197,9 @@ export default function LogiComparePro() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
-      {/* GLOBAL TOP NAVIGATION */}
+      {/* ============================================================== */}
+      {/* GLOBAL TOP NAVIGATION BAR */}
+      {/* ============================================================== */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveView("landing")}>
@@ -1178,7 +1213,7 @@ export default function LogiComparePro() {
                   Pro B2B
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Pan-India Freight Exchange & Commercial AWB Hub</p>
+              <p className="text-xs text-slate-500">Pan-India Freight Exchange & Direct Carrier Settlement</p>
             </div>
           </div>
 
@@ -1242,9 +1277,12 @@ export default function LogiComparePro() {
         </div>
       </header>
 
-      {/* VIEW 1: INTRO / LANDING PAGE */}
+      {/* ============================================================== */}
+      {/* VIEW 1: INTRO / HIGH-CONVERTING B2B LANDING PAGE */}
+      {/* ============================================================== */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
+          {/* 1. HERO SECTION */}
           <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50/70 via-white to-slate-50 pt-12 pb-16 px-4 lg:px-8 border-b border-slate-200">
             <div className="max-w-6xl mx-auto text-center space-y-6">
               <div className="inline-flex items-center space-x-2 bg-indigo-50 border border-indigo-200 text-indigo-800 px-3.5 py-1.5 rounded-full text-xs font-bold tracking-wide shadow-xs">
@@ -1299,11 +1337,27 @@ export default function LogiComparePro() {
                     Track Shipment
                   </button>
                 </div>
+                <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-500 mt-2.5">
+                  <span>Try Sample AWBs:</span>
+                  <button
+                    onClick={() => handleLandingQuickTrack("LC-894210")}
+                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                  >
+                    LC-894210 (In Transit)
+                  </button>
+                  <span>•</span>
+                  <button
+                    onClick={() => handleLandingQuickTrack("LC-551923")}
+                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                  >
+                    LC-551923 (Delivered)
+                  </button>
+                </div>
               </div>
             </div>
           </section>
 
-          {/* Trust Metrics */}
+          {/* 2. TRUST METRICS & CARRIER STRIP */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
@@ -1314,7 +1368,7 @@ export default function LogiComparePro() {
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-emerald-600">19,000+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
-                <p className="text-[11px] text-slate-500">Pan-India Live Pincode Engine</p>
+                <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-slate-900">100%</span>
@@ -1327,15 +1381,34 @@ export default function LogiComparePro() {
                 <p className="text-[11px] text-slate-500">Printable 4x6 / A4 barcode labels</p>
               </div>
             </div>
+
+            <div className="pt-6 text-center space-y-3">
+              <span className="text-xs uppercase font-bold text-slate-600 tracking-wider">
+                Direct Integration With India's Top Rated Commercial Carriers
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 pt-2 opacity-85">
+                {vendors.map((v) => (
+                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
 
-          {/* Workflow */}
+          {/* 3. INTERACTIVE "HOW IT WORKS" WORKFLOW */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
             <div className="text-center space-y-2">
               <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
                 Interactive Operational Workflow
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Whether you are a manufacturing business booking daily pallets or a carrier managing rate cards, our unified platform orchestrates the complete lifecycle.
+              </p>
+
               <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
                 <button
                   onClick={() => setLandingWorkflowTab("shipper")}
@@ -1358,28 +1431,31 @@ export default function LogiComparePro() {
 
             {landingWorkflowTab === "shipper" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Auto City / PIN Lookup</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Enter any Indian PIN or search by city name. Live India Post API detects the district, state, and distribution hub.
+                    Enter origin and destination PINs with auto hub detection. Add multiple cartons with weight and (L x W x H cm) dimensions.
                   </p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
                   <h3 className="font-bold text-slate-900 text-sm">Compare Landed Quotes</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
                     Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
                   </p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Razorpay Online / Credit</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Direct Carrier Booking & AWB</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Confirm booking via Razorpay UPI/Cards or B2B Credit to generate official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB and print barcode labels.
+                    Settle freight direct with carrier (To-Pay/UPI). A nominal 2% platform fee generates your official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB barcode label.
                   </p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
                   <h3 className="font-bold text-slate-900 text-sm">5-Milestone Live Tracking</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1389,66 +1465,151 @@ export default function LogiComparePro() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Carrier Profile & Fleet Hub</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Register as a verified transporter, enter GSTIN credentials, and configure Surface, Air, or FTL fleet services.
+                    Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and fleet types.
                   </p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Bulk CSV Rate Card Upload</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Publish Rate Cards or Bulk CSV</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Upload 500+ lane route tariffs directly using our standard Excel/CSV template in seconds.
+                    Define lane-specific rate tariffs individually or upload entire route sheets with city names via bulk CSV.
                   </p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
                   <h3 className="font-bold text-slate-900 text-sm">Fulfill & Dispatch Milestone Scans</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Receive bookings, update status logs (Picked Up, In Transit Hub, Out for Delivery), and sync tracking history.
+                    Receive bookings, update status logs (Picked Up, In Transit Hub, Out for Delivery), and collect direct settlements.
                   </p>
                 </div>
               </div>
             )}
           </section>
 
-          {/* FAQs */}
+          {/* 4. CORE CAPABILITIES (6-CARD FEATURE GRID) */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                Enterprise Features
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Everything required to eliminate manual freight rate haggling and streamline logistics procurement.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <LayersIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Automatically calculates actual weight vs. volumetric weight across multiple box sizes. Supports IATA Air divisor (5000) and Indian Surface Express divisor (4500).
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <CurrencyRupeeIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Transparent breakdown of all statutory logistics fees: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <ShieldCheckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected against transit damages.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <PrinterIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Automated Commercial AWB Labels</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Instant generation of physical shipping labels complete with high-density barcode stripes, origin/dest routing hub codes, package counts, and GSTINs.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <TruckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Heavy Load RFQ Reverse Bidding</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Post requirements for 32ft MXL trailers, 24ft containers, or 21-ton Taurus trucks. Verified fleet owners submit competitive bids below your target ceiling price.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <CreditCardIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Direct Carrier Settlements</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Direct Shipper-to-Carrier settlement via To-Pay POD, direct carrier UPI transfers, or corporate credit terms alongside an automated 2% platform convenience fee.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* 5. FREQUENTLY ASKED QUESTIONS (ACCORDION) */}
           <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
             <div className="text-center space-y-2">
               <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
                 FAQ & Knowledge Base
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Common questions on Indian commercial freight calculation, billable weights, payments, and compliance.
+              </p>
             </div>
 
             <div className="space-y-3">
               {[
                 {
-                  q: "How does the City & Pincode Auto-Detection work?",
-                  a: "Whenever you enter any 6-digit Indian Pincode, our platform calls the official India Post API to automatically fetch the accurate City, District, and State. You can also use the reverse search button to find PIN codes by entering town or city names like Ludhiana, Meerut, Panipat, or Bengaluru."
-                },
-                {
                   q: "How is Billable Weight calculated between Actual and Volumetric weight?",
-                  a: "Commercial carriers charge based on whichever is higher: the gross actual weight on the scale or the volumetric weight. For Surface Cargo in India, the volumetric weight is calculated as (Length x Width x Height in cm) / 4500. For Air Cargo, the standard divisor is 5000."
+                  a: "Commercial carriers charge based on whichever is higher: the gross actual weight on the scale or the volumetric weight. For Surface Cargo in India, the volumetric weight is calculated as (Length x Width x Height in cm) / 4500. For Air Cargo, the standard divisor is 5000. LogiCompare Pro automatically computes this across all box dimensions and applies carrier minimum weight thresholds."
                 },
                 {
-                  q: "What payment methods are supported on LogiCompare?",
-                  a: "We support instant online B2B settlements powered by Razorpay (UPI, Credit/Debit Cards, NetBanking from all major Indian banks) as well as B2B Postpaid Invoice Credit for approved corporate accounts. All digital transactions generate verifiable payment references (pay_LC...)."
+                  q: "How does Direct Settlement work between Shipper and Carrier?",
+                  a: "100% of the main freight charge is settled directly between the shipper and the transporter. You can choose To-Pay at Delivery (POD), Direct UPI transfer to the carrier's verified handle, or 15-day B2B Corporate Credit. LogiCompare only charges a nominal 2% platform fee (minimum ₹25) for generating verified AWB manifests and tracking."
                 },
                 {
                   q: "What is your Refund & Cancellation Policy for cancelled shipments?",
-                  a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund. Once verified, refunds are credited back to the original payment source via Razorpay within 5 to 7 business days."
+                  a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund of platform verification fees. Once verified, refunds are credited back to the original source account within 5 to 7 business days. If cancelled after carrier dispatch, standard docket visit charges apply."
+                },
+                {
+                  q: "What are ODA (Out of Delivery Area) and FOV (Freight on Value) charges?",
+                  a: "ODA is an additional surcharge applied by carriers when a delivery destination PIN code is located outside primary municipal hubs, typically adding ₹450 - ₹600. FOV (Freight on Value) is a transit risk protection fee (0.20% of the declared cargo invoice value) providing formal compensation against loss or damage."
                 }
               ].map((faq, idx) => (
-                <div key={idx} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition">
+                <div
+                  key={idx}
+                  className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition"
+                >
                   <button
                     onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
                     className="w-full p-4 text-left font-bold text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
                   >
                     <span>{faq.q}</span>
-                    <ChevronDownIcon className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`} />
+                    <ChevronDownIcon
+                      className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
+                    />
                   </button>
                   {openFaq === idx && (
                     <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
@@ -1459,12 +1620,44 @@ export default function LogiComparePro() {
               ))}
             </div>
           </section>
+
+          {/* 6. BOTTOM CALL-TO-ACTION BANNER */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+            <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-8 sm:p-12 text-white text-center space-y-6 shadow-xl">
+              <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                Start Saving On B2B Freight
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+                Ready to optimize your supply chain and eliminate freight billing disputes?
+              </h2>
+              <p className="text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+                Switch to the Freight Matrix Dashboard to calculate live rates, print commercial AWB labels, and track consignments across India.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={handleLandingJumpToCompare}
+                  className="bg-white hover:bg-slate-100 text-slate-900 font-extrabold px-6 py-3 rounded-xl text-sm transition shadow-lg"
+                >
+                  Open Freight Rate Matrix
+                </button>
+                <button
+                  onClick={() => switchDemoRole("shipper")}
+                  className="bg-indigo-700 hover:bg-indigo-600 text-white border border-indigo-500 font-bold px-6 py-3 rounded-xl text-sm transition"
+                >
+                  ⚡ Instant Demo as Shipper
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       )}
 
-      {/* VIEW 2: FULL FREIGHT MATRIX DASHBOARD */}
+      {/* ============================================================== */}
+      {/* VIEW 2: FULL FREIGHT MATRIX DASHBOARD (APP) */}
+      {/* ============================================================== */}
       {activeView === "dashboard" && (
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
+          {/* Dashboard Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
             <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit">
               <button
@@ -1485,6 +1678,7 @@ export default function LogiComparePro() {
               </button>
             </div>
 
+            {/* Sub-Tabs Navigation */}
             {activePortal === "shipper" ? (
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {[
@@ -1510,7 +1704,7 @@ export default function LogiComparePro() {
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {[
                   { id: "orders", label: "📋 Incoming Orders & Dispatch" },
-                  { id: "rates", label: "🏷️ Rate Card Manager" },
+                  { id: "rates", label: "🏷️ Rate Card Manager (Bulk CSV)" },
                   { id: "bids", label: "🎯 Bid on Live RFQs" }
                 ].map((t) => (
                   <button
@@ -1529,25 +1723,33 @@ export default function LogiComparePro() {
             )}
           </div>
 
+          {/* ============================================================== */}
           {/* SHIPPER PORTAL MODULES */}
+          {/* ============================================================== */}
           {activePortal === "shipper" && (
             <div className="space-y-6">
+              {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
               {shipperSubTab === "compare" && (
                 <div className="space-y-6">
-                  {/* Calculator Form */}
+                  {/* 1. Calculator Form Card */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-                    <div className="border-b border-slate-100 pb-4 mb-6">
-                      <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-                        <BoxIcon className="w-5 h-5 text-indigo-600" />
-                        <span>Pan-India Commercial Freight Calculator</span>
-                      </h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Live India Post PIN auto-detection, volumetric weight engine, and full GST breakdown across verified carriers.
-                      </p>
+                    <div className="border-b border-slate-100 pb-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                          <BoxIcon className="w-5 h-5 text-indigo-600" />
+                          <span>Pan-India Commercial Freight Calculator</span>
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Direct transporter tariffs with 0% freight markup. Platform fee is 2% (min ₹25) on booking.
+                        </p>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200 w-fit">
+                        Direct Carrier Settlement
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                      {/* Origin PIN */}
+                      {/* Origin PIN with Auto City Detection */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Origin PIN (Pickup)</label>
@@ -1578,7 +1780,7 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Destination PIN */}
+                      {/* Destination PIN with Auto City Detection */}
                       <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Destination PIN (Drop)</label>
@@ -1647,7 +1849,7 @@ export default function LogiComparePro() {
                       </div>
                     </div>
 
-                    {/* Multi-Box Repeater */}
+                    {/* Multi-Box Repeater Section */}
                     <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -1679,6 +1881,7 @@ export default function LogiComparePro() {
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                               />
                             </div>
+
                             <div>
                               <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
                               <input
@@ -1690,6 +1893,7 @@ export default function LogiComparePro() {
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                               />
                             </div>
+
                             <div>
                               <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
                               <input
@@ -1700,6 +1904,7 @@ export default function LogiComparePro() {
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                               />
                             </div>
+
                             <div>
                               <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
                               <input
@@ -1710,6 +1915,7 @@ export default function LogiComparePro() {
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                               />
                             </div>
+
                             <div>
                               <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
                               <input
@@ -1720,6 +1926,7 @@ export default function LogiComparePro() {
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
                               />
                             </div>
+
                             <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
                               <span className="text-[11px] text-slate-500 font-mono">
                                 {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
@@ -1738,7 +1945,7 @@ export default function LogiComparePro() {
                         ))}
                       </div>
 
-                      {/* Weight Summary */}
+                      {/* Weight Summary Banner */}
                       <div className="flex flex-wrap items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 text-xs shadow-xs">
                         <div className="flex flex-wrap gap-5">
                           <div>
@@ -1767,12 +1974,12 @@ export default function LogiComparePro() {
                     </div>
                   </div>
 
-                  {/* Rates Matrix */}
+                  {/* 2. Rates Comparison Cards with 2% Platform Fee Breakdown */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-base font-bold text-slate-900">Verified Logistics Carrier Quotes</h3>
-                        <p className="text-xs text-slate-500">Includes Fuel, Handling, FOV Risk Insurance, & 18% GST</p>
+                        <h3 className="text-base font-bold text-slate-900">Direct Carrier Freight Tariffs</h3>
+                        <p className="text-xs text-slate-500">100% Freight is settled directly with the transporter. Platform fee: 2% (min ₹25).</p>
                       </div>
                       <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full font-bold">
                         {calculatedQuotes.length} Available Rates
@@ -1816,47 +2023,44 @@ export default function LogiComparePro() {
                                   Billable Wt: <strong className="text-slate-800">{quote.billableWeight} kg</strong>
                                 </span>
                                 <span>•</span>
-                                <span className="font-mono text-slate-500">GSTIN: {quote.vendor.gstin}</span>
+                                <span className="font-mono text-emerald-700 font-bold">Direct UPI: {quote.vendor.upi_id}</span>
                               </div>
                             </div>
 
-                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-6 gap-2 text-center sm:text-left">
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-5 gap-2 text-center sm:text-left">
                               <div>
                                 <span className="text-[10px] text-slate-500 block">Base Freight</span>
                                 <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.base)}</span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-slate-500 block">Fuel ({quote.rateCard.fuel_surcharge_pct}%)</span>
+                                <span className="text-[10px] text-slate-500 block">Fuel Surcharge</span>
                                 <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fuel)}</span>
                               </div>
                               <div>
-                                <span className="text-[10px] text-slate-500 block">FOV Insur.</span>
-                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.fov)}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-slate-500 block">Docket/AWB</span>
-                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.docket)}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-slate-500 block">ODA Fee</span>
-                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.oda)}</span>
+                                <span className="text-[10px] text-slate-500 block">Docket + FOV</span>
+                                <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.docket + quote.breakdown.fov)}</span>
                               </div>
                               <div>
                                 <span className="text-[10px] text-slate-500 block">GST (18%)</span>
                                 <span className="font-semibold text-slate-800">{formatINR(quote.breakdown.gst)}</span>
                               </div>
+                              <div>
+                                <span className="text-[10px] text-indigo-600 block font-bold">Platform Fee (2%)</span>
+                                <span className="font-bold text-indigo-700">₹{quote.breakdown.platformConvenienceFee}</span>
+                              </div>
                             </div>
 
                             <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
                               <div className="text-left sm:text-right">
-                                <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">All-Inclusive Total</span>
+                                <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">Total Consignment Cost</span>
                                 <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
+                                <span className="text-[10px] text-slate-500 block">Direct Freight: {formatINR(quote.breakdown.freightSubtotal)}</span>
                               </div>
                               <button
                                 onClick={() => setSelectedQuoteForBooking(quote)}
                                 className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
                               >
-                                <span>Book & Pay</span>
+                                <span>Direct Book Consignment</span>
                                 <ArrowRightIcon className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -1868,12 +2072,12 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* Shipments & Labels */}
+              {/* SUB-TAB B: MY SHIPMENTS & LABELS */}
               {shipperSubTab === "shipments" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-bold text-slate-900">Consignment Bookings & Manifests</h2>
+                      <h2 className="text-lg font-bold text-slate-900">Consignment Manifests & Direct AWB Records</h2>
                       <p className="text-xs text-slate-500">Generate shipping labels, track parcels, and monitor transit compliance</p>
                     </div>
                     <button
@@ -1896,17 +2100,19 @@ export default function LogiComparePro() {
                             <th className="py-3 px-4">AWB Number</th>
                             <th className="py-3 px-4">Carrier</th>
                             <th className="py-3 px-4">Route & PIN</th>
-                            <th className="py-3 px-4">Mode / Wt</th>
-                            <th className="py-3 px-4">Payment</th>
+                            <th className="py-3 px-4">Freight (Direct)</th>
+                            <th className="py-3 px-4">Platform Fee (2%)</th>
+                            <th className="py-3 px-4">Settlement Mode</th>
                             <th className="py-3 px-4">Status</th>
-                            <th className="py-3 px-4">Total Freight</th>
                             <th className="py-3 px-4 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {bookings.map((booking) => (
                             <tr key={booking.id} className="hover:bg-slate-50/70 transition">
-                              <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">{booking.awb_number}</td>
+                              <td className="py-3.5 px-4 font-mono font-bold text-indigo-700">
+                                {booking.awb_number}
+                              </td>
                               <td className="py-3.5 px-4">
                                 <span className="font-bold text-slate-900 block">{booking.vendors?.name || "Carrier Partner"}</span>
                                 <span className="text-[11px] text-slate-500">{booking.consignee_name}</span>
@@ -1918,13 +2124,15 @@ export default function LogiComparePro() {
                                   <span>{booking.dest_pin}</span>
                                 </div>
                               </td>
-                              <td className="py-3.5 px-4">
-                                <span className="capitalize text-slate-800 block font-semibold">{booking.mode}</span>
-                                <span className="text-[10px] text-slate-500 font-mono">{booking.billable_weight} kg</span>
+                              <td className="py-3.5 px-4 font-bold text-slate-900">
+                                {formatINR(booking.cost_breakdown?.freightSubtotal || booking.final_total)}
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-indigo-700">
+                                ₹{booking.cost_breakdown?.platformConvenienceFee || MERCHANT_DETAILS.minPlatformFeeINR}
                               </td>
                               <td className="py-3.5 px-4 font-mono">
                                 <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold block w-fit">
-                                  {booking.cost_breakdown?.payment_ref || "Paid"}
+                                  {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
                                 </span>
                               </td>
                               <td className="py-3.5 px-4">
@@ -1942,14 +2150,13 @@ export default function LogiComparePro() {
                                   {booking.status}
                                 </span>
                               </td>
-                              <td className="py-3.5 px-4 font-bold text-slate-900">{formatINR(booking.final_total)}</td>
                               <td className="py-3.5 px-4 text-right space-x-2">
                                 <button
                                   onClick={() => setPrintableBooking(booking)}
                                   className="bg-white hover:bg-slate-50 text-slate-700 px-2.5 py-1 rounded text-[11px] font-semibold border border-slate-300 inline-flex items-center space-x-1 shadow-xs"
                                 >
                                   <PrinterIcon className="w-3.5 h-3.5" />
-                                  <span>Print Label</span>
+                                  <span>Label</span>
                                 </button>
                                 <button
                                   onClick={() => {
@@ -1971,7 +2178,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* Live Tracker */}
+              {/* SUB-TAB C: LIVE AWB TRACKER */}
               {shipperSubTab === "tracker" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
@@ -2006,9 +2213,10 @@ export default function LogiComparePro() {
                             </span>
                           </div>
                           <p className="text-xs text-slate-500 mt-1">
-                            Carrier: <strong className="text-slate-800">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
+                            Carrier Partner: <strong className="text-slate-800">{activeTrackBooking.vendors?.name || "Delhivery B2B"}</strong>
                           </p>
                         </div>
+
                         <div className="text-right text-xs">
                           <p className="text-slate-600">
                             Route: <span className="font-mono font-bold text-slate-900">{activeTrackBooking.origin_pin}</span> →{" "}
@@ -2049,12 +2257,14 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* RFQ Bidding */}
+              {/* SUB-TAB D: RFQ REVERSE BIDDING */}
               {shipperSubTab === "rfq" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
                     <h2 className="text-base font-bold text-slate-900 mb-1">Post Heavy/FTL Cargo Load for Reverse Auction</h2>
-                    <p className="text-xs text-slate-500 mb-6">Carriers will bid competitively below your ceiling target price.</p>
+                    <p className="text-xs text-slate-500 mb-6">
+                      Carriers and fleet operators will bid competitively below your ceiling target price.
+                    </p>
 
                     <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
@@ -2124,6 +2334,7 @@ export default function LogiComparePro() {
                           required
                         />
                       </div>
+
                       <div className="md:col-span-3 flex justify-end">
                         <button
                           type="submit"
@@ -2147,6 +2358,7 @@ export default function LogiComparePro() {
                               </span>
                               <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
                             </div>
+
                             <div className="text-right text-xs">
                               <span className="text-slate-500">Target Budget: </span>
                               <span className="font-bold text-emerald-700">{formatINR(rfq.target_price)}</span>
@@ -2161,9 +2373,12 @@ export default function LogiComparePro() {
             </div>
           )}
 
+          {/* ============================================================== */}
           {/* CARRIER / VENDOR DASHBOARD MODULES */}
+          {/* ============================================================== */}
           {activePortal === "vendor" && (
             <div className="space-y-6">
+              {/* SUB-TAB A: INCOMING ORDERS & DISPATCH */}
               {vendorSubTab === "orders" && (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2178,18 +2393,24 @@ export default function LogiComparePro() {
                   <div className="space-y-4">
                     {bookings.map((booking) => {
                       const rowForm = statusUpdateMap[booking.id] || { status: "", location: "", remarks: "" };
+
                       return (
                         <div key={booking.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
                           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                             <div className="flex items-center space-x-3">
                               <span className="font-mono text-base font-bold text-indigo-700">{booking.awb_number}</span>
-                              <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded capitalize font-medium">{booking.mode}</span>
-                              <span className="text-xs font-mono text-slate-500 font-semibold">{booking.origin_pin} → {booking.dest_pin}</span>
+                              <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded capitalize font-medium">
+                                {booking.mode}
+                              </span>
+                              <span className="text-xs font-mono text-slate-500 font-semibold">
+                                {booking.origin_pin} → {booking.dest_pin}
+                              </span>
                             </div>
+
                             <div className="flex items-center space-x-3 text-xs">
-                              <span className="text-slate-500">Status:</span>
+                              <span className="text-slate-500">Settlement:</span>
                               <span className="font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
-                                {booking.status}
+                                {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
                               </span>
                             </div>
                           </div>
@@ -2225,19 +2446,6 @@ export default function LogiComparePro() {
                               className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
                             />
 
-                            <input
-                              type="text"
-                              placeholder="Linehaul / Delivery Remarks"
-                              value={rowForm.remarks}
-                              onChange={(e) =>
-                                setStatusUpdateMap({
-                                  ...statusUpdateMap,
-                                  [booking.id]: { ...rowForm, remarks: e.target.value }
-                                })
-                              }
-                              className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
-                            />
-
                             <button
                               onClick={() => handleUpdateShipmentStatus(booking.id)}
                               className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-lg transition shadow-xs"
@@ -2252,13 +2460,13 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* Rate Card Master */}
+              {/* SUB-TAB B: RATE CARD MASTER + BULK CSV */}
               {vendorSubTab === "rates" && (
                 <div className="space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
-                      <p className="text-xs text-slate-500">Manage route tariffs or batch-publish via CSV</p>
+                      <p className="text-xs text-slate-500">Manage route tariffs individually or batch-publish via CSV</p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -2280,7 +2488,7 @@ export default function LogiComparePro() {
                     </div>
                   </div>
 
-                  {/* Bulk CSV Upload */}
+                  {/* Bulk Upload CSV Dropzone Panel */}
                   <div className="bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 space-y-4 shadow-xs">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                       <div>
@@ -2289,7 +2497,7 @@ export default function LogiComparePro() {
                           <span>Bulk Upload Rate Cards via CSV (City Names or Prefixes Supported)</span>
                         </h3>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Standard CSV format: <code className="font-mono text-indigo-700 font-semibold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
+                          Upload standard CSV with 9 columns: <code className="font-mono text-indigo-700 font-semibold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
                         </p>
                       </div>
 
@@ -2386,13 +2594,14 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* Bids */}
+              {/* SUB-TAB C: BID ON LIVE RFQS */}
               {vendorSubTab === "bids" && (
                 <div className="space-y-4">
                   <h2 className="text-lg font-bold text-slate-900">Live Heavy Cargo RFQ Exchange</h2>
                   <div className="grid grid-cols-1 gap-4">
                     {rfqList.map((rfq) => {
                       const form = bidFormMap[rfq.id] || { amount: 0, days: 0, notes: "" };
+
                       return (
                         <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
                           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -2402,6 +2611,7 @@ export default function LogiComparePro() {
                               </span>
                               <h4 className="text-base font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
                             </div>
+
                             <div className="text-right">
                               <span className="text-base font-black text-emerald-700">{formatINR(rfq.target_price)}</span>
                             </div>
@@ -2456,6 +2666,7 @@ export default function LogiComparePro() {
                                 />
                               </div>
                             </div>
+
                             <div className="flex justify-end">
                               <button
                                 onClick={() => handleSubmitVendorBid(rfq.id)}
@@ -2476,14 +2687,16 @@ export default function LogiComparePro() {
         </main>
       )}
 
+      {/* ============================================================== */}
       {/* MODAL 0: REVERSE CITY SEARCH TO PINCODE */}
+      {/* ============================================================== */}
       {showCitySearchModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Find PIN for {showCitySearchModal === "origin" ? "Origin" : "Destination"}
+                  Find PIN Code for {showCitySearchModal === "origin" ? "Origin" : "Destination"}
                 </h3>
                 <p className="text-xs text-slate-500">Search city or post office name across India</p>
               </div>
@@ -2534,308 +2747,200 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* MODAL 1: CHECKOUT & RAZORPAY PAYMENT SELECTION */}
+      {/* ============================================================== */}
+      {/* MODAL 1: DIRECT SHIPPER-TO-CARRIER CHECKOUT WITH 2% FEE */}
+      {/* ============================================================== */}
       {selectedQuoteForBooking && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-xl my-8">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-white border rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-xl my-8">
+            <div className="flex items-center justify-between border-b pb-3">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Commercial Consignment Booking & Payment</h3>
-                <p className="text-xs text-slate-500">
-                  Carrier: <strong className="text-indigo-700">{selectedQuoteForBooking.vendor.name}</strong> • Mode:{" "}
-                  <span className="uppercase font-semibold">{selectedQuoteForBooking.rateCard.mode}</span>
-                </p>
+                <h3 className="text-lg font-bold text-slate-900">Direct Consignment Booking & Carrier Settlement</h3>
+                <p className="text-xs text-slate-500">Transporter: <strong className="text-emerald-700">{selectedQuoteForBooking.vendor.name}</strong></p>
               </div>
-              <button onClick={() => setSelectedQuoteForBooking(null)} className="text-slate-400 hover:text-slate-700 p-1">
-                <XMarkIcon className="w-5 h-5" />
-              </button>
+              <button onClick={() => setSelectedQuoteForBooking(null)}><XMarkIcon className="w-5 h-5" /></button>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
-              <div>
-                <span className="text-xs text-slate-500 block">Total Freight Charges (with 18% GST)</span>
-                <span className="text-2xl font-black text-emerald-700">
-                  {formatINR(selectedQuoteForBooking.breakdown.total)}
-                </span>
+            {/* Price Split Notice */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-600">Direct Carrier Freight (Payable to Transporter):</span>
+                <span className="text-base font-bold text-slate-900">{formatINR(selectedQuoteForBooking.breakdown.freightSubtotal)}</span>
               </div>
-              <div className="text-right text-xs text-slate-600 font-mono">
-                <p>Billable: <strong>{selectedQuoteForBooking.billableWeight} kg</strong></p>
-                <p>Transit: <strong>{selectedQuoteForBooking.rateCard.sla_days} Days SLA</strong></p>
+              <div className="flex justify-between items-center text-indigo-700">
+                <span>Platform AWB & Verification Fee (2%, min ₹25):</span>
+                <span className="font-bold">₹{selectedQuoteForBooking.breakdown.platformConvenienceFee}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between items-center text-sm font-black text-emerald-800">
+                <span>Total Consignment Outlay:</span>
+                <span>{formatINR(selectedQuoteForBooking.breakdown.total)}</span>
               </div>
             </div>
 
+            {/* Direct Settlement Options */}
             <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Pickup Address & Warehouse Details</label>
-                <textarea
-                  rows={2}
-                  value={pickupAddress}
-                  onChange={(e) => setPickupAddress(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
-                />
-              </div>
+              <label className="block text-slate-800 font-bold">Choose How You Settle Freight with {selectedQuoteForBooking.vendor.name}:</label>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <label className={`p-3 rounded-xl border cursor-pointer ${settlementType === "direct_to_pay" ? "bg-emerald-50 border-emerald-300 ring-1 ring-emerald-300" : "bg-white border-slate-200"}`}>
+                  <input type="radio" checked={settlementType === "direct_to_pay"} onChange={() => setSettlementType("direct_to_pay")} className="text-emerald-600" />
+                  <span className="font-bold block mt-1 text-slate-900">💵 To-Pay at Delivery (POD)</span>
+                  <p className="text-[10px] text-slate-500">Pay cash/cheque to transporter upon parcel delivery.</p>
+                </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Consignee Business Name</label>
-                  <input
-                    type="text"
-                    value={consigneeName}
-                    onChange={(e) => setConsigneeName(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Consignee Phone</label>
-                  <input
-                    type="text"
-                    value={consigneePhone}
-                    onChange={(e) => setConsigneePhone(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Consignee GSTIN</label>
-                  <input
-                    type="text"
-                    maxLength={15}
-                    value={consigneeGstin}
-                    onChange={(e) => setConsigneeGstin(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
+                <label className={`p-3 rounded-xl border cursor-pointer ${settlementType === "direct_upi" ? "bg-emerald-50 border-emerald-300 ring-1 ring-emerald-300" : "bg-white border-slate-200"}`}>
+                  <input type="radio" checked={settlementType === "direct_upi"} onChange={() => setSettlementType("direct_upi")} className="text-emerald-600" />
+                  <span className="font-bold block mt-1 text-slate-900">📲 Direct Carrier UPI / Bank</span>
+                  <p className="text-[10px] text-slate-500">Transfer freight direct to carrier's UPI handle.</p>
+                </label>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Delivery Destination Address</label>
-                <textarea
-                  rows={2}
-                  value={deliveryAddress}
-                  onChange={(e) => setDeliveryAddress(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
-                />
-              </div>
-
-              <div className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/50 space-y-2">
-                <label className="block text-slate-800 font-bold">Select Payment Settlement Method</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <label
-                    className={`flex items-start space-x-2.5 p-3 rounded-xl border cursor-pointer transition ${
-                      paymentMethod === "razorpay"
-                        ? "bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200"
-                        : "bg-white border-slate-200"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="payment_opt"
-                      checked={paymentMethod === "razorpay"}
-                      onChange={() => setPaymentMethod("razorpay")}
-                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-900 flex items-center space-x-1">
-                        <span>💳 Pay Online (Razorpay)</span>
-                        <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold">Instant</span>
-                      </span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">UPI, Debit/Credit Cards & Corporate NetBanking. Verified settlement.</p>
-                    </div>
-                  </label>
-
-                  <label
-                    className={`flex items-start space-x-2.5 p-3 rounded-xl border cursor-pointer transition ${
-                      paymentMethod === "b2b_credit"
-                        ? "bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200"
-                        : "bg-white border-slate-200"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="payment_opt"
-                      checked={paymentMethod === "b2b_credit"}
-                      onChange={() => setPaymentMethod("b2b_credit")}
-                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <div>
-                      <span className="font-bold text-slate-900">🏢 B2B Postpaid Invoice / To-Pay</span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">Pay at consignment collection or via registered GST corporate credit terms.</p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-1">
-                <label className="flex items-start space-x-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={termsAccepted}
-                    onChange={(e) => setTermsAccepted(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                  />
-                  <span className="text-[11px] text-slate-600 leading-relaxed">
-                    I confirm this shipment contains no{" "}
-                    <button type="button" onClick={() => openLegalModal("prohibited")} className="text-indigo-600 font-semibold underline">
-                      prohibited or hazardous cargo
-                    </button>
-                    , the weight/dimensions are accurate, and I accept the{" "}
-                    <button type="button" onClick={() => openLegalModal("terms")} className="text-indigo-600 font-semibold underline">
-                      Terms & Conditions
-                    </button>
-                    ,{" "}
-                    <button type="button" onClick={() => openLegalModal("privacy")} className="text-indigo-600 font-semibold underline">
-                      Privacy Policy
-                    </button>
-                    , and{" "}
-                    <button type="button" onClick={() => openLegalModal("refund")} className="text-indigo-600 font-semibold underline">
-                      Refund & Cancellation Policy
-                    </button>
-                    .
-                  </span>
+                <label className={`p-3 rounded-xl border cursor-pointer ${settlementType === "corporate_credit" ? "bg-emerald-50 border-emerald-300 ring-1 ring-emerald-300" : "bg-white border-slate-200"}`}>
+                  <input type="radio" checked={settlementType === "corporate_credit"} onChange={() => setSettlementType("corporate_credit")} className="text-emerald-600" />
+                  <span className="font-bold block mt-1 text-slate-900">🏢 B2B Monthly Credit</span>
+                  <p className="text-[10px] text-slate-500">Carrier will bill under your pre-approved GST credit terms.</p>
                 </label>
               </div>
+
+              {settlementType === "direct_upi" && (
+                <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200 space-y-2">
+                  <div className="flex justify-between items-center font-mono">
+                    <span className="text-emerald-900 font-bold">Carrier UPI ID:</span>
+                    <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900">{selectedQuoteForBooking.vendor.upi_id || "delhivery.b2b@icici"}</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-600 mb-1">Payment Reference / UTR Number (Optional):</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 340982710123"
+                      value={directPaymentUtr}
+                      onChange={(e) => setDirectPaymentUtr(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded p-1.5 font-mono text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Warehouse Details */}
+              <div className="space-y-2 pt-2">
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-0.5">Pickup Address</label>
+                  <input type="text" value={pickupAddress} onChange={(e) => setPickupAddress(e.target.value)} className="w-full border rounded p-1.5" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-0.5">Consignee Name</label>
+                    <input type="text" value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} className="w-full border rounded p-1.5" />
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-0.5">Consignee Phone</label>
+                    <input type="text" value={consigneePhone} onChange={(e) => setConsigneePhone(e.target.value)} className="w-full border rounded p-1.5" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-0.5">Delivery Destination Address</label>
+                  <input type="text" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className="w-full border rounded p-1.5" />
+                </div>
+              </div>
+
+              <label className="flex items-start space-x-2 pt-1 cursor-pointer">
+                <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} className="mt-0.5" />
+                <span className="text-[11px] text-slate-600">
+                  I agree to settle freight directly with {selectedQuoteForBooking.vendor.name} under GTA guidelines.
+                </span>
+              </label>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 border-t border-slate-100 pt-3">
+            <div className="flex justify-end space-x-3 border-t pt-3">
+              <button onClick={() => setSelectedQuoteForBooking(null)} className="px-3 py-1.5 text-xs text-slate-600">Cancel</button>
               <button
-                type="button"
-                onClick={() => setSelectedQuoteForBooking(null)}
-                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
                 disabled={isSubmittingBooking || !termsAccepted}
-                onClick={handleConfirmBooking}
-                className={`px-5 py-2.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shadow-xs ${
-                  termsAccepted
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                }`}
+                onClick={handleConfirmDirectBooking}
+                className="bg-emerald-600 text-white font-bold px-5 py-2 rounded-lg text-xs shadow-xs"
               >
-                <span>
-                  {isSubmittingBooking
-                    ? "Processing..."
-                    : paymentMethod === "razorpay"
-                    ? "Pay via Razorpay & Generate AWB"
-                    : "Confirm B2B Booking & Generate AWB"}
-                </span>
-                <CheckCircleIcon className="w-4 h-4" />
+                Confirm Direct Booking & Generate AWB
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* MODAL 2: PRINTABLE COMMERCIAL AWB SHIPPING LABEL */}
+      {/* ============================================================== */}
       {printableBooking && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white text-slate-950 rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-4 print:p-0 print:m-0 print:border-none print:shadow-none">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3 print:hidden">
-              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Commercial Airway Bill (AWB)</span>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => window.print()}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
-                >
-                  <PrinterIcon className="w-4 h-4" />
-                  <span>Print Label (A4 / 4x6)</span>
-                </button>
-                <button onClick={() => setPrintableBooking(null)} className="text-slate-500 hover:text-slate-800 p-1">
-                  <XMarkIcon className="w-5 h-5" />
-                </button>
+          <div className="bg-white text-slate-950 rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-4 print:p-0">
+            <div className="flex items-center justify-between border-b pb-3 print:hidden">
+              <span className="text-xs font-bold text-slate-600">Commercial Airway Bill (AWB)</span>
+              <div className="flex space-x-2">
+                <button onClick={() => window.print()} className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold">Print Label</button>
+                <button onClick={() => setPrintableBooking(null)}><XMarkIcon className="w-5 h-5" /></button>
               </div>
             </div>
 
             <div className="border-4 border-black p-4 space-y-3 font-sans text-black">
-              <div className="flex items-center justify-between border-b-2 border-black pb-2">
+              <div className="flex justify-between border-b-2 border-black pb-2">
                 <div>
-                  <h2 className="text-xl font-black uppercase tracking-tight">{printableBooking.vendors?.name || "LOGICOMPARE B2B"}</h2>
-                  <p className="text-[10px] uppercase font-bold tracking-wider">STANDARD CARGO CONSIGNMENT NOTE</p>
+                  <h2 className="text-xl font-black">{printableBooking.vendors?.name || "DIRECT CARRIER"}</h2>
+                  <p className="text-[9px] uppercase font-bold">DIRECT B2B CONSIGNMENT NOTE</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-2xl font-black font-mono">
-                    HUB-{printableBooking.origin_pin.slice(0, 3)} / HUB-{printableBooking.dest_pin.slice(0, 3)}
-                  </span>
-                  <p className="text-[10px] font-bold uppercase">{printableBooking.mode} FREIGHT EXPRESS</p>
+                  <span className="text-xl font-black font-mono">HUB-{printableBooking.origin_pin.slice(0, 3)} / HUB-{printableBooking.dest_pin.slice(0, 3)}</span>
+                  <p className="text-[9px] font-bold uppercase">{printableBooking.mode} FREIGHT</p>
                 </div>
               </div>
 
               {/* Barcode Mock */}
               <div className="text-center py-2 border-b-2 border-black space-y-1">
-                <div className="flex justify-center items-center space-x-1 h-14 overflow-hidden">
+                <div className="flex justify-center items-center space-x-1 h-12">
                   {[2, 1, 3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 3, 4, 1, 2, 3, 2, 4, 1].map((w, i) => (
                     <div key={i} className="bg-black h-full" style={{ width: `${w * 2.5}px` }} />
                   ))}
                 </div>
-                <span className="text-lg font-mono font-black tracking-widest block">{printableBooking.awb_number}</span>
+                <span className="text-lg font-mono font-black">{printableBooking.awb_number}</span>
               </div>
 
               <div className="grid grid-cols-2 gap-3 border-b-2 border-black pb-2 text-xs">
-                <div className="border-r border-black pr-2">
-                  <span className="text-[9px] font-black uppercase block">SHIPPER (FROM):</span>
+                <div>
+                  <span className="text-[9px] font-black uppercase block">SHIPPER:</span>
                   <p className="font-bold">{printableBooking.shipper_name}</p>
-                  <p className="text-[10px] leading-tight">{printableBooking.pickup_address}</p>
-                  <p className="text-[10px] font-mono mt-1">PIN: <strong>{printableBooking.origin_pin}</strong></p>
-                  <p className="text-[10px] font-mono">GSTIN: {printableBooking.shipper_gstin}</p>
+                  <p className="text-[10px]">{printableBooking.pickup_address} (PIN: {printableBooking.origin_pin})</p>
                 </div>
-
                 <div>
-                  <span className="text-[9px] font-black uppercase block">CONSIGNEE (TO):</span>
+                  <span className="text-[9px] font-black uppercase block">CONSIGNEE:</span>
                   <p className="font-bold">{printableBooking.consignee_name}</p>
-                  <p className="text-[10px] leading-tight">{printableBooking.delivery_address}</p>
-                  <p className="text-[10px] font-mono mt-1">PIN: <strong>{printableBooking.dest_pin}</strong></p>
-                  <p className="text-[10px] font-mono">GSTIN: {printableBooking.consignee_gstin}</p>
-                  <p className="text-[10px]">Ph: {printableBooking.consignee_phone}</p>
+                  <p className="text-[10px]">{printableBooking.delivery_address} (PIN: {printableBooking.dest_pin})</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-center border-b-2 border-black pb-2 text-xs">
-                <div>
-                  <span className="text-[9px] font-bold uppercase block">BOXES</span>
-                  <span className="text-sm font-black">{printableBooking.boxes?.length || 1} PKGS</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold uppercase block">ACTUAL WT</span>
-                  <span className="text-sm font-black">{printableBooking.actual_weight} KG</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold uppercase block">BILLABLE WT</span>
-                  <span className="text-sm font-black">{printableBooking.billable_weight} KG</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold uppercase block">VALUE</span>
-                  <span className="text-sm font-black">{formatINR(printableBooking.declared_value)}</span>
-                </div>
-              </div>
-
-              <div className="border-b-2 border-black pb-2 flex items-center justify-between text-[10px]">
-                <div>
-                  <span className="font-bold">PAYMENT REFERENCE: </span>
-                  <span className="font-mono">{printableBooking.cost_breakdown?.payment_ref || "PAID-ONLINE"}</span>
-                </div>
+              <div className="border-b-2 border-black pb-2 flex justify-between text-[11px]">
                 <div>
                   <span className="font-bold">SETTLEMENT: </span>
-                  <span>{printableBooking.cost_breakdown?.payment_method || "Razorpay Online"}</span>
+                  <span className="font-mono uppercase font-black">{printableBooking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}</span>
+                </div>
+                <div>
+                  <span className="font-bold">DIRECT FREIGHT: </span>
+                  <span className="font-black">{formatINR(printableBooking.cost_breakdown?.freightSubtotal || printableBooking.final_total)}</span>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-1 text-[9px] leading-tight text-slate-700">
-                <div className="space-y-0.5">
-                  <p className="font-bold">HANDLE WITH CARE • B2B COMMERCIAL FREIGHT</p>
-                  <p>Carrier liability subject to Carriage of Goods by Road Act, 2007.</p>
-                  <p className="font-mono">Created: {new Date(printableBooking.created_at).toLocaleString("en-IN")}</p>
-                </div>
-                <div className="w-12 h-12 border-2 border-black flex items-center justify-center font-mono font-bold text-[8px] text-center">
-                  SCAN QR
-                </div>
+              <div className="border-b-2 border-black pb-2 flex justify-between text-[10px] text-slate-700">
+                <span>Platform Convenience Fee (2%): ₹{printableBooking.cost_breakdown?.platformConvenienceFee || MERCHANT_DETAILS.minPlatformFeeINR}</span>
+                <span>Total Consignment: {formatINR(printableBooking.final_total)}</span>
+              </div>
+
+              <div className="flex justify-between pt-1 text-[9px] text-slate-700">
+                <p>Governed by Carriage by Road Act 2007. Verified on LogiCompare Pro.</p>
+                <p className="font-mono">{new Date(printableBooking.created_at).toLocaleDateString("en-IN")}</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* MODAL 3: MANUAL RATE CARD PUBLISHER */}
+      {/* ============================================================== */}
       {showAddRateCard && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl my-8">
@@ -2959,7 +3064,9 @@ export default function LogiComparePro() {
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* MODAL 4: AUTHENTICATION MODAL */}
+      {/* ============================================================== */}
       {showAuthModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -3071,7 +3178,9 @@ export default function LogiComparePro() {
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* MODAL 5: RAZORPAY-COMPLIANT LEGAL MODAL */}
+      {/* ============================================================== */}
       {showLegalModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
@@ -3146,10 +3255,10 @@ export default function LogiComparePro() {
                 <div className="space-y-2.5">
                   <h4 className="font-bold text-slate-900 text-sm">Refund & Cancellation Policy</h4>
                   <p>
-                    <strong>1. Cancellation Prior to Pickup:</strong> Consignments cancelled before carrier pickup attempt qualify for a <strong>100% full refund</strong>.
+                    <strong>1. Cancellation Prior to Pickup:</strong> Consignments cancelled before carrier pickup attempt qualify for a <strong>100% full refund</strong> of platform verification fees.
                   </p>
                   <p>
-                    <strong>2. Refund Mode & Settlement Timeframe:</strong> All approved refunds are processed back to the original source account (UPI, credit/debit card, or bank account) via <strong>Razorpay</strong>. The standard refund credit window is <strong>5 to 7 business days</strong>.
+                    <strong>2. Refund Mode & Settlement Timeframe:</strong> All approved refunds are processed back to the original source account via Razorpay. The standard refund credit window is <strong>5 to 7 business days</strong>.
                   </p>
                 </div>
               )}
@@ -3207,7 +3316,9 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* FOOTER */}
+      {/* ============================================================== */}
+      {/* EXTENDED RAZORPAY-COMPLIANT GLOBAL FOOTER */}
+      {/* ============================================================== */}
       <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-100 pb-6">
