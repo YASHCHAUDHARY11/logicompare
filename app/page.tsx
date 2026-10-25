@@ -12,7 +12,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // ==========================================
 // OFFICIAL MERCHANT & COMPLIANCE CONSTANTS (RAZORPAY KYC)
 // ==========================================
-export const MERCHANT_DETAILS = {
+const MERCHANT_DETAILS = {
   proprietor: "Yash Chaudhary",
   platformName: "LogiCompare Pro",
   category: "B2B Freight & Logistics Marketplace Aggregator",
