@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // Safe Supabase client initialization
@@ -154,6 +154,22 @@ export interface UserProfile {
   vendor_id?: string;
 }
 
+export interface ParsedCsvRateCard {
+  origin_prefix: string;
+  dest_prefix: string;
+  mode: "surface" | "air" | "ftl";
+  min_weight_kg: number;
+  base_rate: number;
+  per_kg_rate: number;
+  fuel_surcharge_pct: number;
+  docket_charge: number;
+  sla_days: number;
+  fov_pct?: number;
+  oda_charge?: number;
+  handling_per_kg?: number;
+  is_active?: boolean;
+}
+
 // Fallback Indian Logistics Seed
 const FALLBACK_VENDORS: Vendor[] = [
   { id: "11111111-1111-1111-1111-111111111111", name: "Delhivery B2B Express", badge: "Market Leader", rating: 4.8, gstin: "06AAACD9876Q1ZB", fleet_types: ["Surface Express", "Air Express", "Part Truck Load"] },
@@ -291,6 +307,18 @@ const CreditCardIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   </svg>
 );
 
+const DownloadIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+  </svg>
+);
+
+const UploadIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+  </svg>
+);
+
 // ==========================================
 // MAIN COMPONENT
 // ==========================================
@@ -392,7 +420,7 @@ export default function LogiComparePro() {
   // Vendor Status Update Row State
   const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string }>>({});
 
-  // Rate Card Publish Modal
+  // Rate Card Publish Modal (Manual Form)
   const [showAddRateCard, setShowAddRateCard] = useState(false);
   const [newRateCard, setNewRateCard] = useState({
     origin_prefix: "110",
@@ -408,6 +436,14 @@ export default function LogiComparePro() {
     handling_per_kg: 2,
     sla_days: 3
   });
+
+  // Bulk CSV Upload State
+  const [csvFileName, setCsvFileName] = useState("");
+  const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRateCard[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
+  const [csvUploadStatus, setCsvUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // RFQ Vendor Bidding State
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
@@ -762,7 +798,7 @@ export default function LogiComparePro() {
     }
   };
 
-  // Publish Rate Card
+  // Publish Rate Card (Manual Form)
   const handlePublishRateCard = async (e: React.FormEvent) => {
     e.preventDefault();
     const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
@@ -788,6 +824,158 @@ export default function LogiComparePro() {
       alert("New Rate Card published and active!");
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // ==========================================
+  // BULK CSV RATE CARD HANDLERS
+  // ==========================================
+  const handleDownloadSampleCsv = () => {
+    const csvHeader = "origin_prefix,dest_prefix,mode,min_weight_kg,base_rate,per_kg_rate,fuel_surcharge_pct,docket_charge,sla_days\n";
+    const sampleRows = [
+      "110,400,surface,20,450,14.5,12.5,150,3",
+      "110,560,air,5,850,48,18,250,1",
+      "400,700,surface,25,500,16,12.5,150,4",
+      "560,600,surface,15,300,9.5,10,120,2",
+      "%,%,ftl,500,8500,6.5,15,500,5"
+    ].join("\n");
+
+    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "logicompare_rate_card_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvFileName(file.name);
+    setCsvUploadStatus(null);
+    setCsvErrors([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) throw new Error("Empty file content");
+
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length <= 1) {
+          throw new Error("CSV file must contain a header row and at least one data row.");
+        }
+
+        const rows: ParsedCsvRateCard[] = [];
+        const errors: string[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map((c) => c.trim());
+          if (cols.length < 9) {
+            errors.push(`Row ${i + 1}: Expected 9 columns, found ${cols.length}`);
+            continue;
+          }
+
+          const [orig, dest, modeRaw, minWtRaw, baseRateRaw, perKgRaw, fuelRaw, docketRaw, slaRaw] = cols;
+          const modeClean = modeRaw.toLowerCase();
+
+          if (!orig || !dest) {
+            errors.push(`Row ${i + 1}: Origin/Destination prefix cannot be empty.`);
+            continue;
+          }
+
+          if (!["surface", "air", "ftl"].includes(modeClean)) {
+            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be 'surface', 'air', or 'ftl'.`);
+            continue;
+          }
+
+          const min_weight_kg = parseFloat(minWtRaw);
+          const base_rate = parseFloat(baseRateRaw);
+          const per_kg_rate = parseFloat(perKgRaw);
+          const fuel_surcharge_pct = parseFloat(fuelRaw);
+          const docket_charge = parseFloat(docketRaw);
+          const sla_days = parseInt(slaRaw, 10);
+
+          if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days].some(isNaN)) {
+            errors.push(`Row ${i + 1}: Numeric fields contain invalid or non-numeric values.`);
+            continue;
+          }
+
+          rows.push({
+            origin_prefix: orig,
+            dest_prefix: dest,
+            mode: modeClean as "surface" | "air" | "ftl",
+            min_weight_kg,
+            base_rate,
+            per_kg_rate,
+            fuel_surcharge_pct,
+            docket_charge,
+            sla_days,
+            fov_pct: 0.2,
+            oda_charge: 450,
+            handling_per_kg: 2,
+            is_active: true
+          });
+        }
+
+        setParsedCsvRows(rows);
+        setCsvErrors(errors);
+
+        if (rows.length === 0 && errors.length > 0) {
+          setCsvUploadStatus({ type: "error", message: "Failed to parse any valid rate cards from this CSV." });
+        }
+      } catch (err: any) {
+        setCsvUploadStatus({ type: "error", message: err.message || "Failed to process CSV file." });
+        setParsedCsvRows([]);
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleBatchInsertRateCards = async () => {
+    if (parsedCsvRows.length === 0) return;
+    setIsUploadingCsv(true);
+    setCsvUploadStatus(null);
+
+    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const payload = parsedCsvRows.map((r) => ({
+      ...r,
+      vendor_id: vendorId
+    }));
+
+    try {
+      const { data, error } = await supabase.from("rate_cards").insert(payload).select("*, vendors(*)");
+
+      if (!error && data && data.length > 0) {
+        setRateCards([...(data as RateCard[]), ...rateCards]);
+      } else {
+        // Fallback local persistence if database is offline or demo
+        const localCards: RateCard[] = payload.map((p, idx) => ({
+          ...(p as RateCard),
+          id: `rc-bulk-${Date.now()}-${idx}`,
+          vendors: vendors.find((v) => v.id === vendorId)
+        }));
+        setRateCards([...localCards, ...rateCards]);
+      }
+
+      setCsvUploadStatus({
+        type: "success",
+        message: `Successfully published ${parsedCsvRows.length} lane routes to the active freight matrix!`
+      });
+      setParsedCsvRows([]);
+      setCsvFileName("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err: any) {
+      setCsvUploadStatus({
+        type: "error",
+        message: err.message || "Failed to batch insert rate cards into database."
+      });
+    } finally {
+      setIsUploadingCsv(false);
     }
   };
 
@@ -942,25 +1130,21 @@ export default function LogiComparePro() {
           {/* 1. HERO SECTION */}
           <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50/70 via-white to-slate-50 pt-12 pb-16 px-4 lg:px-8 border-b border-slate-200">
             <div className="max-w-6xl mx-auto text-center space-y-6">
-              {/* Trust Badge */}
               <div className="inline-flex items-center space-x-2 bg-indigo-50 border border-indigo-200 text-indigo-800 px-3.5 py-1.5 rounded-full text-xs font-bold tracking-wide shadow-xs">
                 <span>🇮🇳</span>
                 <span>Built for Indian B2B Supply Chains, Manufacturers & Cargo Shippers</span>
               </div>
 
-              {/* Main Headline */}
               <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-tight max-w-4xl mx-auto">
                 Compare Multi-Carrier B2B Freight Rates & Book Consignments in{" "}
                 <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8">60 Seconds</span>.
               </h1>
 
-              {/* Subheadline */}
               <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
                 LogiCompare Pro eliminates opaque transporter quotes. Instantly calculate billable volumetric weights (Surface 4500 / Air 5000), ODA surcharges, 
                 0.2% FOV transit risk coverage, fuel percentages, and 18% GST across India's premier B2B carrier networks.
               </p>
 
-              {/* Primary Action Buttons */}
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   onClick={handleLandingJumpToCompare}
@@ -978,7 +1162,6 @@ export default function LogiComparePro() {
                 </button>
               </div>
 
-              {/* Quick AWB Track Widget Inside Hero */}
               <div className="pt-6 max-w-xl mx-auto">
                 <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-md flex flex-col sm:flex-row items-center gap-2">
                   <div className="flex items-center space-x-2 px-3 py-1 text-slate-400 w-full sm:w-auto">
@@ -1044,7 +1227,6 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* Carrier Logos Strip */}
             <div className="pt-6 text-center space-y-3">
               <span className="text-xs uppercase font-bold text-slate-600 tracking-wider">
                 Direct Integration With India's Top Rated Commercial Carriers
@@ -1072,7 +1254,6 @@ export default function LogiComparePro() {
                 Whether you are a manufacturing business booking daily pallets or a carrier managing rate cards, our unified platform orchestrates the complete lifecycle.
               </p>
 
-              {/* Workflow Toggle */}
               <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
                 <button
                   onClick={() => setLandingWorkflowTab("shipper")}
@@ -1093,7 +1274,6 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* Workflow Steps Cards */}
             {landingWorkflowTab === "shipper" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
@@ -2041,7 +2221,7 @@ export default function LogiComparePro() {
                           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                             <div>
                               <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
-                                {rfq.origin_pin} → {rfq.dest_pin}
+                                PIN {rfq.origin_pin} → {rfq.dest_pin}
                               </span>
                               <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
                             </div>
@@ -2145,7 +2325,6 @@ export default function LogiComparePro() {
                             </div>
                           </div>
 
-                          {/* Interactive Status Dispatch Form */}
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
                             <select
                               value={rowForm.status}
@@ -2204,23 +2383,168 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* SUB-TAB B: RATE CARD MASTER */}
+              {/* SUB-TAB B: RATE CARD MASTER + BULK CSV UPLOAD */}
               {vendorSubTab === "rates" && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                <div className="space-y-6">
+                  {/* Action Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
-                      <p className="text-xs text-slate-500">Configure base rates, per kg rates, fuel indexes, and ODA surcharges</p>
+                      <p className="text-xs text-slate-500">Manage route tariffs individually or batch-publish hundreds of lanes via CSV</p>
                     </div>
-                    <button
-                      onClick={() => setShowAddRateCard(true)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm"
-                    >
-                      <PlusIcon className="w-3.5 h-3.5" />
-                      <span>Publish New Rate Card</span>
-                    </button>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={handleDownloadSampleCsv}
+                        className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-xs transition"
+                      >
+                        <DownloadIcon className="w-4 h-4 text-indigo-600" />
+                        <span>📥 Download Sample Rate Card CSV</span>
+                      </button>
+
+                      <button
+                        onClick={() => setShowAddRateCard(true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
+                      >
+                        <PlusIcon className="w-3.5 h-3.5" />
+                        <span>Add Route Manually</span>
+                      </button>
+                    </div>
                   </div>
 
+                  {/* Bulk Upload CSV Dropzone Panel */}
+                  <div className="bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 space-y-4 shadow-xs">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                          <UploadIcon className="w-4 h-4 text-indigo-600" />
+                          <span>Bulk Upload Rate Cards via CSV</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Upload standard CSV with columns: <code className="font-mono text-indigo-700 font-semibold text-[11px]">origin_prefix, dest_prefix, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
+                        </p>
+                      </div>
+
+                      {parsedCsvRows.length > 0 && (
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => {
+                              setParsedCsvRows([]);
+                              setCsvFileName("");
+                              setCsvErrors([]);
+                              if (fileInputRef.current) fileInputRef.current.value = "";
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded"
+                          >
+                            Clear
+                          </button>
+                          <button
+                            disabled={isUploadingCsv}
+                            onClick={handleBatchInsertRateCards}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-sm flex items-center space-x-1.5"
+                          >
+                            <CheckCircleIcon className="w-4 h-4" />
+                            <span>{isUploadingCsv ? "Publishing Routes..." : `Publish All ${parsedCsvRows.length} Routes`}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* File Picker Area */}
+                    <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50/70 rounded-xl border border-slate-200 text-center space-y-2">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept=".csv,text/csv"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="csv-rate-card-upload"
+                      />
+                      <label
+                        htmlFor="csv-rate-card-upload"
+                        className="bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-2"
+                      >
+                        <UploadIcon className="w-4 h-4 text-indigo-600" />
+                        <span>{csvFileName ? `Replace (${csvFileName})` : "Select Rate Card CSV File"}</span>
+                      </label>
+                      <p className="text-[11px] text-slate-500">
+                        {csvFileName ? `Selected: ${csvFileName}` : "Drag and drop or click to upload .csv file from your computer"}
+                      </p>
+                    </div>
+
+                    {/* Status Feedback */}
+                    {csvUploadStatus && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-medium border ${
+                          csvUploadStatus.type === "success"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            : "bg-rose-50 text-rose-800 border-rose-200"
+                        }`}
+                      >
+                        {csvUploadStatus.message}
+                      </div>
+                    )}
+
+                    {/* Parser Error Log */}
+                    {csvErrors.length > 0 && (
+                      <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+                        <span className="font-bold block">⚠️ Validation Warnings ({csvErrors.length} issues skipped):</span>
+                        <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                          {csvErrors.slice(0, 4).map((err, idx) => (
+                            <li key={idx}>{err}</li>
+                          ))}
+                          {csvErrors.length > 4 && <li>...and {csvErrors.length - 4} more rows skipped.</li>}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* CSV Parsed Rows Preview Table */}
+                    {parsedCsvRows.length > 0 && (
+                      <div className="space-y-2 pt-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-800">
+                            Ready to publish {parsedCsvRows.length} routes for {currentUser.company_name}
+                          </span>
+                          <span className="text-slate-500 text-[11px]">Previewing first 5 rows</span>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                          <table className="w-full text-left text-xs text-slate-700">
+                            <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] border-b border-slate-200">
+                              <tr>
+                                <th className="py-2 px-3">Origin</th>
+                                <th className="py-2 px-3">Dest</th>
+                                <th className="py-2 px-3">Mode</th>
+                                <th className="py-2 px-3">Min Wt</th>
+                                <th className="py-2 px-3">Base</th>
+                                <th className="py-2 px-3">Per Kg</th>
+                                <th className="py-2 px-3">Fuel %</th>
+                                <th className="py-2 px-3">Docket</th>
+                                <th className="py-2 px-3">SLA</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                              {parsedCsvRows.slice(0, 5).map((row, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/70">
+                                  <td className="py-2 px-3 font-bold text-indigo-700">{row.origin_prefix}</td>
+                                  <td className="py-2 px-3 font-bold text-indigo-700">{row.dest_prefix}</td>
+                                  <td className="py-2 px-3 font-sans uppercase font-medium">{row.mode}</td>
+                                  <td className="py-2 px-3">{row.min_weight_kg}kg</td>
+                                  <td className="py-2 px-3">₹{row.base_rate}</td>
+                                  <td className="py-2 px-3">₹{row.per_kg_rate}/kg</td>
+                                  <td className="py-2 px-3">{row.fuel_surcharge_pct}%</td>
+                                  <td className="py-2 px-3">₹{row.docket_charge}</td>
+                                  <td className="py-2 px-3 font-sans">{row.sla_days}d</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Active Rate Cards Table */}
                   <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
                     <table className="w-full text-left text-xs text-slate-700">
                       <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
@@ -2388,7 +2712,6 @@ export default function LogiComparePro() {
               </button>
             </div>
 
-            {/* Total Fare Card */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
               <div>
                 <span className="text-xs text-slate-500 block">Total Freight Charges (with 18% GST)</span>
@@ -2402,7 +2725,6 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* Address Fields */}
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Pickup Address & Warehouse Details</label>
@@ -2701,7 +3023,7 @@ export default function LogiComparePro() {
       )}
 
       {/* ============================================================== */}
-      {/* MODAL 3: PUBLISH NEW RATE CARD (VENDOR) */}
+      {/* MODAL 3: PUBLISH NEW RATE CARD (MANUAL MODAL) */}
       {/* ============================================================== */}
       {showAddRateCard && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -2956,7 +3278,6 @@ export default function LogiComparePro() {
               </button>
             </div>
 
-            {/* Interactive Tab Switcher */}
             <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-2">
               {[
                 { id: "terms", label: "Terms & Conditions" },
@@ -2980,7 +3301,6 @@ export default function LogiComparePro() {
               ))}
             </div>
 
-            {/* Tab Contents */}
             <div className="text-xs text-slate-600 space-y-3 max-h-96 overflow-y-auto pr-2 leading-relaxed">
               {legalModalTab === "terms" && (
                 <div className="space-y-2.5">
@@ -3119,7 +3439,6 @@ export default function LogiComparePro() {
       <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-100 pb-6">
-            {/* Column 1: Brand & Registration */}
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
@@ -3135,7 +3454,6 @@ export default function LogiComparePro() {
               </p>
             </div>
 
-            {/* Column 2: Official Merchant Contact (Razorpay Spec) */}
             <div className="space-y-1.5">
               <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">Merchant Contact & Grievance</span>
               <p className="text-[11px]"><strong>Proprietor:</strong> {MERCHANT_DETAILS.proprietor}</p>
@@ -3150,7 +3468,6 @@ export default function LogiComparePro() {
               </p>
             </div>
 
-            {/* Column 3: Quick Legal Links */}
             <div className="space-y-2">
               <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">Governance & Policies</span>
               <div className="grid grid-cols-2 gap-1.5 text-[11px] font-semibold text-slate-600">
@@ -3169,7 +3486,6 @@ export default function LogiComparePro() {
             </div>
           </div>
 
-          {/* Bottom Copyright Strip */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-500 text-[11px]">
             <p>© 2026 {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.proprietor}). All rights reserved across India.</p>
             <div className="flex items-center space-x-3">
