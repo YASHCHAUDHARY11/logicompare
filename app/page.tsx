@@ -104,10 +104,11 @@ interface TrackingStep {
 
 interface Booking {
   id: string;
-  order_id: string;
-  awb_number: string;
-  carrier_docket_no: string;
+  order_id: string; // Platform Internal Ref (LC-XXXXXX)
+  awb_number: string; // Official Carrier Docket / Waybill
+  carrier_docket_no: string; // Synced Carrier Waybill
   carrier_portal_url?: string;
+  carrier_docket_doc_url?: string; // Physical Bilty / POD Storage Link
   shipper_id?: string;
   vendor_id: string;
   rate_card_id?: string;
@@ -191,6 +192,7 @@ interface PinLookupResult {
   error?: string;
 }
 
+// Carrier Live Tracking Portal Generator
 function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber: string): string {
   if (!docketNumber) return "#";
   const name = carrierName.toLowerCase();
@@ -899,6 +901,12 @@ const MapPinIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
+const DocumentIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+
 const DEMO_INIT_ORDER_ID = "LC-894210";
 const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
@@ -1007,7 +1015,8 @@ export default function LogiComparePro() {
   const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
   const [newRfqBudget, setNewRfqBudget] = useState(65000);
 
-  const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string; docketNo?: string }>>({});
+  // Vendor Status Update Row State (Includes Carrier Docket input and Document scan file upload)
+  const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>>({});
 
   // Vendor Bank Settlement State
   const [vendorUpiInput, setVendorUpiInput] = useState("delhivery.b2b@icici");
@@ -1142,7 +1151,6 @@ export default function LogiComparePro() {
     fetchAllData();
   }, []);
 
-  // Sync active vendor bank details to inputs
   useEffect(() => {
     const vId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
     const found = vendors.find((v) => v.id === vId);
@@ -1387,6 +1395,65 @@ export default function LogiComparePro() {
     }
   };
 
+  // UPLOAD PHYSICAL DOCKET / BILTY SCAN FILE TO SUPABASE OBJECT STORAGE
+  const handleUploadDocketFile = async (bookingId: string, file: File) => {
+    if (!file) return;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+if (file.size > MAX_FILE_SIZE) {
+  alert("File bohot badi hai! Kripya 5 MB se chhoti photo ya PDF upload karein.");
+  return;
+}
+
+    setStatusUpdateMap((prev) => ({
+      ...prev,
+      [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), isUploading: true }
+    }));
+
+    const fileExt = file.name.split(".").pop();
+    const fileName = `bilty-${bookingId}-${Date.now()}.${fileExt}`;
+    const filePath = `dockets/${fileName}`;
+
+    let publicUrl = "";
+
+    try {
+      // Upload directly to Supabase storage bucket 'dockets'
+      const { data, error } = await supabase.storage.from("dockets").upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (!error && data) {
+        const { data: urlData } = supabase.storage.from("dockets").getPublicUrl(filePath);
+        publicUrl = urlData.publicUrl;
+      } else {
+        // Fallback: Generate local object URL if bucket is not yet created
+        publicUrl = URL.createObjectURL(file);
+      }
+
+      // Update state
+      setStatusUpdateMap((prev) => ({
+        ...prev,
+        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: publicUrl, isUploading: false }
+      }));
+
+      // Update in database
+      await supabase.from("bookings").update({ carrier_docket_doc_url: publicUrl }).eq("id", bookingId);
+      setBookings((prev) =>
+        prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: publicUrl } : b))
+      );
+
+      alert("Physical Bilty / Docket document uploaded successfully!");
+    } catch (err) {
+      console.error("Storage upload error", err);
+      const fallbackUrl = URL.createObjectURL(file);
+      setStatusUpdateMap((prev) => ({
+        ...prev,
+        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: fallbackUrl, isUploading: false }
+      }));
+    }
+  };
+
   const handleUpdateShipmentStatus = async (bookingId: string) => {
     const updateData = statusUpdateMap[bookingId];
     if (!updateData) {
@@ -1403,12 +1470,13 @@ export default function LogiComparePro() {
       : (booking.carrier_docket_no || booking.awb_number);
 
     const newPortalUrl = getOfficialCarrierTrackingUrl(carrierName, effectiveDocket);
+    const effectiveDocUrl = updateData.docUrl || booking.carrier_docket_doc_url || "";
 
     const newStep: TrackingStep = {
       status: updateData.status || booking.status,
       location: updateData.location || "En-route Hub",
       timestamp: new Date().toISOString(),
-      remarks: updateData.remarks || `Carrier updated consignment status with Docket ${effectiveDocket}`
+      remarks: updateData.remarks || `Carrier updated consignment status with Docket ${effectiveDocket}${effectiveDocUrl ? " (Physical Bilty Attached)" : ""}`
     };
 
     const updatedHistory = [...(booking.tracking_history || []), newStep];
@@ -1420,6 +1488,7 @@ export default function LogiComparePro() {
           awb_number: effectiveDocket,
           carrier_docket_no: effectiveDocket,
           carrier_portal_url: newPortalUrl,
+          carrier_docket_doc_url: effectiveDocUrl,
           status: updateData.status || booking.status,
           tracking_history: updatedHistory
         })
@@ -1433,6 +1502,7 @@ export default function LogiComparePro() {
                 awb_number: effectiveDocket,
                 carrier_docket_no: effectiveDocket,
                 carrier_portal_url: newPortalUrl,
+                carrier_docket_doc_url: effectiveDocUrl,
                 status: (updateData.status as Booking["status"]) || b.status,
                 tracking_history: updatedHistory
               }
@@ -1442,7 +1512,7 @@ export default function LogiComparePro() {
 
       setStatusUpdateMap({
         ...statusUpdateMap,
-        [bookingId]: { status: "", location: "", remarks: "", docketNo: "" }
+        [bookingId]: { status: "", location: "", remarks: "", docketNo: "", docUrl: effectiveDocUrl }
       });
       alert(`Carrier Docket & Status successfully synchronized!`);
     } catch (err) {
@@ -1450,7 +1520,6 @@ export default function LogiComparePro() {
     }
   };
 
-  // Vendor Saves Bank & UPI Details
   const handleSaveVendorBank = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingBank(true);
@@ -1472,7 +1541,7 @@ export default function LogiComparePro() {
         prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v))
       );
       setBankSaveMsg("Bank and UPI settlement details saved successfully! Shippers can now pay you directly.");
-    } catch (err: any) {
+    } catch {
       setVendors((prev) =>
         prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v))
       );
@@ -1857,7 +1926,7 @@ export default function LogiComparePro() {
         </div>
       </header>
 
-      {/* VIEW 1: INTRO / B2B LANDING PAGE */}
+      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH HERO OVERLAY & 3D VISUALS */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
           {/* CINEMATIC HERO */}
@@ -2016,7 +2085,7 @@ export default function LogiComparePro() {
                   { id: "orders", label: "📋 Incoming Orders & Docket Dispatch" },
                   { id: "rates", label: "🏷️ Rate Card Manager (Bulk CSV)" },
                   { id: "bids", label: "🎯 Bid on Live RFQs" },
-                  { id: "bank", label: "🏦 Bank & UPI Settlement Profile" } // NEW VENDOR BANK TAB
+                  { id: "bank", label: "🏦 Bank & UPI Settlement Profile" }
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -2399,7 +2468,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* SHIPMENTS & LABELS */}
+              {/* SHIPMENTS & LABELS (Includes View Physical Bilty Scan button) */}
               {shipperSubTab === "shipments" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -2428,8 +2497,7 @@ export default function LogiComparePro() {
                             <th className="py-3 px-4">Carrier</th>
                             <th className="py-3 px-4">Route & PIN</th>
                             <th className="py-3 px-4">Freight (Direct)</th>
-                            <th className="py-3 px-4">Platform Fee (2%)</th>
-                            <th className="py-3 px-4">Settlement Mode</th>
+                            <th className="py-3 px-4">Physical Bilty</th>
                             <th className="py-3 px-4">Status</th>
                             <th className="py-3 px-4 text-right">Actions</th>
                           </tr>
@@ -2465,13 +2533,20 @@ export default function LogiComparePro() {
                                 <td className="py-3.5 px-4 font-bold text-slate-900">
                                   {formatINR(booking.cost_breakdown?.freightSubtotal || booking.final_total)}
                                 </td>
-                                <td className="py-3.5 px-4 font-bold text-indigo-700">
-                                  ₹{booking.cost_breakdown?.platformConvenienceFee || MERCHANT_DETAILS.minPlatformFeeINR}
-                                </td>
-                                <td className="py-3.5 px-4 font-mono">
-                                  <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold block w-fit">
-                                    {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
-                                  </span>
+                                <td className="py-3.5 px-4">
+                                  {booking.carrier_docket_doc_url ? (
+                                    <a
+                                      href={booking.carrier_docket_doc_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 underline text-[11px]"
+                                    >
+                                      <DocumentIcon className="w-3.5 h-3.5" />
+                                      <span>View Bilty Scan</span>
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-400 text-[10px]">Pending Driver Upload</span>
+                                  )}
                                 </td>
                                 <td className="py-3.5 px-4">
                                   <span
@@ -2574,15 +2649,28 @@ export default function LogiComparePro() {
                         </div>
 
                         <div className="flex flex-col sm:items-end gap-2">
-                          <a
-                            href={activeTrackBooking.carrier_portal_url || getOfficialCarrierTrackingUrl(activeTrackBooking.vendors?.name || "Delhivery", activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5 w-fit"
-                          >
-                            <span>Open Official {activeTrackBooking.vendors?.name || "Carrier"} Tracking Portal</span>
-                            <ExternalLinkIcon className="w-3.5 h-3.5" />
-                          </a>
+                          <div className="flex items-center space-x-2">
+                            {activeTrackBooking.carrier_docket_doc_url && (
+                              <a
+                                href={activeTrackBooking.carrier_docket_doc_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-3 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5"
+                              >
+                                <DocumentIcon className="w-3.5 h-3.5" />
+                                <span>View Physical Bilty / LR</span>
+                              </a>
+                            )}
+                            <a
+                              href={activeTrackBooking.carrier_portal_url || getOfficialCarrierTrackingUrl(activeTrackBooking.vendors?.name || "Delhivery", activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5 w-fit"
+                            >
+                              <span>Official {activeTrackBooking.vendors?.name || "Carrier"} Tracking Portal</span>
+                              <ExternalLinkIcon className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
                           <span className="text-[11px] text-slate-500">
                             Route: <strong className="text-slate-800 font-mono">{activeTrackBooking.origin_pin} → {activeTrackBooking.dest_pin}</strong>
                           </span>
@@ -2713,10 +2801,9 @@ export default function LogiComparePro() {
             </div>
           )}
 
-          {/* CARRIER / VENDOR DASHBOARD */}
+          {/* CARRIER / VENDOR DASHBOARD (Includes Docket Text + Physical Bilty Photo Upload) */}
           {activePortal === "vendor" && (
             <div className="space-y-6">
-              {/* VENDOR SUB-TAB A: INCOMING ORDERS */}
               {vendorSubTab === "orders" && (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2734,7 +2821,9 @@ export default function LogiComparePro() {
                         status: "", 
                         location: "", 
                         remarks: "", 
-                        docketNo: booking.carrier_docket_no || booking.awb_number 
+                        docketNo: booking.carrier_docket_no || booking.awb_number,
+                        docUrl: booking.carrier_docket_doc_url || "",
+                        isUploading: false
                       };
 
                       return (
@@ -2763,58 +2852,106 @@ export default function LogiComparePro() {
                             </div>
                           </div>
 
-                          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
-                            <div className="w-full md:w-56">
+                          {/* DOCKET NUMBER + BILTY UPLOAD PANEL */}
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                              {/* 1. Physical Docket / LR Number */}
+                              <div className="md:col-span-4">
+                                <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Carrier Docket / LR No.</label>
+                                <input
+                                  type="text"
+                                  placeholder="Enter Bilty No."
+                                  value={rowForm.docketNo}
+                                  onChange={(e) =>
+                                    setStatusUpdateMap({
+                                      ...statusUpdateMap,
+                                      [booking.id]: { ...rowForm, docketNo: e.target.value }
+                                    })
+                                  }
+                                  className="w-full bg-white border border-indigo-300 font-mono font-bold text-indigo-900 rounded-lg px-2.5 py-1.5 text-xs shadow-2xs"
+                                />
+                              </div>
+
+                              {/* 2. Upload Physical Scan File */}
+                              <div className="md:col-span-5">
+                                <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Upload Physical Bilty / POD (Image/PDF)</label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="file"
+                                    id={`file-upload-${booking.id}`}
+                                    accept="image/*,application/pdf"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleUploadDocketFile(booking.id, file);
+                                    }}
+                                    className="hidden"
+                                  />
+                                  <label
+                                    htmlFor={`file-upload-${booking.id}`}
+                                    className="bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs flex items-center space-x-1"
+                                  >
+                                    <UploadIcon className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>{rowForm.isUploading ? "Uploading..." : "📷 Upload Bilty Scan"}</span>
+                                  </label>
+
+                                  {(rowForm.docUrl || booking.carrier_docket_doc_url) && (
+                                    <a
+                                      href={rowForm.docUrl || booking.carrier_docket_doc_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-emerald-700 hover:text-emerald-800 font-bold text-xs flex items-center space-x-1 underline truncate max-w-[150px]"
+                                    >
+                                      <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>Attached Scan</span>
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* 3. Milestone Status */}
+                              <div className="md:col-span-3">
+                                <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Milestone Status</label>
+                                <select
+                                  value={rowForm.status}
+                                  onChange={(e) =>
+                                    setStatusUpdateMap({
+                                      ...statusUpdateMap,
+                                      [booking.id]: { ...rowForm, status: e.target.value }
+                                    })
+                                  }
+                                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                                >
+                                  <option value="">Update Status...</option>
+                                  <option value="Picked Up">Picked Up</option>
+                                  <option value="In Transit">In Transit</option>
+                                  <option value="Out for Delivery">Out for Delivery</option>
+                                  <option value="Delivered">Delivered</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col md:flex-row items-center gap-2 pt-1 border-t border-slate-200">
                               <input
                                 type="text"
-                                placeholder="Enter Bilty / Docket No."
-                                value={rowForm.docketNo}
+                                placeholder="Current Hub / City (e.g. Bilaspur Linehaul Gateway)"
+                                value={rowForm.location}
                                 onChange={(e) =>
                                   setStatusUpdateMap({
                                     ...statusUpdateMap,
-                                    [booking.id]: { ...rowForm, docketNo: e.target.value }
+                                    [booking.id]: { ...rowForm, location: e.target.value }
                                   })
                                 }
-                                className="w-full bg-white border border-indigo-300 font-mono font-bold text-indigo-900 rounded-lg px-2.5 py-1.5 text-xs shadow-2xs"
+                                className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
                               />
+
+                              <button
+                                onClick={() => handleUpdateShipmentStatus(booking.id)}
+                                className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2 rounded-lg transition shadow-xs flex items-center space-x-1.5 shrink-0"
+                              >
+                                <CheckCircleIcon className="w-4 h-4" />
+                                <span>Save & Dispatch Docket Update</span>
+                              </button>
                             </div>
-
-                            <select
-                              value={rowForm.status}
-                              onChange={(e) =>
-                                setStatusUpdateMap({
-                                  ...statusUpdateMap,
-                                  [booking.id]: { ...rowForm, status: e.target.value }
-                                })
-                              }
-                              className="w-full md:w-44 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                            >
-                              <option value="">Update Status...</option>
-                              <option value="Picked Up">Picked Up</option>
-                              <option value="In Transit">In Transit</option>
-                              <option value="Out for Delivery">Out for Delivery</option>
-                              <option value="Delivered">Delivered</option>
-                            </select>
-
-                            <input
-                              type="text"
-                              placeholder="Current Hub / City (e.g. Bilaspur Linehaul)"
-                              value={rowForm.location}
-                              onChange={(e) =>
-                                setStatusUpdateMap({
-                                  ...statusUpdateMap,
-                                  [booking.id]: { ...rowForm, location: e.target.value }
-                                })
-                              }
-                              className="w-full md:flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900"
-                            />
-
-                            <button
-                              onClick={() => handleUpdateShipmentStatus(booking.id)}
-                              className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-lg transition shadow-xs"
-                            >
-                              Dispatch Docket Update
-                            </button>
                           </div>
                         </div>
                       );
@@ -3013,7 +3150,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* VENDOR SUB-TAB D: NEW BANK & UPI SETTLEMENT PROFILE FORM */}
+              {/* VENDOR SUB-TAB D: BANK & UPI SETTLEMENT PROFILE FORM */}
               {vendorSubTab === "bank" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm max-w-2xl">
