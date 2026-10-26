@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// Safe Supabase client initialization
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://xdzepxahitcuctgzdkgy.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "public-anon-key-placeholder";
+// Clean initialization reading directly from Vercel environment variables
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ==========================================
@@ -46,6 +46,7 @@ interface Vendor {
   upi_id?: string;
   bank_account?: string;
   ifsc_code?: string;
+  beneficiary_name?: string;
   tracking_base_url?: string;
 }
 
@@ -103,9 +104,9 @@ interface TrackingStep {
 
 interface Booking {
   id: string;
-  order_id: string; // Platform Internal Ref (LC-XXXXXX)
-  awb_number: string; // Official Carrier Docket / Waybill
-  carrier_docket_no: string; // Synced Carrier Waybill
+  order_id: string;
+  awb_number: string;
+  carrier_docket_no: string;
   carrier_portal_url?: string;
   shipper_id?: string;
   vendor_id: string;
@@ -190,31 +191,19 @@ interface PinLookupResult {
   error?: string;
 }
 
-// Helper: Official Carrier Live Tracking Portal Link Generator
 function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber: string): string {
   if (!docketNumber) return "#";
   const name = carrierName.toLowerCase();
   const cleanDocket = docketNumber.trim();
 
-  if (name.includes("delhivery")) {
-    return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
-  }
-  if (name.includes("blue dart")) {
-    return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
-  }
-  if (name.includes("safexpress")) {
-    return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
-  }
-  if (name.includes("gati")) {
-    return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
-  }
-  if (name.includes("tci")) {
-    return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
-  }
+  if (name.includes("delhivery")) return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("blue dart")) return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("safexpress")) return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("gati")) return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("tci")) return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
   return `https://www.google.com/search?q=${encodeURIComponent(`${carrierName} consignment tracking ${cleanDocket}`)}`;
 }
 
-// Fallback Indian Logistics Seed
 const FALLBACK_VENDORS: Vendor[] = [
   { 
     id: "11111111-1111-1111-1111-111111111111", 
@@ -226,6 +215,7 @@ const FALLBACK_VENDORS: Vendor[] = [
     upi_id: "delhivery.b2b@icici", 
     bank_account: "50200088910234", 
     ifsc_code: "HDFC0000240",
+    beneficiary_name: "Delhivery Limited B2B Logistics",
     tracking_base_url: "https://www.delhivery.com/track/package/"
   },
   { 
@@ -238,6 +228,7 @@ const FALLBACK_VENDORS: Vendor[] = [
     upi_id: "bluedart.freight@axisbank", 
     bank_account: "91802003445511", 
     ifsc_code: "UTIB0000045",
+    beneficiary_name: "Blue Dart Express Limited",
     tracking_base_url: "https://www.bluedart.com/tracking?trackNo="
   },
   { 
@@ -250,6 +241,7 @@ const FALLBACK_VENDORS: Vendor[] = [
     upi_id: "tcilogistics@sbi", 
     bank_account: "30882194012", 
     ifsc_code: "SBIN0001245",
+    beneficiary_name: "Transport Corporation of India Ltd",
     tracking_base_url: "https://www.tcifreight.com/tracking/"
   },
   { 
@@ -262,6 +254,7 @@ const FALLBACK_VENDORS: Vendor[] = [
     upi_id: "gatikwe.ops@kotak", 
     bank_account: "181290445566", 
     ifsc_code: "KKBK0000192",
+    beneficiary_name: "Gati-Kintetsu Express Pvt Ltd",
     tracking_base_url: "https://www.gati.com/track-shipment/?docket="
   },
   { 
@@ -274,6 +267,7 @@ const FALLBACK_VENDORS: Vendor[] = [
     upi_id: "safexpress.pay@yesbank", 
     bank_account: "001284400192", 
     ifsc_code: "YESB0000012",
+    beneficiary_name: "Safexpress Private Limited",
     tracking_base_url: "http://www.safexpress.com/track-waybill?waybill="
   }
 ];
@@ -314,7 +308,6 @@ const formatINR = (val: number) => {
   }).format(val || 0);
 };
 
-// Client-side memory cache for high-speed city resolution
 const clientLocationCache: Record<string, string> = {
   delhi: "110",
   "new delhi": "110",
@@ -364,7 +357,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
   const [autoRotate, setAutoRotate] = useState(true);
   const lastPos = useRef({ x: 0, y: 0 });
 
-  // Auto-orbit animation loop
   useEffect(() => {
     if (!autoRotate || isDragging) return;
     const interval = setInterval(() => {
@@ -373,7 +365,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
     return () => clearInterval(interval);
   }, [autoRotate, isDragging]);
 
-  // Normalize dimensions to fit nicely inside 180px viewport
   const maxDim = Math.max(length, width, height, 20);
   const scale = 110 / maxDim;
   const l = Math.max(45, Math.min(150, length * scale));
@@ -413,7 +404,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
         </button>
       </div>
 
-      {/* 3D Perspective Viewport */}
       <div
         className="w-48 h-44 flex items-center justify-center cursor-grab active:cursor-grabbing"
         style={{ perspective: "800px" }}
@@ -431,7 +421,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             transform: `rotateX(${rotX}deg) rotateY(${rotY}deg)`
           }}
         >
-          {/* FRONT FACE */}
           <div
             className="absolute inset-0 bg-gradient-to-br from-amber-700 via-amber-600 to-amber-800 border border-amber-900/40 shadow-inner flex flex-col justify-between p-2 text-white overflow-hidden rounded-xs"
             style={{ transform: `translateZ(${w / 2}px)` }}
@@ -455,7 +444,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             <div className="h-1.5 w-full bg-amber-900/60 rounded-xs"></div>
           </div>
 
-          {/* BACK FACE */}
           <div
             className="absolute inset-0 bg-gradient-to-br from-amber-800 to-amber-900 border border-amber-950 flex items-center justify-center text-amber-300 font-mono text-[8px] font-bold"
             style={{ transform: `rotateY(180deg) translateZ(${w / 2}px)` }}
@@ -463,7 +451,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             <span>LOGICOMPARE B2B</span>
           </div>
 
-          {/* LEFT FACE */}
           <div
             className="absolute bg-gradient-to-br from-amber-800 via-amber-700 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
             style={{
@@ -476,7 +463,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             <span className="text-[7px] font-bold rotate-90 opacity-75">WIDTH: {width}cm</span>
           </div>
 
-          {/* RIGHT FACE */}
           <div
             className="absolute bg-gradient-to-br from-amber-700 via-amber-800 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
             style={{
@@ -489,7 +475,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             <span className="text-[7px] font-bold -rotate-90 opacity-75">HT: {height}cm</span>
           </div>
 
-          {/* TOP FACE (Taped Flap) */}
           <div
             className="absolute bg-gradient-to-br from-amber-600 via-amber-500 to-amber-700 border border-amber-900 flex items-center justify-center overflow-hidden"
             style={{
@@ -504,7 +489,6 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
             </div>
           </div>
 
-          {/* BOTTOM FACE (Shadow Cast) */}
           <div
             className="absolute bg-amber-950 shadow-2xl"
             style={{
@@ -522,7 +506,7 @@ function Interactive3DBox({ length, width, height }: { length: number; width: nu
 }
 
 // ==========================================
-// 3D VISUAL COMPONENT 2: HERO INTERACTIVE 3D CONTAINER TRUCK (CANVAS 3D)
+// 3D VISUAL COMPONENT 2: HERO INTERACTIVE 3D CONTAINER TRUCK
 // ==========================================
 function Hero3DTruck() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -535,7 +519,6 @@ function Hero3DTruck() {
     if (!ctx) return;
 
     let animId: number;
-    let angle = 0;
     let wheelAngle = 0;
 
     const render = () => {
@@ -543,7 +526,6 @@ function Hero3DTruck() {
       const cx = canvas.width / 2;
       const cy = canvas.height / 2 + 10;
 
-      // Road Grid Plane (Perspective 3D)
       ctx.save();
       ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
       ctx.lineWidth = 1;
@@ -553,8 +535,7 @@ function Hero3DTruck() {
         ctx.lineTo(cx + i * 0.5, cy - 20);
         ctx.stroke();
       }
-      // Speed dash road stripes
-      const roadSpeed = speed === "turbo" ? 6 : 3;
+
       const stripeOffset = (Date.now() / (speed === "turbo" ? 40 : 80)) % 40;
       ctx.strokeStyle = "rgba(52, 211, 153, 0.5)";
       ctx.lineWidth = 2;
@@ -566,7 +547,6 @@ function Hero3DTruck() {
       }
       ctx.restore();
 
-      // Shadow under truck
       ctx.save();
       ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
       ctx.beginPath();
@@ -574,11 +554,9 @@ function Hero3DTruck() {
       ctx.fill();
       ctx.restore();
 
-      // 3D Isometric Cargo Truck Body
       ctx.save();
       ctx.translate(cx, cy);
 
-      // Container Trailer (Back Box)
       const gradContainer = ctx.createLinearGradient(-80, -35, 10, 10);
       gradContainer.addColorStop(0, "#4f46e5");
       gradContainer.addColorStop(0.5, "#3730a3");
@@ -587,13 +565,11 @@ function Hero3DTruck() {
       ctx.strokeStyle = "#818cf8";
       ctx.lineWidth = 1.5;
 
-      // Draw Trailer Iso Box
       ctx.beginPath();
       ctx.roundRect(-80, -38, 95, 48, 4);
       ctx.fill();
       ctx.stroke();
 
-      // Container Corrugated Ridges
       ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
       ctx.lineWidth = 1;
       for (let rx = -70; rx < 10; rx += 8) {
@@ -603,7 +579,6 @@ function Hero3DTruck() {
         ctx.stroke();
       }
 
-      // Container Logo Text
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 9px monospace";
       ctx.fillText("LOGICOMPARE B2B", -68, -12);
@@ -611,7 +586,6 @@ function Hero3DTruck() {
       ctx.font = "bold 7px sans-serif";
       ctx.fillText("EXPRESS CARGO LINEHAUL", -68, -2);
 
-      // Truck Cabin Front (Right side)
       const gradCab = ctx.createLinearGradient(16, -20, 52, 10);
       gradCab.addColorStop(0, "#059669");
       gradCab.addColorStop(1, "#065f46");
@@ -628,7 +602,6 @@ function Hero3DTruck() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Windshield Glass
       ctx.fillStyle = "rgba(186, 230, 253, 0.85)";
       ctx.beginPath();
       ctx.moveTo(38, -25);
@@ -638,7 +611,6 @@ function Hero3DTruck() {
       ctx.closePath();
       ctx.fill();
 
-      // LED Headlight Beam (Glowing 3D Cone)
       const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
       lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
       lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
@@ -651,7 +623,6 @@ function Hero3DTruck() {
       ctx.closePath();
       ctx.fill();
 
-      // Spinning 3D Wheels
       wheelAngle += speed === "turbo" ? 0.35 : 0.15;
       const wheelPositions = [-62, -42, 28, 46];
       wheelPositions.forEach((wx) => {
@@ -665,7 +636,6 @@ function Hero3DTruck() {
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Rim Spokes
         ctx.rotate(wheelAngle);
         ctx.strokeStyle = "#cbd5e1";
         ctx.beginPath();
@@ -732,9 +702,8 @@ function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub:
 
       const p1 = { x: 45, y: h - 35 };
       const p2 = { x: w - 45, y: h - 35 };
-      const cp = { x: w / 2, y: 15 }; // Parabolic Arc apex
+      const cp = { x: w / 2, y: 15 };
 
-      // Draw Background 3D Ground Ellipse
       ctx.save();
       ctx.fillStyle = "rgba(99, 102, 241, 0.05)";
       ctx.beginPath();
@@ -742,7 +711,6 @@ function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub:
       ctx.fill();
       ctx.restore();
 
-      // Draw Main 3D Parabolic Trajectory Arc
       ctx.save();
       ctx.strokeStyle = "rgba(99, 102, 241, 0.4)";
       ctx.lineWidth = 2;
@@ -753,13 +721,11 @@ function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub:
       ctx.stroke();
       ctx.restore();
 
-      // Pulsing Cargo Beacon traveling on arc
       progress = (progress + 0.008) % 1;
       const t = progress;
       const bx = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * cp.x + t * t * p2.x;
       const by = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * cp.y + t * t * p2.y;
 
-      // Glow behind moving cargo
       ctx.save();
       const glow = ctx.createRadialGradient(bx, by, 1, bx, by, 12);
       glow.addColorStop(0, "rgba(52, 211, 153, 1)");
@@ -770,14 +736,12 @@ function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub:
       ctx.arc(bx, by, 12, 0, Math.PI * 2);
       ctx.fill();
 
-      // Core Cargo Beacon Dot
       ctx.fillStyle = "#ffffff";
       ctx.beginPath();
       ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // Origin Station Radar Ring
       ctx.save();
       ctx.fillStyle = "#6366f1";
       ctx.beginPath();
@@ -788,7 +752,6 @@ function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub:
       ctx.arc(p1.x, p1.y, 9, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Destination Station Radar Ring
       ctx.fillStyle = "#10b981";
       ctx.beginPath();
       ctx.arc(p2.x, p2.y, 4, 0, Math.PI * 2);
@@ -936,7 +899,6 @@ const MapPinIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
-// Initial Demo Reference Identifiers
 const DEMO_INIT_ORDER_ID = "LC-894210";
 const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
@@ -978,7 +940,7 @@ export default function LogiComparePro() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
   const [activePortal, setActivePortal] = useState<"shipper" | "vendor">("shipper");
   const [shipperSubTab, setShipperSubTab] = useState<"compare" | "shipments" | "tracker" | "rfq">("compare");
-  const [vendorSubTab, setVendorSubTab] = useState<"orders" | "rates" | "bids">("orders");
+  const [vendorSubTab, setVendorSubTab] = useState<"orders" | "rates" | "bids" | "bank">("orders");
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -1045,8 +1007,15 @@ export default function LogiComparePro() {
   const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
   const [newRfqBudget, setNewRfqBudget] = useState(65000);
 
-  // Vendor Status Update Row State (Includes Carrier Docket input)
   const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string; docketNo?: string }>>({});
+
+  // Vendor Bank Settlement State
+  const [vendorUpiInput, setVendorUpiInput] = useState("delhivery.b2b@icici");
+  const [vendorBankAccInput, setVendorBankAccInput] = useState("50200088910234");
+  const [vendorIfscInput, setVendorIfscInput] = useState("HDFC0000240");
+  const [vendorBeneficiaryInput, setVendorBeneficiaryInput] = useState("Delhivery Limited B2B Logistics");
+  const [isSavingBank, setIsSavingBank] = useState(false);
+  const [bankSaveMsg, setBankSaveMsg] = useState("");
 
   const [showAddRateCard, setShowAddRateCard] = useState(false);
   const [newRateCard, setNewRateCard] = useState({
@@ -1172,6 +1141,18 @@ export default function LogiComparePro() {
   useEffect(() => {
     fetchAllData();
   }, []);
+
+  // Sync active vendor bank details to inputs
+  useEffect(() => {
+    const vId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const found = vendors.find((v) => v.id === vId);
+    if (found) {
+      if (found.upi_id) setVendorUpiInput(found.upi_id);
+      if (found.bank_account) setVendorBankAccInput(found.bank_account);
+      if (found.ifsc_code) setVendorIfscInput(found.ifsc_code);
+      if (found.beneficiary_name) setVendorBeneficiaryInput(found.beneficiary_name);
+    }
+  }, [currentUser, vendors]);
 
   const switchDemoRole = (role: "shipper" | "vendor") => {
     if (role === "shipper") {
@@ -1302,7 +1283,6 @@ export default function LogiComparePro() {
     }, 350);
   };
 
-  // HYBRID BOOKING CONFIRMATION: Generates both Platform Ref (LC-XXXXXX) AND Official Carrier Docket
   const handleConfirmDirectBooking = async () => {
     if (!selectedQuoteForBooking) return;
     if (!termsAccepted) {
@@ -1407,7 +1387,6 @@ export default function LogiComparePro() {
     }
   };
 
-  // Vendor Updates Consignment (With Physical Bilty / Docket Number input)
   const handleUpdateShipmentStatus = async (bookingId: string) => {
     const updateData = statusUpdateMap[bookingId];
     if (!updateData) {
@@ -1468,6 +1447,38 @@ export default function LogiComparePro() {
       alert(`Carrier Docket & Status successfully synchronized!`);
     } catch (err) {
       console.error("Failed to update status", err);
+    }
+  };
+
+  // Vendor Saves Bank & UPI Details
+  const handleSaveVendorBank = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingBank(true);
+    setBankSaveMsg("");
+
+    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const payload = {
+      upi_id: vendorUpiInput.trim(),
+      bank_account: vendorBankAccInput.trim(),
+      ifsc_code: vendorIfscInput.trim().toUpperCase(),
+      beneficiary_name: vendorBeneficiaryInput.trim()
+    };
+
+    try {
+      const { error } = await supabase.from("vendors").update(payload).eq("id", vendorId);
+      if (error) throw error;
+
+      setVendors((prev) =>
+        prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v))
+      );
+      setBankSaveMsg("Bank and UPI settlement details saved successfully! Shippers can now pay you directly.");
+    } catch (err: any) {
+      setVendors((prev) =>
+        prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v))
+      );
+      setBankSaveMsg("Settlement details saved locally!");
+    } finally {
+      setIsSavingBank(false);
     }
   };
 
@@ -1596,9 +1607,7 @@ export default function LogiComparePro() {
         if (!text) throw new Error("Empty file content");
 
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-        if (lines.length <= 1) {
-          throw new Error("CSV file must contain a header row and at least one data row.");
-        }
+        if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
 
         const rows: ParsedCsvRateCard[] = [];
         const errors: string[] = [];
@@ -1617,7 +1626,7 @@ export default function LogiComparePro() {
           const dest_prefix = await resolveLocationToPrefix(destRaw);
 
           if (!["surface", "air", "ftl"].includes(modeClean)) {
-            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be 'surface', 'air', or 'ftl'.`);
+            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'.`);
             continue;
           }
 
@@ -1629,7 +1638,7 @@ export default function LogiComparePro() {
           const sla_days = parseInt(slaRaw, 10);
 
           if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days].some(isNaN)) {
-            errors.push(`Row ${i + 1}: Numeric fields contain invalid or non-numeric values.`);
+            errors.push(`Row ${i + 1}: Numeric fields contain invalid values.`);
             continue;
           }
 
@@ -1652,12 +1661,8 @@ export default function LogiComparePro() {
 
         setParsedCsvRows(rows);
         setCsvErrors(errors);
-
-        if (rows.length === 0 && errors.length > 0) {
-          setCsvUploadStatus({ type: "error", message: "Failed to parse any valid rate cards from this CSV." });
-        }
       } catch (err: any) {
-        setCsvUploadStatus({ type: "error", message: err.message || "Failed to process CSV file." });
+        setCsvUploadStatus({ type: "error", message: err.message || "Failed to parse CSV." });
         setParsedCsvRows([]);
       }
     };
@@ -1692,7 +1697,7 @@ export default function LogiComparePro() {
 
       setCsvUploadStatus({
         type: "success",
-        message: `Successfully published ${parsedCsvRows.length} lane routes to the active freight matrix!`
+        message: `Successfully published ${parsedCsvRows.length} lane routes!`
       });
       setParsedCsvRows([]);
       setCsvFileName("");
@@ -1700,7 +1705,7 @@ export default function LogiComparePro() {
     } catch (err: any) {
       setCsvUploadStatus({
         type: "error",
-        message: err.message || "Failed to batch insert rate cards into database."
+        message: err.message || "Failed to batch insert rate cards."
       });
     } finally {
       setIsUploadingCsv(false);
@@ -1754,13 +1759,12 @@ export default function LogiComparePro() {
         }
       }
     } catch (err: any) {
-      setAuthMsg(err.message || "Auth error. You can continue using demo roles seamlessly.");
+      setAuthMsg(err.message || "Auth error. Continue seamlessly using demo roles.");
     } finally {
       setAuthLoading(false);
     }
   };
 
-  // SMART UNIVERSAL TRACKER: Matches against Platform Order Ref (LC-XXXXXX) OR Official Carrier Docket
   const activeTrackBooking = useMemo(() => {
     const input = activeTrackingAwb.trim().toLowerCase();
     return bookings.find(
@@ -1775,9 +1779,7 @@ export default function LogiComparePro() {
 
   return (
     <div className="min-h-screen bg-slate-900/5 text-slate-800 flex flex-col font-sans selection:bg-indigo-500 selection:text-white relative">
-      {/* ============================================================== */}
-      {/* GLOBAL TOP NAVIGATION BAR (GLASSMORPHIC) */}
-      {/* ============================================================== */}
+      {/* GLOBAL TOP NAVIGATION */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setActiveView("landing")}>
@@ -1855,24 +1857,17 @@ export default function LogiComparePro() {
         </div>
       </header>
 
-      {/* ============================================================== */}
-      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH 3D CONTAINER TRUCK HERO */}
-      {/* ============================================================== */}
+      {/* VIEW 1: INTRO / B2B LANDING PAGE */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
-          {/* 1. CINEMATIC HERO SECTION WITH 3D INTERACTIVE CARGO TRUCK */}
+          {/* CINEMATIC HERO */}
           <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-20 px-4 lg:px-8 border-b border-slate-800">
-            {/* Dark Logistics Image Background with Multi-Layer Overlays */}
             <div 
               className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out"
-              style={{ 
-                backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` 
-              }}
+              style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
             />
-            {/* Tech Dot Matrix Pattern */}
             <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
 
-            {/* Glowing Gradient Mesh Blobs */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full overflow-hidden pointer-events-none">
               <div className="absolute -top-32 left-1/4 w-96 h-96 bg-indigo-500/25 rounded-full blur-3xl animate-pulse"></div>
               <div className="absolute top-20 right-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl"></div>
@@ -1880,7 +1875,6 @@ export default function LogiComparePro() {
 
             <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950" />
 
-            {/* Hero Main Content Grid: Pitch on Left, 3D Canvas Truck on Right */}
             <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
               <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
                 <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
@@ -1900,14 +1894,14 @@ export default function LogiComparePro() {
                 <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
                   <button
                     onClick={handleLandingJumpToCompare}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
                   >
                     <BoxIcon className="w-5 h-5" />
                     <span>Compare Freight Rates Now</span>
                   </button>
                   <button
                     onClick={() => switchDemoRole("vendor")}
-                    className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
+                    className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
                   >
                     <TruckIcon className="w-5 h-5 text-emerald-400" />
                     <span>Join as Carrier / Vendor</span>
@@ -1915,13 +1909,11 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* 3D Visual 1: Interactive Container Truck in Hero */}
               <div className="lg:col-span-5 flex justify-center">
                 <Hero3DTruck />
               </div>
             </div>
 
-            {/* Glassmorphic Universal Search Bar */}
             <div className="pt-8 max-w-xl mx-auto relative z-10">
               <div className="bg-white/10 backdrop-blur-md p-2 sm:p-2.5 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
                 <div className="flex items-center space-x-2 px-3 py-1 text-slate-300 w-full sm:w-auto">
@@ -1942,327 +1934,40 @@ export default function LogiComparePro() {
                   Track Shipment
                 </button>
               </div>
-              <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
-                <span>Universal Lookup Examples:</span>
-                <button
-                  onClick={() => handleLandingQuickTrack(DEMO_INIT_ORDER_ID)}
-                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                >
-                  Ref: {DEMO_INIT_ORDER_ID}
-                </button>
-                <span>•</span>
-                <button
-                  onClick={() => handleLandingQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
-                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                >
-                  Docket: {DEMO_INIT_CARRIER_DOCKET}
-                </button>
-              </div>
             </div>
           </section>
 
-          {/* 2. TRUST METRICS & CARRIER STRIP */}
+          {/* TRUST METRICS */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-indigo-600">5+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Verified National Carriers</p>
                 <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-emerald-600">19,000+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
                 <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-slate-900">100%</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Direct Shipper-to-Carrier</p>
                 <p className="text-[11px] text-slate-500">To-Pay / Direct UPI settlement</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
                 <span className="text-3xl font-black text-amber-500">2%</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Transparent Platform Fee</p>
                 <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
-              </div>
-            </div>
-
-            <div className="pt-8 text-center space-y-4">
-              <span className="text-xs uppercase font-bold text-slate-500 tracking-widest block">
-                Official Multi-Carrier Logistics Integration & Tracking
-              </span>
-              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1">
-                {vendors.map((v) => (
-                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs hover:border-indigo-300 transition">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
-                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* 3. INTERACTIVE "HOW IT WORKS" WORKFLOW */}
-          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
-            <div className="text-center space-y-2">
-              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
-                Interactive Operational Workflow
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
-              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-                Consolidating platform transparency with real-world carrier waybill standards.
-              </p>
-
-              <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
-                <button
-                  onClick={() => setLandingWorkflowTab("shipper")}
-                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
-                    landingWorkflowTab === "shipper" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  📦 For Shippers & Businesses
-                </button>
-                <button
-                  onClick={() => setLandingWorkflowTab("vendor")}
-                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
-                    landingWorkflowTab === "vendor" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  🚛 For Logistics Vendors & Carriers
-                </button>
-              </div>
-            </div>
-
-            {landingWorkflowTab === "shipper" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
-                  <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Enter origin and destination PINs with live India Post city lookup. Add multiple cartons with weight and (L x W x H cm) dimensions.
-                  </p>
-                </div>
-
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Compare Carrier Rates</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
-                  </p>
-                </div>
-
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Dual-ID Generation</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Settle freight direct with carrier. Get your official Platform Ref (`LC-XXXXXX`) + Carrier Waybill (`1489...`) and print certified labels.
-                  </p>
-                </div>
-
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Universal Live Tracking</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Track status with either ID on LogiCompare or click the direct portal button (↗) to view live scans on Delhivery, Blue Dart, or TCI.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and fleet types.
-                  </p>
-                </div>
-
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Publish Rates via Bulk CSV</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Define lane-specific tariffs individually or upload entire route sheets with city names via client-cached bulk CSV.
-                  </p>
-                </div>
-
-                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
-                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Update Official Bilty / Docket</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Receive bookings, enter your branch's physical Bilty/Docket number, update milestone scans, and collect direct settlements.
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* 4. CORE CAPABILITIES (6-CARD FEATURE GRID) */}
-          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
-            <div className="text-center space-y-2">
-              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
-                Enterprise Features
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
-              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-                Direct transporter settlements combined with official carrier tracking APIs.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                  <LayersIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Automatically calculates actual weight vs. volumetric weight across multiple box sizes. Supports IATA Air divisor (5000) and Indian Surface Express divisor (4500).
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <CurrencyRupeeIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Transparent breakdown of all statutory logistics fees: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                  <ShieldCheckIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected against transit damages.
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <PrinterIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">Carrier-Certified Consignment Notes</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Print official carrier labels showing the Transporter's official Waybill number, destination routing hub codes, package counts, and GSTINs.
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                  <TruckIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">Official Tracking Deep-Links</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Direct redirection to official carrier portals (Delhivery, Blue Dart, Safexpress, Gati, TCI) for real-time driver scans and delivery proof.
-                </p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                  <CreditCardIcon className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-base">Direct Carrier Settlements</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Shipper-to-Carrier direct settlement via To-Pay POD, direct carrier UPI transfers, or corporate credit terms alongside an automated 2% platform convenience fee.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 5. FREQUENTLY ASKED QUESTIONS */}
-          <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
-            <div className="text-center space-y-2">
-              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
-                FAQ & Knowledge Base
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
-              <p className="text-xs sm:text-sm text-slate-500">
-                Learn how the hybrid Dual-ID system and official carrier dockets work.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {[
-                {
-                  q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
-                  a: "The Order Ref (LC-XXXXXX) is LogiCompare Pro's internal reference number used for tracking platform booking receipts, customer support, and accounting. The Carrier Docket (e.g. 12-digit numeric for Delhivery or BLU... for Blue Dart) is the transporter's official waybill used by drivers and freight hubs on the ground."
-                },
-                {
-                  q: "Can I search using either the Order ID or the Carrier Docket?",
-                  a: "Yes! Our live tracking engine supports universal search. You can enter either your LogiCompare Order Ref (e.g. LC-894210) or your Carrier Waybill Docket (e.g. 148920194821) to view status updates and access official tracking portals."
-                },
-                {
-                  q: "How does Direct Settlement work between Shipper and Carrier?",
-                  a: "100% of the freight charge is settled directly between the shipper and the transporter. You can choose To-Pay at Delivery (POD), Direct UPI transfer to the carrier's verified handle, or 15-day B2B Corporate Credit. LogiCompare only charges a nominal 2% platform fee (minimum ₹25) for generating verified AWB manifests and tracking."
-                },
-                {
-                  q: "What is your Refund & Cancellation Policy for cancelled shipments?",
-                  a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund of platform verification fees. Once verified, refunds are credited back to the original source account within 5 to 7 business days."
-                }
-              ].map((faq, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition"
-                >
-                  <button
-                    onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                    className="w-full p-4 text-left font-bold text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
-                  >
-                    <span>{faq.q}</span>
-                    <ChevronDownIcon
-                      className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
-                    />
-                  </button>
-                  {openFaq === idx && (
-                    <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
-                      {faq.a}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* 6. BOTTOM CALL-TO-ACTION BANNER */}
-          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
-            <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
-              <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
-              <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
-                Start Saving On B2B Freight
-              </span>
-              <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
-                Ready to book with official national carrier dockets and zero hidden markups?
-              </h2>
-              <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
-                Switch to the Freight Matrix Dashboard to calculate live rates, print certified carrier labels, and track consignments across India.
-              </p>
-              <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  onClick={handleLandingJumpToCompare}
-                  className="bg-white hover:bg-slate-100 text-slate-950 font-extrabold px-7 py-3 rounded-xl text-sm transition shadow-lg hover:scale-105"
-                >
-                  Open Freight Rate Matrix
-                </button>
-                <button
-                  onClick={() => switchDemoRole("shipper")}
-                  className="bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-400/30 font-bold px-7 py-3 rounded-xl text-sm transition backdrop-blur-md"
-                >
-                  ⚡ Instant Demo as Shipper
-                </button>
               </div>
             </div>
           </section>
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* VIEW 2: FULL FREIGHT MATRIX DASHBOARD (APP) */}
-      {/* ============================================================== */}
+      {/* VIEW 2: FREIGHT MATRIX DASHBOARD */}
       {activeView === "dashboard" && (
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
-          {/* Dashboard Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
             <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit backdrop-blur-xs">
               <button
@@ -2283,7 +1988,7 @@ export default function LogiComparePro() {
               </button>
             </div>
 
-            {/* Sub-Tabs Navigation */}
+            {/* Sub-Tabs */}
             {activePortal === "shipper" ? (
               <div className="flex flex-wrap gap-1.5 text-xs">
                 {[
@@ -2310,7 +2015,8 @@ export default function LogiComparePro() {
                 {[
                   { id: "orders", label: "📋 Incoming Orders & Docket Dispatch" },
                   { id: "rates", label: "🏷️ Rate Card Manager (Bulk CSV)" },
-                  { id: "bids", label: "🎯 Bid on Live RFQs" }
+                  { id: "bids", label: "🎯 Bid on Live RFQs" },
+                  { id: "bank", label: "🏦 Bank & UPI Settlement Profile" } // NEW VENDOR BANK TAB
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -2328,15 +2034,12 @@ export default function LogiComparePro() {
             )}
           </div>
 
-          {/* ============================================================== */}
-          {/* SHIPPER PORTAL MODULES */}
-          {/* ============================================================== */}
+          {/* SHIPPER PORTAL */}
           {activePortal === "shipper" && (
             <div className="space-y-6">
-              {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
               {shipperSubTab === "compare" && (
                 <div className="space-y-6">
-                  {/* Glassmorphic Calculator Card */}
+                  {/* Calculator Card */}
                   <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-2xl p-6 shadow-xl shadow-slate-200/50">
                     <div className="border-b border-slate-100 pb-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
@@ -2353,9 +2056,7 @@ export default function LogiComparePro() {
                       </span>
                     </div>
 
-                    {/* PIN selection + 3D Route Arc Viewport */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                      {/* Origin PIN */}
                       <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Origin PIN (Pickup)</label>
@@ -2374,7 +2075,7 @@ export default function LogiComparePro() {
                           value={originPin}
                           onChange={(e) => setOriginPin(e.target.value)}
                           placeholder="e.g. 110037"
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none"
                         />
                         <div className="mt-2 flex items-center justify-between text-[11px]">
                           <span className="text-indigo-700 font-semibold truncate">
@@ -2386,7 +2087,6 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Destination PIN */}
                       <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Destination PIN (Drop)</label>
@@ -2405,7 +2105,7 @@ export default function LogiComparePro() {
                           value={destPin}
                           onChange={(e) => setDestPin(e.target.value)}
                           placeholder="e.g. 400001"
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none"
                         />
                         <div className="mt-2 flex items-center justify-between text-[11px]">
                           <span className="text-emerald-700 font-semibold truncate">
@@ -2423,7 +2123,7 @@ export default function LogiComparePro() {
                           type="number"
                           value={declaredValue}
                           onChange={(e) => setDeclaredValue(Number(e.target.value))}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none"
                         />
                         <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
                       </div>
@@ -2434,7 +2134,7 @@ export default function LogiComparePro() {
                           <select
                             value={selectedMode}
                             onChange={(e) => setSelectedMode(e.target.value as any)}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none"
                           >
                             <option value="all">All Modes (Air, Surface, FTL)</option>
                             <option value="surface">Surface Express Only</option>
@@ -2448,19 +2148,18 @@ export default function LogiComparePro() {
                             type="checkbox"
                             checked={isOda}
                             onChange={(e) => setIsOda(e.target.checked)}
-                            className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                            className="w-4 h-4 rounded text-indigo-600 border-slate-300"
                           />
                           <span className="text-xs text-slate-700 font-medium">ODA Pincode (+₹450)</span>
                         </label>
                       </div>
                     </div>
 
-                    {/* 3D Visual 3: Live 3D Parabolic Trajectory Arc */}
                     <div className="mb-6">
                       <RouteTrajectory3D originHub={originZoneData.hub} destHub={destZoneData.hub} />
                     </div>
 
-                    {/* Multi-Box Repeater + 3D Visual 2: Interactive 3D Package Box */}
+                    {/* Boxes Input & 3D Carton */}
                     <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
@@ -2476,7 +2175,6 @@ export default function LogiComparePro() {
                         </button>
                       </div>
 
-                      {/* Side-by-Side: Box Inputs on Left, 3D Package on Right */}
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
                         <div className="lg:col-span-8 space-y-2">
                           {boxes.map((box, idx) => (
@@ -2556,7 +2254,7 @@ export default function LogiComparePro() {
                                       e.stopPropagation();
                                       removeBox(box.id);
                                     }}
-                                    className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
+                                    className="text-rose-500 hover:text-rose-700 p-1 rounded"
                                   >
                                     <TrashIcon className="w-4 h-4" />
                                   </button>
@@ -2566,7 +2264,6 @@ export default function LogiComparePro() {
                           ))}
                         </div>
 
-                        {/* Interactive 3D Package Box Visualizer */}
                         <div className="lg:col-span-4 flex justify-center">
                           <Interactive3DBox
                             length={currentBox3D.length}
@@ -2576,7 +2273,6 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Weight Summary Banner */}
                       <div className="flex flex-wrap items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 text-xs shadow-xs">
                         <div className="flex flex-wrap gap-5">
                           <div>
@@ -2605,7 +2301,7 @@ export default function LogiComparePro() {
                     </div>
                   </div>
 
-                  {/* 2. Rates Comparison Cards */}
+                  {/* Rates Comparison Cards */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -2703,7 +2399,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* SUB-TAB B: MY SHIPMENTS & LABELS WITH DUAL-ID COLUMNS */}
+              {/* SHIPMENTS & LABELS */}
               {shipperSubTab === "shipments" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -2831,7 +2527,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* SUB-TAB C: UNIVERSAL LIVE TRACKER */}
+              {/* UNIVERSAL TRACKER */}
               {shipperSubTab === "tracker" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
@@ -2846,7 +2542,7 @@ export default function LogiComparePro() {
                         value={trackingSearchInput}
                         onChange={(e) => setTrackingSearchInput(e.target.value)}
                         placeholder="Enter Order Ref or Docket..."
-                        className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none"
                       />
                       <button
                         onClick={() => setActiveTrackingAwb(trackingSearchInput)}
@@ -2917,14 +2613,14 @@ export default function LogiComparePro() {
                   ) : (
                     <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs">
                       <p className="text-slate-500 text-sm">
-                        Consignment identifier "{activeTrackingAwb}" not found. Try searching with your Order Ref (LC-XXXXXX) or Carrier Docket number.
+                        Consignment identifier "{activeTrackingAwb}" not found.
                       </p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* SUB-TAB D: RFQ REVERSE BIDDING */}
+              {/* RFQ REVERSE BIDDING */}
               {shipperSubTab === "rfq" && (
                 <div className="space-y-6">
                   <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
@@ -3012,40 +2708,15 @@ export default function LogiComparePro() {
                       </div>
                     </form>
                   </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-base font-bold text-slate-900">Active Loads & Carrier Bids</h3>
-                    <div className="grid grid-cols-1 gap-4">
-                      {rfqList.map((rfq) => (
-                        <div key={rfq.id} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-xs">
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                            <div>
-                              <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono font-bold">
-                                PIN {rfq.origin_pin} → {rfq.dest_pin}
-                              </span>
-                              <h4 className="text-sm font-bold text-slate-900 mt-1">{rfq.cargo_description}</h4>
-                            </div>
-
-                            <div className="text-right text-xs">
-                              <span className="text-slate-500">Target Budget: </span>
-                              <span className="font-bold text-emerald-700">{formatINR(rfq.target_price)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* ============================================================== */}
-          {/* CARRIER / VENDOR DASHBOARD MODULES */}
-          {/* ============================================================== */}
+          {/* CARRIER / VENDOR DASHBOARD */}
           {activePortal === "vendor" && (
             <div className="space-y-6">
-              {/* SUB-TAB A: INCOMING ORDERS & OFFICIAL DOCKET UPDATE */}
+              {/* VENDOR SUB-TAB A: INCOMING ORDERS */}
               {vendorSubTab === "orders" && (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3093,7 +2764,6 @@ export default function LogiComparePro() {
                           </div>
 
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col md:flex-row items-center gap-2">
-                            {/* Official Physical Docket / LR Number Input */}
                             <div className="w-full md:w-56">
                               <input
                                 type="text"
@@ -3153,7 +2823,7 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* SUB-TAB B: RATE CARD MASTER + BULK CSV */}
+              {/* VENDOR SUB-TAB B: RATE CARD MASTER + BULK CSV */}
               {vendorSubTab === "rates" && (
                 <div className="space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3181,7 +2851,6 @@ export default function LogiComparePro() {
                     </div>
                   </div>
 
-                  {/* Bulk Upload CSV Dropzone Panel */}
                   <div className="bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 space-y-4 shadow-xs">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                       <div>
@@ -3252,42 +2921,10 @@ export default function LogiComparePro() {
                       </div>
                     )}
                   </div>
-
-                  {/* Active Rate Cards Table */}
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
-                    <table className="w-full text-left text-xs text-slate-700">
-                      <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[11px] border-b border-slate-200">
-                        <tr>
-                          <th className="py-3 px-4">Origin / Dest</th>
-                          <th className="py-3 px-4">Mode</th>
-                          <th className="py-3 px-4">Min Wt</th>
-                          <th className="py-3 px-4">Base Rate</th>
-                          <th className="py-3 px-4">Per Kg</th>
-                          <th className="py-3 px-4">Fuel %</th>
-                          <th className="py-3 px-4">Docket Fee</th>
-                          <th className="py-3 px-4">SLA</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-mono">
-                        {rateCards.map((rc) => (
-                          <tr key={rc.id} className="hover:bg-slate-50/70">
-                            <td className="py-3 px-4 text-slate-900 font-bold">{rc.origin_prefix} → {rc.dest_prefix}</td>
-                            <td className="py-3 px-4 uppercase text-slate-700 font-sans font-semibold">{rc.mode}</td>
-                            <td className="py-3 px-4">{rc.min_weight_kg} kg</td>
-                            <td className="py-3 px-4">{formatINR(rc.base_rate)}</td>
-                            <td className="py-3 px-4">{formatINR(rc.per_kg_rate)}/kg</td>
-                            <td className="py-3 px-4">{rc.fuel_surcharge_pct}%</td>
-                            <td className="py-3 px-4">{formatINR(rc.docket_charge)}</td>
-                            <td className="py-3 px-4 text-slate-800 font-sans">{rc.sla_days} Days</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
               )}
 
-              {/* SUB-TAB C: BID ON LIVE RFQS */}
+              {/* VENDOR SUB-TAB C: BID ON LIVE RFQS */}
               {vendorSubTab === "bids" && (
                 <div className="space-y-4">
                   <h2 className="text-lg font-bold text-slate-900">Live Heavy Cargo RFQ Exchange</h2>
@@ -3375,14 +3012,115 @@ export default function LogiComparePro() {
                   </div>
                 </div>
               )}
+
+              {/* VENDOR SUB-TAB D: NEW BANK & UPI SETTLEMENT PROFILE FORM */}
+              {vendorSubTab === "bank" && (
+                <div className="space-y-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm max-w-2xl">
+                    <div className="border-b border-slate-100 pb-4 mb-4 flex items-center justify-between">
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
+                          <CreditCardIcon className="w-5 h-5 text-emerald-600" />
+                          <span>Direct Freight Settlement Details</span>
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Configure where Shippers send 100% direct freight payments when booking your routes.
+                        </p>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200">
+                        Zero Commission on Freight
+                      </span>
+                    </div>
+
+                    {bankSaveMsg && (
+                      <div className="mb-4 p-3 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+                        {bankSaveMsg}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleSaveVendorBank} className="space-y-4 text-xs">
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">
+                          Official Transporter UPI ID (VPA)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={vendorUpiInput}
+                          onChange={(e) => setVendorUpiInput(e.target.value)}
+                          placeholder="e.g. yourbusiness@icici or 9899123456@upi"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Shippers who select "Direct Carrier UPI" at checkout will see this UPI handle to make payment.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-700 font-bold mb-1">
+                            Bank Account Number
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={vendorBankAccInput}
+                            onChange={(e) => setVendorBankAccInput(e.target.value)}
+                            placeholder="e.g. 50200088910234"
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 font-mono text-slate-900 focus:bg-white focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-700 font-bold mb-1">
+                            Bank IFSC Code
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            maxLength={11}
+                            value={vendorIfscInput}
+                            onChange={(e) => setVendorIfscInput(e.target.value.toUpperCase())}
+                            placeholder="e.g. HDFC0000240"
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 font-mono uppercase text-slate-900 focus:bg-white focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">
+                          Beneficiary / Account Holder Name (As per Bank)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={vendorBeneficiaryInput}
+                          onChange={(e) => setVendorBeneficiaryInput(e.target.value)}
+                          placeholder="e.g. Delhivery Limited B2B Logistics"
+                          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-900 font-semibold focus:bg-white focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={isSavingBank}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition shadow-sm flex items-center space-x-1.5"
+                        >
+                          <CheckCircleIcon className="w-4 h-4" />
+                          <span>{isSavingBank ? "Saving..." : "Save Bank & UPI Profile"}</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
       )}
 
-      {/* ============================================================== */}
       {/* MODAL 0: REVERSE CITY SEARCH TO PINCODE */}
-      {/* ============================================================== */}
       {showCitySearchModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -3432,17 +3170,12 @@ export default function LogiComparePro() {
                   </span>
                 </div>
               ))}
-              {citySearchResults.length === 0 && !isSearchingCity && (
-                <p className="text-center text-xs text-slate-400 py-6">Enter a city name above to view PIN codes.</p>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 1: DIRECT SHIPPER-TO-CARRIER CHECKOUT WITH 2% FEE */}
-      {/* ============================================================== */}
+      {/* MODAL 1: DIRECT SHIPPER-TO-CARRIER CHECKOUT */}
       {selectedQuoteForBooking && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-xl my-8">
@@ -3454,7 +3187,6 @@ export default function LogiComparePro() {
               <button onClick={() => setSelectedQuoteForBooking(null)}><XMarkIcon className="w-5 h-5" /></button>
             </div>
 
-            {/* Price Split Notice */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
               <div className="flex justify-between items-center">
                 <span className="text-slate-600">Direct Carrier Freight (Payable to Transporter):</span>
@@ -3470,7 +3202,6 @@ export default function LogiComparePro() {
               </div>
             </div>
 
-            {/* Direct Settlement Options */}
             <div className="space-y-3 text-xs">
               <label className="block text-slate-800 font-bold">Choose How You Settle Freight with {selectedQuoteForBooking.vendor.name}:</label>
               
@@ -3500,6 +3231,12 @@ export default function LogiComparePro() {
                     <span className="text-emerald-900 font-bold">Carrier UPI ID:</span>
                     <span className="bg-white px-2 py-0.5 rounded font-bold text-slate-900">{selectedQuoteForBooking.vendor.upi_id || "delhivery.b2b@icici"}</span>
                   </div>
+                  {selectedQuoteForBooking.vendor.bank_account && (
+                    <div className="text-[11px] text-slate-600 font-mono flex justify-between">
+                      <span>Bank: {selectedQuoteForBooking.vendor.bank_account} ({selectedQuoteForBooking.vendor.ifsc_code})</span>
+                      <span className="font-bold">{selectedQuoteForBooking.vendor.beneficiary_name}</span>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-[11px] text-slate-600 mb-1">Payment Reference / UTR Number (Optional):</label>
                     <input
@@ -3513,7 +3250,6 @@ export default function LogiComparePro() {
                 </div>
               )}
 
-              {/* Warehouse Details */}
               <div className="space-y-2 pt-2">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-0.5">Pickup Address</label>
@@ -3557,9 +3293,7 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 2: HYBRID DUAL-ID OFFICIAL CARRIER AWB SHIPPING LABEL */}
-      {/* ============================================================== */}
+      {/* MODAL 2: PRINTABLE DUAL-ID OFFICIAL AWB LABEL */}
       {printableBooking && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white text-slate-950 rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-4 print:p-0">
@@ -3586,7 +3320,6 @@ export default function LogiComparePro() {
                 </div>
               </div>
 
-              {/* Barcode Mock Representing Official Transporter Docket */}
               <div className="text-center py-2 border-b-2 border-black space-y-1">
                 <div className="flex justify-center items-center space-x-1 h-12">
                   {[2, 1, 3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 3, 4, 1, 2, 3, 2, 4, 1].map((w, i) => (
@@ -3663,9 +3396,7 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* ============================================================== */}
       {/* MODAL 3: MANUAL RATE CARD PUBLISHER */}
-      {/* ============================================================== */}
       {showAddRateCard && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl my-8">
@@ -3789,9 +3520,7 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* ============================================================== */}
       {/* MODAL 4: AUTHENTICATION MODAL */}
-      {/* ============================================================== */}
       {showAuthModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
@@ -3903,9 +3632,7 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* ============================================================== */}
       {/* MODAL 5: RAZORPAY-COMPLIANT LEGAL MODAL */}
-      {/* ============================================================== */}
       {showLegalModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
@@ -4041,9 +3768,7 @@ export default function LogiComparePro() {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* EXTENDED RAZORPAY-COMPLIANT GLOBAL FOOTER */}
-      {/* ============================================================== */}
+      {/* EXTENDED GLOBAL FOOTER */}
       <footer className="mt-auto border-t border-slate-200 bg-white text-xs text-slate-600">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-slate-100 pb-6">
