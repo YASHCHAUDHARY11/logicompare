@@ -1395,15 +1395,17 @@ export default function LogiComparePro() {
     }
   };
 
-  // UPLOAD PHYSICAL DOCKET / BILTY SCAN FILE TO SUPABASE OBJECT STORAGE
+  // UPLOAD PHYSICAL DOCKET SCAN WITH 5 MB VALIDATION
   const handleUploadDocketFile = async (bookingId: string, file: File) => {
     if (!file) return;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
-if (file.size > MAX_FILE_SIZE) {
-  alert("File bohot badi hai! Kripya 5 MB se chhoti photo ya PDF upload karein.");
-  return;
-}
+    // --- 5 MB FILE SIZE LIMIT VALIDATION ---
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB in bytes
+    if (file.size > MAX_FILE_SIZE) {
+      alert("File size limit exceeded! Kripya 5 MB se chhoti photo ya PDF upload karein taaki storage exhaust na ho.");
+      return;
+    }
+    // ----------------------------------------
 
     setStatusUpdateMap((prev) => ({
       ...prev,
@@ -1417,7 +1419,6 @@ if (file.size > MAX_FILE_SIZE) {
     let publicUrl = "";
 
     try {
-      // Upload directly to Supabase storage bucket 'dockets'
       const { data, error } = await supabase.storage.from("dockets").upload(filePath, file, {
         cacheControl: "3600",
         upsert: true
@@ -1427,17 +1428,14 @@ if (file.size > MAX_FILE_SIZE) {
         const { data: urlData } = supabase.storage.from("dockets").getPublicUrl(filePath);
         publicUrl = urlData.publicUrl;
       } else {
-        // Fallback: Generate local object URL if bucket is not yet created
         publicUrl = URL.createObjectURL(file);
       }
 
-      // Update state
       setStatusUpdateMap((prev) => ({
         ...prev,
         [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: publicUrl, isUploading: false }
       }));
 
-      // Update in database
       await supabase.from("bookings").update({ carrier_docket_doc_url: publicUrl }).eq("id", bookingId);
       setBookings((prev) =>
         prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: publicUrl } : b))
@@ -1926,10 +1924,12 @@ if (file.size > MAX_FILE_SIZE) {
         </div>
       </header>
 
-      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH HERO OVERLAY & 3D VISUALS */}
+      {/* ============================================================== */}
+      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH ALL RESTORED SECTIONS */}
+      {/* ============================================================== */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
-          {/* CINEMATIC HERO */}
+          {/* SECTION 1: CINEMATIC HERO SECTION WITH 3D CONTAINER TRUCK */}
           <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-20 px-4 lg:px-8 border-b border-slate-800">
             <div 
               className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out"
@@ -2003,31 +2003,319 @@ if (file.size > MAX_FILE_SIZE) {
                   Track Shipment
                 </button>
               </div>
+              <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
+                <span>Universal Lookup Examples:</span>
+                <button
+                  onClick={() => handleLandingQuickTrack(DEMO_INIT_ORDER_ID)}
+                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
+                >
+                  Ref: {DEMO_INIT_ORDER_ID}
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => handleLandingQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
+                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
+                >
+                  Docket: {DEMO_INIT_CARRIER_DOCKET}
+                </button>
+              </div>
             </div>
           </section>
 
-          {/* TRUST METRICS */}
+          {/* SECTION 2: TRUST METRICS & CARRIER STRIP */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-indigo-600">5+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Verified National Carriers</p>
                 <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-emerald-600">19,000+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
                 <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-slate-900">100%</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Direct Shipper-to-Carrier</p>
                 <p className="text-[11px] text-slate-500">To-Pay / Direct UPI settlement</p>
               </div>
-              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-amber-500">2%</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Transparent Platform Fee</p>
                 <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
+              </div>
+            </div>
+
+            <div className="pt-8 text-center space-y-4">
+              <span className="text-xs uppercase font-bold text-slate-500 tracking-widest block">
+                Official Multi-Carrier Logistics Integration & Tracking
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1">
+                {vendors.map((v) => (
+                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs hover:border-indigo-300 transition">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* SECTION 3: INTERACTIVE "HOW IT WORKS" WORKFLOW */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                Interactive Operational Workflow
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Consolidating platform transparency with real-world carrier waybill standards.
+              </p>
+
+              <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
+                <button
+                  onClick={() => setLandingWorkflowTab("shipper")}
+                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
+                    landingWorkflowTab === "shipper" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📦 For Shippers & Businesses
+                </button>
+                <button
+                  onClick={() => setLandingWorkflowTab("vendor")}
+                  className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
+                    landingWorkflowTab === "vendor" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  🚛 For Logistics Vendors & Carriers
+                </button>
+              </div>
+            </div>
+
+            {landingWorkflowTab === "shipper" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
+                  <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Enter origin and destination PINs with live India Post city lookup. Add multiple cartons with weight and (L x W x H cm) dimensions.
+                  </p>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Compare Carrier Rates</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
+                  </p>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Dual-ID Generation</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Settle freight direct with carrier. Get your official Platform Ref (`LC-XXXXXX`) + Carrier Waybill (`1489...`) and print certified labels.
+                  </p>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Universal Live Tracking</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Track status with either ID on LogiCompare or click the direct portal button (↗) to view live scans on Delhivery, Blue Dart, or TCI.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and fleet types.
+                  </p>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Publish Rates via Bulk CSV</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Define lane-specific tariffs individually or upload entire route sheets with city names via client-cached bulk CSV.
+                  </p>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
+                  <h3 className="font-bold text-slate-900 text-sm">Update Official Bilty / Docket</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Receive bookings, enter your branch's physical Bilty/Docket number, attach photos/PDF scans, and collect direct settlements.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* SECTION 4: CORE CAPABILITIES (6-CARD FEATURE GRID) */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                Enterprise Features
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+                Direct transporter settlements combined with official carrier tracking APIs.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <LayersIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Automatically calculates actual weight vs. volumetric weight across multiple box sizes. Supports IATA Air divisor (5000) and Indian Surface Express divisor (4500).
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <CurrencyRupeeIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Transparent breakdown of all statutory logistics fees: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <ShieldCheckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected against transit damages.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <PrinterIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Carrier-Certified Consignment Notes</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Print official carrier labels showing the Transporter's official Waybill number, destination routing hub codes, package counts, and GSTINs.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <TruckIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Official Tracking Deep-Links</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Direct redirection to official carrier portals (Delhivery, Blue Dart, Safexpress, Gati, TCI) for real-time driver scans and delivery proof.
+                </p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <CreditCardIcon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-base">Direct Carrier Settlements</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Shipper-to-Carrier direct settlement via To-Pay POD, direct carrier UPI transfers, or corporate credit terms alongside an automated 2% platform convenience fee.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* SECTION 5: FREQUENTLY ASKED QUESTIONS */}
+          <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+                FAQ & Knowledge Base
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Learn how the hybrid Dual-ID system, physical bilty uploads, and official carrier dockets work.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                {
+                  q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
+                  a: "The Order Ref (LC-XXXXXX) is LogiCompare Pro's internal reference number used for tracking platform booking receipts, customer support, and accounting. The Carrier Docket (e.g. 12-digit numeric for Delhivery or BLU... for Blue Dart) is the transporter's official waybill used by drivers and freight hubs on the ground."
+                },
+                {
+                  q: "Can I search using either the Order ID or the Carrier Docket?",
+                  a: "Yes! Our live tracking engine supports universal search. You can enter either your LogiCompare Order Ref (e.g. LC-894210) or your Carrier Waybill Docket (e.g. 148920194821) to view status updates and access official tracking portals."
+                },
+                {
+                  q: "Where does the physical Bilty / LR slip photo get saved?",
+                  a: "Documents are stored in a dedicated Supabase Object Storage bucket with a 5 MB file size limit to prevent storage exhaustion. Shippers can view and download the physical scan directly from their order logs."
+                },
+                {
+                  q: "How does Direct Settlement work between Shipper and Carrier?",
+                  a: "100% of the freight charge is settled directly between the shipper and the transporter. You can choose To-Pay at Delivery (POD), Direct UPI transfer to the carrier's verified handle, or 15-day B2B Corporate Credit. LogiCompare only charges a nominal 2% platform fee (minimum ₹25) for generating verified AWB manifests and tracking."
+                },
+                {
+                  q: "What is your Refund & Cancellation Policy for cancelled shipments?",
+                  a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund of platform verification fees. Once verified, refunds are credited back to the original source account within 5 to 7 business days."
+                }
+              ].map((faq, idx) => (
+                <div
+                  key={idx}
+                  className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition"
+                >
+                  <button
+                    onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                    className="w-full p-4 text-left font-bold text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
+                  >
+                    <span>{faq.q}</span>
+                    <ChevronDownIcon
+                      className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
+                    />
+                  </button>
+                  {openFaq === idx && (
+                    <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* SECTION 6: BOTTOM CALL-TO-ACTION BANNER */}
+          <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+            <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
+              <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+              <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+                Start Saving On B2B Freight
+              </span>
+              <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+                Ready to book with official national carrier dockets and zero hidden markups?
+              </h2>
+              <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+                Switch to the Freight Matrix Dashboard to calculate live rates, print certified carrier labels, and track consignments across India.
+              </p>
+              <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={handleLandingJumpToCompare}
+                  className="bg-white hover:bg-slate-100 text-slate-950 font-extrabold px-7 py-3 rounded-xl text-sm transition shadow-lg hover:scale-105"
+                >
+                  Open Freight Rate Matrix
+                </button>
+                <button
+                  onClick={() => switchDemoRole("shipper")}
+                  className="bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-400/30 font-bold px-7 py-3 rounded-xl text-sm transition backdrop-blur-md"
+                >
+                  ⚡ Instant Demo as Shipper
+                </button>
               </div>
             </div>
           </section>
@@ -2468,7 +2756,7 @@ if (file.size > MAX_FILE_SIZE) {
                 </div>
               )}
 
-              {/* SHIPMENTS & LABELS (Includes View Physical Bilty Scan button) */}
+              {/* SHIPMENTS & LABELS */}
               {shipperSubTab === "shipments" && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -2801,7 +3089,7 @@ if (file.size > MAX_FILE_SIZE) {
             </div>
           )}
 
-          {/* CARRIER / VENDOR DASHBOARD (Includes Docket Text + Physical Bilty Photo Upload) */}
+          {/* CARRIER / VENDOR DASHBOARD */}
           {activePortal === "vendor" && (
             <div className="space-y-6">
               {vendorSubTab === "orders" && (
@@ -2852,10 +3140,8 @@ if (file.size > MAX_FILE_SIZE) {
                             </div>
                           </div>
 
-                          {/* DOCKET NUMBER + BILTY UPLOAD PANEL */}
                           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                              {/* 1. Physical Docket / LR Number */}
                               <div className="md:col-span-4">
                                 <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Carrier Docket / LR No.</label>
                                 <input
@@ -2872,7 +3158,6 @@ if (file.size > MAX_FILE_SIZE) {
                                 />
                               </div>
 
-                              {/* 2. Upload Physical Scan File */}
                               <div className="md:col-span-5">
                                 <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Upload Physical Bilty / POD (Image/PDF)</label>
                                 <div className="flex items-center space-x-2">
@@ -2908,7 +3193,6 @@ if (file.size > MAX_FILE_SIZE) {
                                 </div>
                               </div>
 
-                              {/* 3. Milestone Status */}
                               <div className="md:col-span-3">
                                 <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Milestone Status</label>
                                 <select
