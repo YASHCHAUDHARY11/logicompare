@@ -9,12 +9,12 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "public-ano
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ==========================================
-// OFFICIAL MERCHANT & COMPLIANCE CONSTANTS (RAZORPAY KYC)
+// OFFICIAL PLATFORM & AGGREGATOR DETAILS
 // ==========================================
 const MERCHANT_DETAILS = {
   proprietor: "Yash Chaudhary",
   platformName: "LogiCompare Pro",
-  category: "B2B Freight & Logistics Marketplace Aggregator",
+  category: "B2B Freight Discovery & Consignment Marketplace",
   email: "yash963957@gmail.com",
   phone: "+91 8194017660",
   address: "House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037, India",
@@ -271,9 +271,7 @@ const resolveLocationToPrefix = async (rawInput: string): Promise<string> => {
   return clean.substring(0, 3);
 };
 
-// ==========================================
-// INLINE SVG ICONS
-// ==========================================
+// Inline SVG Icons
 const TruckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -389,23 +387,19 @@ const MapPinIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
 // MAIN COMPONENT
 // ==========================================
 export default function LogiComparePro() {
-  // Navigation View State
   const [activeView, setActiveView] = useState<"landing" | "dashboard">("landing");
   const [landingWorkflowTab, setLandingWorkflowTab] = useState<"shipper" | "vendor">("shipper");
   const [landingTrackingInput, setLandingTrackingInput] = useState("LC-894210");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  // Legal / Compliance Modal State (Razorpay KYC)
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact">("terms");
 
-  // Reverse City Search Modal State
   const [showCitySearchModal, setShowCitySearchModal] = useState<"origin" | "dest" | null>(null);
   const [citySearchQuery, setCitySearchQuery] = useState("");
   const [citySearchResults, setCitySearchResults] = useState<Array<{ name: string; district: string; state: string; pincode: string }>>([]);
   const [isSearchingCity, setIsSearchingCity] = useState(false);
 
-  // Demo Personas
   const DEMO_SHIPPER: UserProfile = {
     id: "demo-shipper-uuid",
     email: "dispatch@apexlogistics.in",
@@ -427,13 +421,11 @@ export default function LogiComparePro() {
     vendor_id: "11111111-1111-1111-1111-111111111111"
   };
 
-  // State Management
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
   const [activePortal, setActivePortal] = useState<"shipper" | "vendor">("shipper");
   const [shipperSubTab, setShipperSubTab] = useState<"compare" | "shipments" | "tracker" | "rfq">("compare");
   const [vendorSubTab, setVendorSubTab] = useState<"orders" | "rates" | "bids">("orders");
 
-  // Auth Modal State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -446,7 +438,6 @@ export default function LogiComparePro() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMsg, setAuthMsg] = useState("");
 
-  // Rate Search & Multi-Box Calculator State
   const [originPin, setOriginPin] = useState("110037");
   const [destPin, setDestPin] = useState("400001");
   const [isOda, setIsOda] = useState(false);
@@ -457,7 +448,6 @@ export default function LogiComparePro() {
     { id: "box-2", qty: 1, weight: 15, length: 30, width: 30, height: 25 }
   ]);
 
-  // Live Pincode API State
   const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
     city: "South West Delhi",
     state: "Delhi",
@@ -471,7 +461,6 @@ export default function LogiComparePro() {
     loading: false
   });
 
-  // Data Collections
   const [rateCards, setRateCards] = useState<RateCard[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>(FALLBACK_VENDORS);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -479,13 +468,11 @@ export default function LogiComparePro() {
   const [searchTriggered, setSearchTriggered] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Modals & Active Selections
   const [selectedQuoteForBooking, setSelectedQuoteForBooking] = useState<CalculatedQuote | null>(null);
   const [printableBooking, setPrintableBooking] = useState<Booking | null>(null);
   const [activeTrackingAwb, setActiveTrackingAwb] = useState("LC-894210");
   const [trackingSearchInput, setTrackingSearchInput] = useState("LC-894210");
 
-  // Checkout State with Direct Settlement Choice
   const [pickupAddress, setPickupAddress] = useState("House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037");
   const [consigneeName, setConsigneeName] = useState("Prime Electronics Retail");
   const [consigneePhone, setConsigneePhone] = useState("+91 98200 44556");
@@ -496,7 +483,6 @@ export default function LogiComparePro() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
 
-  // RFQ Creation State
   const [newRfqOrigin, setNewRfqOrigin] = useState("110001");
   const [newRfqDest, setNewRfqDest] = useState("560001");
   const [newRfqDesc, setNewRfqDesc] = useState("Industrial Gearboxes and Heavy Machinery Parts");
@@ -504,10 +490,8 @@ export default function LogiComparePro() {
   const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
   const [newRfqBudget, setNewRfqBudget] = useState(65000);
 
-  // Vendor Status Update Row State
   const [statusUpdateMap, setStatusUpdateMap] = useState<Record<string, { status: string; location: string; remarks: string }>>({});
 
-  // Rate Card Publish Modal (Manual Form)
   const [showAddRateCard, setShowAddRateCard] = useState(false);
   const [newRateCard, setNewRateCard] = useState({
     origin_prefix: "110",
@@ -524,7 +508,6 @@ export default function LogiComparePro() {
     sla_days: 3
   });
 
-  // Bulk CSV Upload State
   const [csvFileName, setCsvFileName] = useState("");
   const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRateCard[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
@@ -532,10 +515,8 @@ export default function LogiComparePro() {
   const [csvUploadStatus, setCsvUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // RFQ Vendor Bidding State
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
 
-  // Real-Time India Post Pincode Lookup
   useEffect(() => {
     if (originPin.trim().length === 6) {
       setOriginZoneData((prev) => ({ ...prev, loading: true, error: undefined }));
@@ -580,7 +561,6 @@ export default function LogiComparePro() {
     }
   }, [destPin]);
 
-  // Reverse Search City to Pincode
   const handleSearchCityToPin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!citySearchQuery || citySearchQuery.length < 3) return;
@@ -615,7 +595,6 @@ export default function LogiComparePro() {
     setCitySearchResults([]);
   };
 
-  // Sync Supabase Data
   const fetchAllData = async () => {
     try {
       const { data: vData } = await supabase.from("vendors").select("*");
@@ -630,7 +609,7 @@ export default function LogiComparePro() {
       const { data: qData } = await supabase.from("rfq_bids").select("*").order("created_at", { ascending: false });
       if (qData && qData.length > 0) setRfqList(qData as RfqBid[]);
     } catch (err) {
-      console.warn("Supabase fetch warning:", err);
+      console.warn("Supabase sync warning:", err);
     }
   };
 
@@ -698,7 +677,6 @@ export default function LogiComparePro() {
     setBoxes(boxes.map((b) => (b.id === id ? { ...b, [field]: value } : b)));
   };
 
-  // Quotes with DYNAMIC PERCENTAGE PLATFORM FEE (2% with ₹25 floor cap)
   const calculatedQuotes: CalculatedQuote[] = useMemo(() => {
     if (!searchTriggered && rateCards.length === 0) return [];
 
@@ -732,7 +710,6 @@ export default function LogiComparePro() {
       const gst = subtotal * 0.18;
       const freightDirectTotal = subtotal + gst;
 
-      // 2% Dynamic Platform Fee with ₹25 Floor Cap
       const rawPctFee = (freightDirectTotal * MERCHANT_DETAILS.platformFeePct) / 100;
       const convenienceFee = Math.max(MERCHANT_DETAILS.minPlatformFeeINR, Math.round(rawPctFee));
 
@@ -766,7 +743,6 @@ export default function LogiComparePro() {
     }, 350);
   };
 
-  // Confirm Booking with Direct Carrier Settlement & 2% Platform Fee
   const handleConfirmDirectBooking = async () => {
     if (!selectedQuoteForBooking) return;
     if (!termsAccepted) {
@@ -1196,28 +1172,28 @@ export default function LogiComparePro() {
   }, [bookings, activeTrackingAwb]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-slate-900/5 text-slate-800 flex flex-col font-sans selection:bg-indigo-500 selection:text-white relative">
       {/* ============================================================== */}
-      {/* GLOBAL TOP NAVIGATION BAR */}
+      {/* GLOBAL TOP NAVIGATION BAR (GLASSMORPHIC) */}
       {/* ============================================================== */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveView("landing")}>
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setActiveView("landing")}>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-800 flex items-center justify-center shadow-md shadow-indigo-600/20 group-hover:scale-105 transition-transform">
               <TruckIcon className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-xl tracking-tight text-slate-900">LogiCompare</span>
-                <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                <span className="bg-gradient-to-r from-indigo-500/10 to-indigo-600/10 text-indigo-700 border border-indigo-200/80 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   Pro B2B
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Pan-India Freight Exchange & Direct Carrier Settlement</p>
+              <p className="text-[11px] text-slate-500 font-medium">Pan-India Freight Exchange & Direct Carrier Settlement</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="flex items-center space-x-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200 backdrop-blur-xs">
             <button
               onClick={() => setActiveView("landing")}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
@@ -1241,7 +1217,7 @@ export default function LogiComparePro() {
           </div>
 
           <div className="flex items-center space-x-2">
-            <div className="hidden sm:flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <div className="hidden sm:flex items-center space-x-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200">
               <button
                 onClick={() => switchDemoRole("shipper")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
@@ -1270,7 +1246,7 @@ export default function LogiComparePro() {
               onClick={() => setShowAuthModal(true)}
               className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-xs flex items-center space-x-1.5"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>Account / Login</span>
             </button>
           </div>
@@ -1278,24 +1254,43 @@ export default function LogiComparePro() {
       </header>
 
       {/* ============================================================== */}
-      {/* VIEW 1: INTRO / HIGH-CONVERTING B2B LANDING PAGE */}
+      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH HERO OVERLAY & GLOW */}
       {/* ============================================================== */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
-          {/* 1. HERO SECTION */}
-          <section className="relative overflow-hidden bg-gradient-to-b from-indigo-50/70 via-white to-slate-50 pt-12 pb-16 px-4 lg:px-8 border-b border-slate-200">
-            <div className="max-w-6xl mx-auto text-center space-y-6">
-              <div className="inline-flex items-center space-x-2 bg-indigo-50 border border-indigo-200 text-indigo-800 px-3.5 py-1.5 rounded-full text-xs font-bold tracking-wide shadow-xs">
+          {/* 1. CINEMATIC HERO SECTION */}
+          <section className="relative overflow-hidden bg-slate-950 text-white pt-20 pb-24 px-4 lg:px-8 border-b border-slate-800">
+            {/* Dark Logistics Image Background with Multi-Layer Overlays */}
+            <div 
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-25 scale-105 transition-transform duration-1000 ease-out"
+              style={{ 
+                backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` 
+              }}
+            />
+            {/* Tech Dot Matrix Pattern */}
+            <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+
+            {/* Glowing Gradient Mesh Blobs */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full overflow-hidden pointer-events-none">
+              <div className="absolute -top-32 left-1/4 w-96 h-96 bg-indigo-500/25 rounded-full blur-3xl animate-pulse"></div>
+              <div className="absolute top-20 right-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl"></div>
+            </div>
+
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950" />
+
+            {/* Hero Main Content */}
+            <div className="relative max-w-6xl mx-auto text-center space-y-7 z-10">
+              <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
                 <span>🇮🇳</span>
-                <span>Built for Indian B2B Supply Chains, Manufacturers & Cargo Shippers</span>
+                <span>Built for Indian B2B Supply Chains, Manufacturers & Commercial Shippers</span>
               </div>
 
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-tight max-w-4xl mx-auto">
+              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight max-w-4xl mx-auto text-white">
                 Compare Multi-Carrier B2B Freight Rates & Book Consignments in{" "}
-                <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8">60 Seconds</span>.
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400">60 Seconds</span>.
               </h1>
 
-              <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
+              <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
                 LogiCompare Pro eliminates opaque transporter quotes. Instantly calculate billable volumetric weights (Surface 4500 / Air 5000), ODA surcharges, 
                 0.2% FOV transit risk coverage, fuel percentages, and 18% GST across India's premier B2B carrier networks.
               </p>
@@ -1303,52 +1298,53 @@ export default function LogiComparePro() {
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   onClick={handleLandingJumpToCompare}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl text-sm transition shadow-md shadow-indigo-600/20 flex items-center space-x-2"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
                 >
                   <BoxIcon className="w-5 h-5" />
                   <span>Compare Freight Rates Now</span>
                 </button>
                 <button
                   onClick={() => switchDemoRole("vendor")}
-                  className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold px-6 py-3 rounded-xl text-sm transition shadow-xs flex items-center space-x-2"
+                  className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
                 >
-                  <TruckIcon className="w-5 h-5 text-emerald-600" />
+                  <TruckIcon className="w-5 h-5 text-emerald-400" />
                   <span>Join as Carrier / Vendor</span>
                 </button>
               </div>
 
+              {/* Glassmorphism AWB Track Bar */}
               <div className="pt-6 max-w-xl mx-auto">
-                <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-md flex flex-col sm:flex-row items-center gap-2">
-                  <div className="flex items-center space-x-2 px-3 py-1 text-slate-400 w-full sm:w-auto">
-                    <SearchIcon className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="text-xs font-semibold text-slate-500 shrink-0">Track AWB:</span>
+                <div className="bg-white/10 backdrop-blur-md p-2 sm:p-2.5 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
+                  <div className="flex items-center space-x-2 px-3 py-1 text-slate-300 w-full sm:w-auto">
+                    <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-400 shrink-0">Track AWB:</span>
                     <input
                       type="text"
                       value={landingTrackingInput}
                       onChange={(e) => setLandingTrackingInput(e.target.value)}
                       placeholder="e.g. LC-894210"
-                      className="bg-transparent font-mono text-sm text-slate-900 font-bold focus:outline-none w-full"
+                      className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
                     />
                   </div>
                   <button
                     onClick={() => handleLandingQuickTrack()}
-                    className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shrink-0"
+                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl transition shadow-md shrink-0"
                   >
                     Track Shipment
                   </button>
                 </div>
-                <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-500 mt-2.5">
-                  <span>Try Sample AWBs:</span>
+                <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
+                  <span>Sample Live AWBs:</span>
                   <button
                     onClick={() => handleLandingQuickTrack("LC-894210")}
-                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                    className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
                   >
                     LC-894210 (In Transit)
                   </button>
                   <span>•</span>
                   <button
                     onClick={() => handleLandingQuickTrack("LC-551923")}
-                    className="font-mono text-indigo-600 hover:underline font-semibold"
+                    className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
                   >
                     LC-551923 (Delivered)
                   </button>
@@ -1360,35 +1356,35 @@ export default function LogiComparePro() {
           {/* 2. TRUST METRICS & CARRIER STRIP */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-indigo-600">5+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Verified National Carriers</p>
                 <p className="text-[11px] text-slate-500">Integrated surface & air linehauls</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-emerald-600">19,000+</span>
                 <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
                 <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
                 <span className="text-3xl font-black text-slate-900">100%</span>
-                <p className="text-xs font-bold text-slate-800 mt-1">Transparent GST Breakup</p>
+                <p className="text-xs font-bold text-slate-800 mt-1">Transparent Direct Settlement</p>
                 <p className="text-[11px] text-slate-500">Statutory 18% GTA ITC compliant</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center shadow-xs">
-                <span className="text-3xl font-black text-amber-500">0s</span>
-                <p className="text-xs font-bold text-slate-800 mt-1">Instant AWB Generation</p>
-                <p className="text-[11px] text-slate-500">Printable 4x6 / A4 barcode labels</p>
+              <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs hover:-translate-y-1 transition duration-300">
+                <span className="text-3xl font-black text-amber-500">2%</span>
+                <p className="text-xs font-bold text-slate-800 mt-1">Nominal Platform Fee</p>
+                <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
               </div>
             </div>
 
-            <div className="pt-6 text-center space-y-3">
-              <span className="text-xs uppercase font-bold text-slate-600 tracking-wider">
+            <div className="pt-8 text-center space-y-4">
+              <span className="text-xs uppercase font-bold text-slate-500 tracking-widest block">
                 Direct Integration With India's Top Rated Commercial Carriers
               </span>
-              <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10 pt-2 opacity-85">
+              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1">
                 {vendors.map((v) => (
-                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs">
+                  <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs hover:border-indigo-300 transition">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                     <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
                     <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
@@ -1431,15 +1427,15 @@ export default function LogiComparePro() {
 
             {landingWorkflowTab === "shipper" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
                   <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Enter origin and destination PINs with auto hub detection. Add multiple cartons with weight and (L x W x H cm) dimensions.
+                    Enter origin and destination PINs with live India Post city lookup. Add multiple cartons with weight and (L x W x H cm) dimensions.
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
                   <h3 className="font-bold text-slate-900 text-sm">Compare Landed Quotes</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1447,15 +1443,15 @@ export default function LogiComparePro() {
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
-                  <h3 className="font-bold text-slate-900 text-sm">Direct Carrier Booking & AWB</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Direct Carrier Booking</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
                     Settle freight direct with carrier (To-Pay/UPI). A nominal 2% platform fee generates your official <span className="font-mono font-bold text-indigo-700">LC-XXXXXX</span> AWB barcode label.
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
                   <h3 className="font-bold text-slate-900 text-sm">5-Milestone Live Tracking</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1465,7 +1461,7 @@ export default function LogiComparePro() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
                   <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1473,7 +1469,7 @@ export default function LogiComparePro() {
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
                   <h3 className="font-bold text-slate-900 text-sm">Publish Rate Cards or Bulk CSV</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1481,7 +1477,7 @@ export default function LogiComparePro() {
                   </p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative">
+                <div className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 relative hover:-translate-y-1 transition duration-200">
                   <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
                   <h3 className="font-bold text-slate-900 text-sm">Fulfill & Dispatch Milestone Scans</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -1492,7 +1488,7 @@ export default function LogiComparePro() {
             )}
           </section>
 
-          {/* 4. CORE CAPABILITIES (6-CARD FEATURE GRID) */}
+          {/* 4. CORE CAPABILITIES (6-CARD FEATURE GRID WITH HOVER-LIFT) */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
             <div className="text-center space-y-2">
               <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
@@ -1505,7 +1501,7 @@ export default function LogiComparePro() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
                   <LayersIcon className="w-5 h-5" />
                 </div>
@@ -1515,7 +1511,7 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                   <CurrencyRupeeIcon className="w-5 h-5" />
                 </div>
@@ -1525,7 +1521,7 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
                   <ShieldCheckIcon className="w-5 h-5" />
                 </div>
@@ -1535,7 +1531,7 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <PrinterIcon className="w-5 h-5" />
                 </div>
@@ -1545,7 +1541,7 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
                   <TruckIcon className="w-5 h-5" />
                 </div>
@@ -1555,7 +1551,7 @@ export default function LogiComparePro() {
                 </p>
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-indigo-300 transition">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
                 <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
                   <CreditCardIcon className="w-5 h-5" />
                 </div>
@@ -1623,26 +1619,27 @@ export default function LogiComparePro() {
 
           {/* 6. BOTTOM CALL-TO-ACTION BANNER */}
           <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
-            <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-8 sm:p-12 text-white text-center space-y-6 shadow-xl">
-              <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+            <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
+              <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+              <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
                 Start Saving On B2B Freight
               </span>
-              <h2 className="text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+              <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
                 Ready to optimize your supply chain and eliminate freight billing disputes?
               </h2>
-              <p className="text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+              <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
                 Switch to the Freight Matrix Dashboard to calculate live rates, print commercial AWB labels, and track consignments across India.
               </p>
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   onClick={handleLandingJumpToCompare}
-                  className="bg-white hover:bg-slate-100 text-slate-900 font-extrabold px-6 py-3 rounded-xl text-sm transition shadow-lg"
+                  className="bg-white hover:bg-slate-100 text-slate-950 font-extrabold px-7 py-3 rounded-xl text-sm transition shadow-lg hover:scale-105"
                 >
                   Open Freight Rate Matrix
                 </button>
                 <button
                   onClick={() => switchDemoRole("shipper")}
-                  className="bg-indigo-700 hover:bg-indigo-600 text-white border border-indigo-500 font-bold px-6 py-3 rounded-xl text-sm transition"
+                  className="bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-400/30 font-bold px-7 py-3 rounded-xl text-sm transition backdrop-blur-md"
                 >
                   ⚡ Instant Demo as Shipper
                 </button>
@@ -1659,7 +1656,7 @@ export default function LogiComparePro() {
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
           {/* Dashboard Header Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
-            <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit">
+            <div className="flex items-center space-x-1 bg-slate-200/70 p-1 rounded-xl w-fit backdrop-blur-xs">
               <button
                 onClick={() => setActivePortal("shipper")}
                 className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
@@ -1731,8 +1728,8 @@ export default function LogiComparePro() {
               {/* SUB-TAB A: RATE CALCULATOR & COMPARISON MATRIX */}
               {shipperSubTab === "compare" && (
                 <div className="space-y-6">
-                  {/* 1. Calculator Form Card */}
-                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                  {/* Glassmorphic Calculator Card */}
+                  <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-2xl p-6 shadow-xl shadow-slate-200/50">
                     <div className="border-b border-slate-100 pb-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
                         <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
@@ -1749,8 +1746,8 @@ export default function LogiComparePro() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                      {/* Origin PIN with Auto City Detection */}
-                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      {/* Origin PIN */}
+                      <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Origin PIN (Pickup)</label>
                           <button
@@ -1780,8 +1777,8 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      {/* Destination PIN with Auto City Detection */}
-                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      {/* Destination PIN */}
+                      <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-semibold text-slate-600">Destination PIN (Drop)</label>
                           <button
@@ -1811,7 +1808,7 @@ export default function LogiComparePro() {
                         </div>
                       </div>
 
-                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Declared Value (₹) for FOV</label>
                         <input
                           type="number"
@@ -1822,7 +1819,7 @@ export default function LogiComparePro() {
                         <p className="text-[11px] text-slate-500 mt-2">FOV covers 0.2% transit risk loss</p>
                       </div>
 
-                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
+                      <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between">
                         <div>
                           <label className="block text-xs font-semibold text-slate-600 mb-1">Transport Mode</label>
                           <select
@@ -1974,7 +1971,7 @@ export default function LogiComparePro() {
                     </div>
                   </div>
 
-                  {/* 2. Rates Comparison Cards with 2% Platform Fee Breakdown */}
+                  {/* 2. Rates Comparison Cards */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1990,7 +1987,7 @@ export default function LogiComparePro() {
                       {calculatedQuotes.map((quote) => (
                         <div
                           key={quote.rateCard.id}
-                          className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all shadow-xs hover:shadow-sm"
+                          className="bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-indigo-500/10 shadow-xs"
                         >
                           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                             <div className="space-y-2">
