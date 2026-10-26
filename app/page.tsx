@@ -354,6 +354,470 @@ const resolveLocationToPrefix = async (rawInput: string): Promise<string> => {
   return clean.substring(0, 3);
 };
 
+// ==========================================
+// 3D VISUAL COMPONENT 1: INTERACTIVE 3D PACKAGE BOX
+// ==========================================
+function Interactive3DBox({ length, width, height }: { length: number; width: number; height: number }) {
+  const [rotX, setRotX] = useState(-20);
+  const [rotY, setRotY] = useState(35);
+  const [isDragging, setIsDragging] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  // Auto-orbit animation loop
+  useEffect(() => {
+    if (!autoRotate || isDragging) return;
+    const interval = setInterval(() => {
+      setRotY((prev) => (prev + 0.6) % 360);
+    }, 30);
+    return () => clearInterval(interval);
+  }, [autoRotate, isDragging]);
+
+  // Normalize dimensions to fit nicely inside 180px viewport
+  const maxDim = Math.max(length, width, height, 20);
+  const scale = 110 / maxDim;
+  const l = Math.max(45, Math.min(150, length * scale));
+  const w = Math.max(45, Math.min(150, width * scale));
+  const h = Math.max(45, Math.min(150, height * scale));
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setAutoRotate(false);
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    setRotY((prev) => prev + dx * 0.7);
+    setRotX((prev) => Math.max(-75, Math.min(75, prev - dy * 0.7)));
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  return (
+    <div className="flex flex-col items-center select-none bg-gradient-to-b from-slate-900/60 to-slate-900/90 p-4 rounded-2xl border border-slate-700/60 shadow-xl backdrop-blur-md">
+      <div className="flex items-center justify-between w-full mb-2">
+        <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-300 flex items-center space-x-1">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1"></span>
+          Live 3D Carton Visualizer
+        </span>
+        <button
+          type="button"
+          onClick={() => setAutoRotate(!autoRotate)}
+          className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700"
+        >
+          {autoRotate ? "Pause 360°" : "Auto 360°"}
+        </button>
+      </div>
+
+      {/* 3D Perspective Viewport */}
+      <div
+        className="w-48 h-44 flex items-center justify-center cursor-grab active:cursor-grabbing"
+        style={{ perspective: "800px" }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <div
+          className="relative transition-transform duration-75"
+          style={{
+            width: `${l}px`,
+            height: `${h}px`,
+            transformStyle: "preserve-3d",
+            transform: `rotateX(${rotX}deg) rotateY(${rotY}deg)`
+          }}
+        >
+          {/* FRONT FACE */}
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-amber-700 via-amber-600 to-amber-800 border border-amber-900/40 shadow-inner flex flex-col justify-between p-2 text-white overflow-hidden rounded-xs"
+            style={{ transform: `translateZ(${w / 2}px)` }}
+          >
+            <div className="flex justify-between items-start opacity-90">
+              <span className="text-[8px] font-black uppercase tracking-widest text-amber-950 bg-amber-400/80 px-1 rounded-xs">
+                FRAGILE
+              </span>
+              <span className="text-[7px] font-mono text-amber-200">↑ THIS SIDE UP</span>
+            </div>
+            <div className="flex flex-col items-center my-auto">
+              <div className="w-10 h-3 bg-white/90 rounded-xs flex items-center justify-center space-x-0.5 px-1 py-0.5">
+                {[1, 2, 1, 3, 1, 2, 1, 2, 1].map((n, i) => (
+                  <div key={i} className="bg-black h-full" style={{ width: `${n}px` }} />
+                ))}
+              </div>
+              <span className="text-[6px] font-mono font-bold text-amber-100 tracking-wider mt-0.5">
+                {length}×{width}×{height} CM
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-amber-900/60 rounded-xs"></div>
+          </div>
+
+          {/* BACK FACE */}
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-amber-800 to-amber-900 border border-amber-950 flex items-center justify-center text-amber-300 font-mono text-[8px] font-bold"
+            style={{ transform: `rotateY(180deg) translateZ(${w / 2}px)` }}
+          >
+            <span>LOGICOMPARE B2B</span>
+          </div>
+
+          {/* LEFT FACE */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-800 via-amber-700 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
+            style={{
+              width: `${w}px`,
+              height: `${h}px`,
+              left: `${(l - w) / 2}px`,
+              transform: `rotateY(-90deg) translateZ(${l / 2}px)`
+            }}
+          >
+            <span className="text-[7px] font-bold rotate-90 opacity-75">WIDTH: {width}cm</span>
+          </div>
+
+          {/* RIGHT FACE */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-700 via-amber-800 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
+            style={{
+              width: `${w}px`,
+              height: `${h}px`,
+              left: `${(l - w) / 2}px`,
+              transform: `rotateY(90deg) translateZ(${l / 2}px)`
+            }}
+          >
+            <span className="text-[7px] font-bold -rotate-90 opacity-75">HT: {height}cm</span>
+          </div>
+
+          {/* TOP FACE (Taped Flap) */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-600 via-amber-500 to-amber-700 border border-amber-900 flex items-center justify-center overflow-hidden"
+            style={{
+              width: `${l}px`,
+              height: `${w}px`,
+              top: `${(h - w) / 2}px`,
+              transform: `rotateX(90deg) translateZ(${h / 2}px)`
+            }}
+          >
+            <div className="w-full h-3 bg-amber-400/50 shadow-inner flex items-center justify-center">
+              <span className="text-[6px] font-bold text-amber-950 tracking-widest uppercase">HEAVY DUTY SEAL</span>
+            </div>
+          </div>
+
+          {/* BOTTOM FACE (Shadow Cast) */}
+          <div
+            className="absolute bg-amber-950 shadow-2xl"
+            style={{
+              width: `${l}px`,
+              height: `${w}px`,
+              top: `${(h - w) / 2}px`,
+              transform: `rotateX(-90deg) translateZ(${h / 2}px)`
+            }}
+          />
+        </div>
+      </div>
+      <span className="text-[9px] text-slate-400 mt-1 font-mono">Drag with mouse to rotate 360°</span>
+    </div>
+  );
+}
+
+// ==========================================
+// 3D VISUAL COMPONENT 2: HERO INTERACTIVE 3D CONTAINER TRUCK (CANVAS 3D)
+// ==========================================
+function Hero3DTruck() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [speed, setSpeed] = useState<"normal" | "turbo">("normal");
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let angle = 0;
+    let wheelAngle = 0;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2 + 10;
+
+      // Road Grid Plane (Perspective 3D)
+      ctx.save();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
+      ctx.lineWidth = 1;
+      for (let i = -140; i <= 140; i += 28) {
+        ctx.beginPath();
+        ctx.moveTo(cx + i * 1.8, cy + 50);
+        ctx.lineTo(cx + i * 0.5, cy - 20);
+        ctx.stroke();
+      }
+      // Speed dash road stripes
+      const roadSpeed = speed === "turbo" ? 6 : 3;
+      const stripeOffset = (Date.now() / (speed === "turbo" ? 40 : 80)) % 40;
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.5)";
+      ctx.lineWidth = 2;
+      for (let y = -20; y < 60; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, cy + y + stripeOffset);
+        ctx.lineTo(cx - 2, cy + y + stripeOffset + 10);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Shadow under truck
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 30, 85, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 3D Isometric Cargo Truck Body
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Container Trailer (Back Box)
+      const gradContainer = ctx.createLinearGradient(-80, -35, 10, 10);
+      gradContainer.addColorStop(0, "#4f46e5");
+      gradContainer.addColorStop(0.5, "#3730a3");
+      gradContainer.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = gradContainer;
+      ctx.strokeStyle = "#818cf8";
+      ctx.lineWidth = 1.5;
+
+      // Draw Trailer Iso Box
+      ctx.beginPath();
+      ctx.roundRect(-80, -38, 95, 48, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Container Corrugated Ridges
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.lineWidth = 1;
+      for (let rx = -70; rx < 10; rx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(rx, -36);
+        ctx.lineTo(rx, 8);
+        ctx.stroke();
+      }
+
+      // Container Logo Text
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("LOGICOMPARE B2B", -68, -12);
+      ctx.fillStyle = "#34d399";
+      ctx.font = "bold 7px sans-serif";
+      ctx.fillText("EXPRESS CARGO LINEHAUL", -68, -2);
+
+      // Truck Cabin Front (Right side)
+      const gradCab = ctx.createLinearGradient(16, -20, 52, 10);
+      gradCab.addColorStop(0, "#059669");
+      gradCab.addColorStop(1, "#065f46");
+      ctx.fillStyle = gradCab;
+      ctx.beginPath();
+      ctx.moveTo(15, 10);
+      ctx.lineTo(55, 10);
+      ctx.lineTo(55, -8);
+      ctx.lineTo(40, -28);
+      ctx.lineTo(15, -28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Windshield Glass
+      ctx.fillStyle = "rgba(186, 230, 253, 0.85)";
+      ctx.beginPath();
+      ctx.moveTo(38, -25);
+      ctx.lineTo(50, -9);
+      ctx.lineTo(24, -9);
+      ctx.lineTo(24, -25);
+      ctx.closePath();
+      ctx.fill();
+
+      // LED Headlight Beam (Glowing 3D Cone)
+      const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
+      lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
+      lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
+      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0)");
+      ctx.fillStyle = lightBeam;
+      ctx.beginPath();
+      ctx.moveTo(54, -2);
+      ctx.lineTo(110, -10);
+      ctx.lineTo(110, 22);
+      ctx.closePath();
+      ctx.fill();
+
+      // Spinning 3D Wheels
+      wheelAngle += speed === "turbo" ? 0.35 : 0.15;
+      const wheelPositions = [-62, -42, 28, 46];
+      wheelPositions.forEach((wx) => {
+        ctx.save();
+        ctx.translate(wx, 14);
+        ctx.fillStyle = "#1e293b";
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Rim Spokes
+        ctx.rotate(wheelAngle);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.beginPath();
+        ctx.moveTo(-5, 0);
+        ctx.lineTo(5, 0);
+        ctx.moveTo(0, -5);
+        ctx.lineTo(0, 5);
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [speed]);
+
+  return (
+    <div className="relative flex flex-col items-center bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-xl">
+      <div className="flex items-center justify-between w-full px-2 mb-1">
+        <div className="flex items-center space-x-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="text-xs font-mono font-bold text-slate-200">3D Linehaul Truck Intermodal</span>
+        </div>
+        <button
+          onClick={() => setSpeed(speed === "normal" ? "turbo" : "normal")}
+          className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-900/60 border border-indigo-500/40 px-2.5 py-1 rounded-full hover:bg-indigo-800 transition"
+        >
+          {speed === "turbo" ? "⚡ Turbo Speed" : "▶ Normal Transit"}
+        </button>
+      </div>
+
+      <canvas ref={canvasRef} width={340} height={170} className="w-full max-w-[340px] h-[170px]" />
+
+      <div className="flex items-center justify-between w-full text-[10px] text-slate-400 pt-1 border-t border-slate-800 font-mono">
+        <span>Vehicle: 32ft MXL Container</span>
+        <span className="text-emerald-400 font-bold">GPS Active • Linehaul</span>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 3D VISUAL COMPONENT 3: ANIMATED 3D ROUTE TRAJECTORY ARC
+// ==========================================
+function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let progress = 0;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = canvas.width;
+      const h = canvas.height;
+
+      const p1 = { x: 45, y: h - 35 };
+      const p2 = { x: w - 45, y: h - 35 };
+      const cp = { x: w / 2, y: 15 }; // Parabolic Arc apex
+
+      // Draw Background 3D Ground Ellipse
+      ctx.save();
+      ctx.fillStyle = "rgba(99, 102, 241, 0.05)";
+      ctx.beginPath();
+      ctx.ellipse(w / 2, h - 30, w / 2 - 20, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Draw Main 3D Parabolic Trajectory Arc
+      ctx.save();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.4)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+      ctx.stroke();
+      ctx.restore();
+
+      // Pulsing Cargo Beacon traveling on arc
+      progress = (progress + 0.008) % 1;
+      const t = progress;
+      const bx = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * cp.x + t * t * p2.x;
+      const by = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * cp.y + t * t * p2.y;
+
+      // Glow behind moving cargo
+      ctx.save();
+      const glow = ctx.createRadialGradient(bx, by, 1, bx, by, 12);
+      glow.addColorStop(0, "rgba(52, 211, 153, 1)");
+      glow.addColorStop(0.6, "rgba(52, 211, 153, 0.4)");
+      glow.addColorStop(1, "rgba(52, 211, 153, 0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(bx, by, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core Cargo Beacon Dot
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Origin Station Radar Ring
+      ctx.save();
+      ctx.fillStyle = "#6366f1";
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Destination Station Radar Ring
+      ctx.fillStyle = "#10b981";
+      ctx.beginPath();
+      ctx.arc(p2.x, p2.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.6)";
+      ctx.beginPath();
+      ctx.arc(p2.x, p2.y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [originHub, destHub]);
+
+  return (
+    <div className="relative bg-slate-900/60 p-3 rounded-xl border border-slate-700/60 text-white flex flex-col items-center">
+      <div className="flex justify-between items-center w-full text-[10px] font-mono mb-1">
+        <span className="text-indigo-300 font-bold">📍 {originHub || "DEL-ORIGIN"}</span>
+        <span className="text-emerald-300 font-bold">🎯 {destHub || "BOM-DEST"}</span>
+      </div>
+      <canvas ref={canvasRef} width={300} height={90} className="w-full max-w-[300px] h-[90px]" />
+      <span className="text-[9px] text-slate-400 font-mono mt-0.5">3D Parabolic Linehaul Trajectory Active</span>
+    </div>
+  );
+}
+
 // Inline SVG Icons
 const TruckIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -472,7 +936,7 @@ const MapPinIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
-// Initial Demo Consignment Reference
+// Initial Demo Reference Identifiers
 const DEMO_INIT_ORDER_ID = "LC-894210";
 const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
@@ -537,6 +1001,7 @@ export default function LogiComparePro() {
     { id: "box-1", qty: 2, weight: 20, length: 45, width: 35, height: 30 },
     { id: "box-2", qty: 1, weight: 15, length: 30, width: 30, height: 25 }
   ]);
+  const [selectedBoxFor3D, setSelectedBoxFor3D] = useState<number>(0);
 
   const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
     city: "South West Delhi",
@@ -762,6 +1227,9 @@ export default function LogiComparePro() {
   const removeBox = (id: string) => {
     if (boxes.length <= 1) return;
     setBoxes(boxes.filter((b) => b.id !== id));
+    if (selectedBoxFor3D >= boxes.length - 1) {
+      setSelectedBoxFor3D(Math.max(0, boxes.length - 2));
+    }
   };
 
   const updateBox = (id: string, field: keyof BoxItem, value: number) => {
@@ -844,10 +1312,8 @@ export default function LogiComparePro() {
 
     setIsSubmittingBooking(true);
 
-    // 1. Platform Order Ref for internal billing and receipt audit
     const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
 
-    // 2. Initial Official Carrier Docket/Waybill format
     const carrier = selectedQuoteForBooking.vendor.name.toLowerCase();
     let initialCarrierDocket = "";
     if (carrier.includes("delhivery")) {
@@ -1305,6 +1771,8 @@ export default function LogiComparePro() {
     );
   }, [bookings, activeTrackingAwb]);
 
+  const currentBox3D = boxes[selectedBoxFor3D] || boxes[0];
+
   return (
     <div className="min-h-screen bg-slate-900/5 text-slate-800 flex flex-col font-sans selection:bg-indigo-500 selection:text-white relative">
       {/* ============================================================== */}
@@ -1320,10 +1788,10 @@ export default function LogiComparePro() {
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-xl tracking-tight text-slate-900">LogiCompare</span>
                 <span className="bg-gradient-to-r from-indigo-500/10 to-indigo-600/10 text-indigo-700 border border-indigo-200/80 text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                  Pro B2B
+                  Pro B2B 3D
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">Hybrid Dual-ID Consignment Network & Official Carrier Tracking</p>
+              <p className="text-[11px] text-slate-500 font-medium">Hybrid Dual-ID Consignment Network & 3D Interactive Freight</p>
             </div>
           </div>
 
@@ -1388,15 +1856,15 @@ export default function LogiComparePro() {
       </header>
 
       {/* ============================================================== */}
-      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH HERO OVERLAY & GLOW */}
+      {/* VIEW 1: INTRO / B2B LANDING PAGE WITH 3D CONTAINER TRUCK HERO */}
       {/* ============================================================== */}
       {activeView === "landing" && (
         <div className="flex-1 flex flex-col space-y-16 pb-12">
-          {/* 1. CINEMATIC HERO SECTION */}
-          <section className="relative overflow-hidden bg-slate-950 text-white pt-20 pb-24 px-4 lg:px-8 border-b border-slate-800">
+          {/* 1. CINEMATIC HERO SECTION WITH 3D INTERACTIVE CARGO TRUCK */}
+          <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-20 px-4 lg:px-8 border-b border-slate-800">
             {/* Dark Logistics Image Background with Multi-Layer Overlays */}
             <div 
-              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-25 scale-105 transition-transform duration-1000 ease-out"
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out"
               style={{ 
                 backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` 
               }}
@@ -1412,76 +1880,83 @@ export default function LogiComparePro() {
 
             <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950" />
 
-            {/* Hero Main Content */}
-            <div className="relative max-w-6xl mx-auto text-center space-y-7 z-10">
-              <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
-                <span>🇮🇳</span>
-                <span>Hybrid Dual-ID: Internal Platform Ref + Official Transporter Waybills</span>
-              </div>
+            {/* Hero Main Content Grid: Pitch on Left, 3D Canvas Truck on Right */}
+            <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
+              <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
+                <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
+                  <span>🇮🇳</span>
+                  <span>Hybrid Dual-ID: Internal Platform Ref + Official Transporter Waybills</span>
+                </div>
 
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight max-w-4xl mx-auto text-white">
-                Compare Multi-Carrier B2B Freight Rates & Book With{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400">Verified Dockets</span>.
-              </h1>
+                <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight text-white">
+                  Compare Multi-Carrier B2B Freight Rates & Book With{" "}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400">Verified Dockets</span>.
+                </h1>
 
-              <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-                Seamlessly manage internal order manifests (`LC-XXXXXX`) while dispatching cargo with official carrier dockets (Delhivery, Blue Dart, Safexpress, Gati, TCI) and deep-linking to live tracking portals.
-              </p>
+                <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
+                  Seamlessly manage internal order manifests (`LC-XXXXXX`) while dispatching cargo with official carrier dockets (Delhivery, Blue Dart, Safexpress, Gati, TCI) and deep-linking to live tracking portals.
+                </p>
 
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  onClick={handleLandingJumpToCompare}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
-                >
-                  <BoxIcon className="w-5 h-5" />
-                  <span>Compare Freight Rates Now</span>
-                </button>
-                <button
-                  onClick={() => switchDemoRole("vendor")}
-                  className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
-                >
-                  <TruckIcon className="w-5 h-5 text-emerald-400" />
-                  <span>Join as Carrier / Vendor</span>
-                </button>
-              </div>
-
-              {/* Glassmorphic Universal Search Bar */}
-              <div className="pt-6 max-w-xl mx-auto">
-                <div className="bg-white/10 backdrop-blur-md p-2 sm:p-2.5 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
-                  <div className="flex items-center space-x-2 px-3 py-1 text-slate-300 w-full sm:w-auto">
-                    <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <span className="text-xs font-semibold text-slate-400 shrink-0">Track Order/Docket:</span>
-                    <input
-                      type="text"
-                      value={landingTrackingInput}
-                      onChange={(e) => setLandingTrackingInput(e.target.value)}
-                      placeholder="e.g. LC-894210 or 148920194821"
-                      className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
-                    />
-                  </div>
+                <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
                   <button
-                    onClick={() => handleLandingQuickTrack()}
-                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl transition shadow-md shrink-0"
+                    onClick={handleLandingJumpToCompare}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
                   >
-                    Track Shipment
+                    <BoxIcon className="w-5 h-5" />
+                    <span>Compare Freight Rates Now</span>
+                  </button>
+                  <button
+                    onClick={() => switchDemoRole("vendor")}
+                    className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition-all duration-200 backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
+                  >
+                    <TruckIcon className="w-5 h-5 text-emerald-400" />
+                    <span>Join as Carrier / Vendor</span>
                   </button>
                 </div>
-                <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
-                  <span>Universal Lookup Examples:</span>
-                  <button
-                    onClick={() => handleLandingQuickTrack(DEMO_INIT_ORDER_ID)}
-                    className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                  >
-                    Ref: {DEMO_INIT_ORDER_ID}
-                  </button>
-                  <span>•</span>
-                  <button
-                    onClick={() => handleLandingQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
-                    className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                  >
-                    Docket: {DEMO_INIT_CARRIER_DOCKET}
-                  </button>
+              </div>
+
+              {/* 3D Visual 1: Interactive Container Truck in Hero */}
+              <div className="lg:col-span-5 flex justify-center">
+                <Hero3DTruck />
+              </div>
+            </div>
+
+            {/* Glassmorphic Universal Search Bar */}
+            <div className="pt-8 max-w-xl mx-auto relative z-10">
+              <div className="bg-white/10 backdrop-blur-md p-2 sm:p-2.5 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
+                <div className="flex items-center space-x-2 px-3 py-1 text-slate-300 w-full sm:w-auto">
+                  <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-400 shrink-0">Track Order/Docket:</span>
+                  <input
+                    type="text"
+                    value={landingTrackingInput}
+                    onChange={(e) => setLandingTrackingInput(e.target.value)}
+                    placeholder="e.g. LC-894210 or 148920194821"
+                    className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
+                  />
                 </div>
+                <button
+                  onClick={() => handleLandingQuickTrack()}
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl transition shadow-md shrink-0"
+                >
+                  Track Shipment
+                </button>
+              </div>
+              <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
+                <span>Universal Lookup Examples:</span>
+                <button
+                  onClick={() => handleLandingQuickTrack(DEMO_INIT_ORDER_ID)}
+                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
+                >
+                  Ref: {DEMO_INIT_ORDER_ID}
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => handleLandingQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
+                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
+                >
+                  Docket: {DEMO_INIT_CARRIER_DOCKET}
+                </button>
               </div>
             </div>
           </section>
@@ -1878,6 +2353,7 @@ export default function LogiComparePro() {
                       </span>
                     </div>
 
+                    {/* PIN selection + 3D Route Arc Viewport */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                       {/* Origin PIN */}
                       <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
@@ -1979,8 +2455,13 @@ export default function LogiComparePro() {
                       </div>
                     </div>
 
-                    {/* Multi-Box Repeater Section */}
-                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
+                    {/* 3D Visual 3: Live 3D Parabolic Trajectory Arc */}
+                    <div className="mb-6">
+                      <RouteTrajectory3D originHub={originZoneData.hub} destHub={destZoneData.hub} />
+                    </div>
+
+                    {/* Multi-Box Repeater + 3D Visual 2: Interactive 3D Package Box */}
+                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                           Consignment Box Dimensions ({boxes.length} {boxes.length === 1 ? "box type" : "box types"})
@@ -1995,84 +2476,104 @@ export default function LogiComparePro() {
                         </button>
                       </div>
 
-                      <div className="space-y-2">
-                        {boxes.map((box, idx) => (
-                          <div
-                            key={box.id}
-                            className="grid grid-cols-2 sm:grid-cols-6 gap-2 bg-white p-3 rounded-lg border border-slate-200 items-center text-xs shadow-xs"
-                          >
-                            <div>
-                              <span className="text-[10px] text-slate-500 block mb-0.5">Box #{idx + 1} Qty</span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={box.qty}
-                                onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                              />
-                            </div>
+                      {/* Side-by-Side: Box Inputs on Left, 3D Package on Right */}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                        <div className="lg:col-span-8 space-y-2">
+                          {boxes.map((box, idx) => (
+                            <div
+                              key={box.id}
+                              onClick={() => setSelectedBoxFor3D(idx)}
+                              className={`grid grid-cols-2 sm:grid-cols-6 gap-2 p-3 rounded-lg border items-center text-xs shadow-xs cursor-pointer transition ${
+                                selectedBoxFor3D === idx
+                                  ? "bg-indigo-50/70 border-indigo-400 ring-1 ring-indigo-300"
+                                  : "bg-white border-slate-200 hover:border-slate-300"
+                              }`}
+                            >
+                              <div>
+                                <span className="text-[10px] text-slate-500 block mb-0.5">Box #{idx + 1} Qty</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={box.qty}
+                                  onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                                />
+                              </div>
 
-                            <div>
-                              <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
-                              <input
-                                type="number"
-                                min={0.5}
-                                step={0.5}
-                                value={box.weight}
-                                onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                              />
-                            </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block mb-0.5">Weight (Kg/box)</span>
+                                <input
+                                  type="number"
+                                  min={0.5}
+                                  step={0.5}
+                                  value={box.weight}
+                                  onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                                />
+                              </div>
 
-                            <div>
-                              <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={box.length}
-                                onChange={(e) => updateBox(box.id, "length", parseFloat(e.target.value) || 1)}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                              />
-                            </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={box.length}
+                                  onChange={(e) => updateBox(box.id, "length", parseFloat(e.target.value) || 1)}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                                />
+                              </div>
 
-                            <div>
-                              <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={box.width}
-                                onChange={(e) => updateBox(box.id, "width", parseFloat(e.target.value) || 1)}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                              />
-                            </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={box.width}
+                                  onChange={(e) => updateBox(box.id, "width", parseFloat(e.target.value) || 1)}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                                />
+                              </div>
 
-                            <div>
-                              <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={box.height}
-                                onChange={(e) => updateBox(box.id, "height", parseFloat(e.target.value) || 1)}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
-                              />
-                            </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block mb-0.5">Height (cm)</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={box.height}
+                                  onChange={(e) => updateBox(box.id, "height", parseFloat(e.target.value) || 1)}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono"
+                                />
+                              </div>
 
-                            <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
-                              <span className="text-[11px] text-slate-500 font-mono">
-                                {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
-                              </span>
-                              {boxes.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeBox(box.id)}
-                                  className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
-                                >
-                                  <TrashIcon className="w-4 h-4" />
-                                </button>
-                              )}
+                              <div className="flex items-center justify-between sm:justify-end space-x-3 pt-3 sm:pt-0">
+                                <span className="text-[11px] text-slate-500 font-mono">
+                                  {((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)).toFixed(1)} kg vol
+                                </span>
+                                {boxes.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      removeBox(box.id);
+                                    }}
+                                    className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50"
+                                  >
+                                    <TrashIcon className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+
+                        {/* Interactive 3D Package Box Visualizer */}
+                        <div className="lg:col-span-4 flex justify-center">
+                          <Interactive3DBox
+                            length={currentBox3D.length}
+                            width={currentBox3D.width}
+                            height={currentBox3D.height}
+                          />
+                        </div>
                       </div>
 
                       {/* Weight Summary Banner */}
