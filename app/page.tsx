@@ -166,6 +166,7 @@ interface UserProfile {
   phone: string;
   role: "shipper" | "vendor";
   vendor_id?: string;
+  isRealUser?: boolean; // Flag to identify real authenticated users vs demo session
 }
 
 interface ParsedCsvRateCard {
@@ -931,7 +932,8 @@ export default function LogiComparePro() {
     company_name: "Apex Retail Solutions Pvt Ltd",
     gstin: "07AAACA1234A1Z5",
     phone: "+91 98110 23456",
-    role: "shipper"
+    role: "shipper",
+    isRealUser: false
   };
 
   const DEMO_VENDOR: UserProfile = {
@@ -942,7 +944,8 @@ export default function LogiComparePro() {
     gstin: "06AAACD9876Q1ZB",
     phone: "+91 98991 76543",
     role: "vendor",
-    vendor_id: "11111111-1111-1111-1111-111111111111"
+    vendor_id: "11111111-1111-1111-1111-111111111111",
+    isRealUser: false
   };
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
@@ -1050,6 +1053,29 @@ export default function LogiComparePro() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
+
+  // Real User Session Check on Mount
+  useEffect(() => {
+    const checkUserSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+          const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+          if (pData) {
+            const realProfile: UserProfile = {
+              ...(pData as UserProfile),
+              isRealUser: true
+            };
+            setCurrentUser(realProfile);
+            setActivePortal(realProfile.role);
+          }
+        }
+      } catch (err) {
+        console.warn("Session check fallback:", err);
+      }
+    };
+    checkUserSession();
+  }, []);
 
   useEffect(() => {
     if (originPin.trim().length === 6) {
@@ -1171,6 +1197,18 @@ export default function LogiComparePro() {
       setActivePortal("vendor");
     }
     setActiveView("dashboard");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignored
+    }
+    setCurrentUser(DEMO_SHIPPER);
+    setActivePortal("shipper");
+    setActiveView("landing");
+    alert("Logged out successfully! Switched back to visitor demo view.");
   };
 
   const openLegalModal = (tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => {
@@ -1779,6 +1817,7 @@ export default function LogiComparePro() {
     }
   };
 
+  // REAL AUTHENTICATION HANDLER (Sign Up / Sign In)
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -1801,7 +1840,8 @@ export default function LogiComparePro() {
             gstin: authGstin,
             phone: authPhone,
             role: authRole,
-            vendor_id: authRole === "vendor" ? "11111111-1111-1111-1111-111111111111" : undefined
+            vendor_id: authRole === "vendor" ? data.user.id : undefined,
+            isRealUser: true
           };
           await supabase.from("profiles").upsert([profile]);
           setCurrentUser(profile);
@@ -1818,15 +1858,16 @@ export default function LogiComparePro() {
         if (data.user) {
           const { data: pData } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
           if (pData) {
-            setCurrentUser(pData as UserProfile);
-            setActivePortal(pData.role);
+            const realUser = { ...(pData as UserProfile), isRealUser: true };
+            setCurrentUser(realUser);
+            setActivePortal(realUser.role);
           }
           setActiveView("dashboard");
           setShowAuthModal(false);
         }
       }
     } catch (err: any) {
-      setAuthMsg(err.message || "Auth error. Continue seamlessly using demo roles.");
+      setAuthMsg(err.message || "Auth error occurred. Please verify your credentials.");
     } finally {
       setAuthLoading(false);
     }
@@ -1846,7 +1887,7 @@ export default function LogiComparePro() {
 
   return (
     <div className="min-h-screen bg-slate-900/5 text-slate-800 flex flex-col font-sans selection:bg-indigo-500 selection:text-white relative">
-      {/* GLOBAL TOP NAVIGATION */}
+      {/* GLOBAL TOP NAVIGATION WITH DYNAMIC DEMO / REAL-USER TOGGLE */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200/80 shadow-xs px-4 lg:px-8 py-3 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setActiveView("landing")}>
@@ -1888,38 +1929,60 @@ export default function LogiComparePro() {
           </div>
 
           <div className="flex items-center space-x-2">
-            <div className="hidden sm:flex items-center space-x-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200">
-              <button
-                onClick={() => switchDemoRole("shipper")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
-                  currentUser.role === "shipper" && activeView === "dashboard"
-                    ? "bg-white text-indigo-700 shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <span>⚡ Shipper</span>
-                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1 py-0.2 rounded font-medium">Apex</span>
-              </button>
-              <button
-                onClick={() => switchDemoRole("vendor")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
-                  currentUser.role === "vendor" && activeView === "dashboard"
-                    ? "bg-white text-emerald-700 shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <span>⚡ Carrier</span>
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1 py-0.2 rounded font-medium">Delhivery</span>
-              </button>
-            </div>
+            {/* If User is Logged In: HIDE Demo Buttons & Show Real Profile Badge with Logout */}
+            {currentUser.isRealUser ? (
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="font-bold text-slate-800 truncate max-w-[140px]">{currentUser.company_name || currentUser.full_name}</span>
+                  <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+                    {currentUser.role}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              /* If Visitor / Demo Mode: Show Demo Switchers & Login Button */
+              <>
+                <div className="hidden sm:flex items-center space-x-1.5 bg-slate-100/80 p-1 rounded-xl border border-slate-200">
+                  <button
+                    onClick={() => switchDemoRole("shipper")}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
+                      currentUser.role === "shipper" && activeView === "dashboard"
+                        ? "bg-white text-indigo-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <span>⚡ Shipper</span>
+                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1 py-0.2 rounded font-medium">Apex</span>
+                  </button>
+                  <button
+                    onClick={() => switchDemoRole("vendor")}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
+                      currentUser.role === "vendor" && activeView === "dashboard"
+                        ? "bg-white text-emerald-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <span>⚡ Carrier</span>
+                    <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1 py-0.2 rounded font-medium">Delhivery</span>
+                  </button>
+                </div>
 
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-xs flex items-center space-x-1.5"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Account / Login</span>
-            </button>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-xs flex items-center space-x-1.5"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Account / Login</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -2001,22 +2064,6 @@ export default function LogiComparePro() {
                   className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl transition shadow-md shrink-0"
                 >
                   Track Shipment
-                </button>
-              </div>
-              <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3">
-                <span>Universal Lookup Examples:</span>
-                <button
-                  onClick={() => handleLandingQuickTrack(DEMO_INIT_ORDER_ID)}
-                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                >
-                  Ref: {DEMO_INIT_ORDER_ID}
-                </button>
-                <span>•</span>
-                <button
-                  onClick={() => handleLandingQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
-                  className="font-mono text-indigo-300 hover:text-indigo-200 underline font-semibold"
-                >
-                  Docket: {DEMO_INIT_CARRIER_DOCKET}
                 </button>
               </div>
             </div>
@@ -2322,7 +2369,9 @@ export default function LogiComparePro() {
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* VIEW 2: FREIGHT MATRIX DASHBOARD */}
+      {/* ============================================================== */}
       {activeView === "dashboard" && (
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
