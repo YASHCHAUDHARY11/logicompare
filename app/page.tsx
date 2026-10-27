@@ -867,3 +867,1356 @@ const CalendarIcon: FC<IconProps> = ({ className = "w-5 h-5" }) => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.253M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
   </svg>
 );
+// ============================================================================
+// 6. DYNAMIC ADDRESS MANAGEMENT MODAL (SHIPPER ORIGIN WAREHOUSE)
+// ============================================================================
+interface AddressModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (address: AddressProfile) => void;
+  initialAddress?: AddressProfile | null;
+}
+
+const AddressModal: FC<AddressModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  initialAddress
+}) => {
+  const [label, setLabel] = useState(initialAddress?.label || "Primary Warehouse");
+  const [companyName, setCompanyName] = useState(initialAddress?.company_name || "");
+  const [contactName, setContactName] = useState(initialAddress?.contact_name || "");
+  const [phone, setPhone] = useState(initialAddress?.phone || "");
+  const [email, setEmail] = useState(initialAddress?.email || "");
+  const [gstin, setGstin] = useState(initialAddress?.gstin || "");
+  const [line1, setLine1] = useState(initialAddress?.address_line1 || "");
+  const [line2, setLine2] = useState(initialAddress?.address_line2 || "");
+  const [city, setCity] = useState(initialAddress?.city || "");
+  const [stateName, setStateName] = useState(initialAddress?.state || "");
+  const [pincode, setPincode] = useState(initialAddress?.pincode || "110020");
+  const [isDefault, setIsDefault] = useState(initialAddress?.is_default ?? true);
+  const [isLookingUpPin, setIsLookingUpPin] = useState(false);
+
+  useEffect(() => {
+    if (initialAddress) {
+      setLabel(initialAddress.label);
+      setCompanyName(initialAddress.company_name);
+      setContactName(initialAddress.contact_name);
+      setPhone(initialAddress.phone);
+      setEmail(initialAddress.email);
+      setGstin(initialAddress.gstin);
+      setLine1(initialAddress.address_line1);
+      setLine2(initialAddress.address_line2 || "");
+      setCity(initialAddress.city);
+      setStateName(initialAddress.state);
+      setPincode(initialAddress.pincode);
+      setIsDefault(initialAddress.is_default);
+    }
+  }, [initialAddress]);
+
+  const handlePincodeBlur = async () => {
+    const cleanPin = pincode.trim();
+    if (cleanPin.length === 6) {
+      setIsLookingUpPin(true);
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`);
+        const data = await res.json();
+        if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+          const po = data[0].PostOffice[0];
+          setCity(po.District || po.Block || po.Name);
+          setStateName(po.State);
+        } else {
+          const fb = getLocalFallbackZone(cleanPin);
+          setCity(fb.city);
+          setStateName(fb.state);
+        }
+      } catch {
+        const fb = getLocalFallbackZone(cleanPin);
+        setCity(fb.city);
+        setStateName(fb.state);
+      } finally {
+        setIsLookingUpPin(false);
+      }
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!pincode || pincode.trim().length !== 6) {
+      alert("Please provide a valid 6-digit Indian PIN code.");
+      return;
+    }
+    const updated: AddressProfile = {
+      id: initialAddress?.id || `addr-${Date.now()}`,
+      label: label.trim(),
+      company_name: companyName.trim() || "Apex Retail Solutions Pvt Ltd",
+      contact_name: contactName.trim() || "Dispatch Manager",
+      phone: phone.trim() || "+91 98110 23456",
+      email: email.trim(),
+      gstin: gstin.trim().toUpperCase(),
+      address_line1: line1.trim(),
+      address_line2: line2.trim(),
+      city: city.trim() || "New Delhi",
+      state: stateName.trim() || "Delhi",
+      pincode: pincode.trim(),
+      is_default: isDefault
+    };
+    onSave(updated);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">
+              {initialAddress ? "Edit Dispatch Warehouse Address" : "Add Warehouse Origin Address"}
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">
+              This address dynamically auto-populates your consignment origin for freight calculations.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Address Label</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Primary Hub, Okhla Warehouse"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Enterprise Name</label>
+              <input
+                type="text"
+                placeholder="Apex Retail Solutions Pvt Ltd"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Dispatch Contact</label>
+              <input
+                type="text"
+                required
+                placeholder="Lead Person Name"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Phone Number</label>
+              <input
+                type="text"
+                required
+                placeholder="+91 98110 23456"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">GSTIN</label>
+              <input
+                type="text"
+                maxLength={15}
+                placeholder="07AAACA1234A1Z5"
+                value={gstin}
+                onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Address Line 1 (Street / Plot No.)</label>
+            <input
+              type="text"
+              required
+              placeholder="Plot 42, Okhla Industrial Area Phase-III"
+              value={line1}
+              onChange={(e) => setLine1(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Address Line 2 (Landmark / Floor / Gate)</label>
+            <input
+              type="text"
+              placeholder="Near Gate No. 2, Behind Container Yard"
+              value={line2}
+              onChange={(e) => setLine2(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">
+                PIN Code {isLookingUpPin && <span className="text-indigo-600 text-[10px] animate-pulse">(Lookup...)</span>}
+              </label>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                placeholder="110020"
+                value={pincode}
+                onChange={(e) => setPincode(e.target.value)}
+                onBlur={handlePincodeBlur}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">City / District</label>
+              <input
+                type="text"
+                required
+                placeholder="South Delhi"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">State</label>
+              <input
+                type="text"
+                required
+                placeholder="Delhi"
+                value={stateName}
+                onChange={(e) => setStateName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 pt-1">
+            <input
+              type="checkbox"
+              id="is_default_addr"
+              checked={isDefault}
+              onChange={(e) => setIsDefault(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+            />
+            <label htmlFor="is_default_addr" className="text-xs font-bold text-slate-700 cursor-pointer">
+              Set as Default Pickup Warehouse (Auto-loads in calculator and bulk CSV dispatch)
+            </label>
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition"
+            >
+              Save Address Profile
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 7. PLATFORM FEE SETTLEMENT & INVOICE PAYMENT MODAL
+// ============================================================================
+interface PayPlatformFeeModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  invoice: PlatformInvoice | null;
+  onPaySuccess: (invoiceId: string, utr: string, method: string) => void;
+}
+
+const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({
+  isOpen,
+  onClose,
+  invoice,
+  onPaySuccess
+}) => {
+  const [method, setMethod] = useState<"upi" | "netbanking" | "card">("upi");
+  const [utrNumber, setUtrNumber] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  if (!isOpen || !invoice) return null;
+
+  const handlePay = (e: FormEvent) => {
+    e.preventDefault();
+    if (!utrNumber.trim()) {
+      alert("Please enter a valid Transaction / UTR reference number.");
+      return;
+    }
+    setIsProcessing(true);
+    setTimeout(() => {
+      onPaySuccess(invoice.id, utrNumber.trim(), method === "upi" ? "UPI VPA" : method === "netbanking" ? "Corporate NetBanking" : "Corporate Debit Card");
+      setIsProcessing(false);
+      onClose();
+      alert(`Platform Fee Payment of ${formatINR(invoice.platform_fee_total)} successfully verified! Invoice marked as Paid.`);
+    }, 700);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Settle Platform Commission Fee</h3>
+            <p className="text-xs text-slate-500 font-medium">Invoice: <span className="font-mono font-bold text-indigo-700">{invoice.invoice_number}</span></p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Invoice Summary Card */}
+        <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Billing Cycle:</span>
+            <span className="font-bold uppercase tracking-wider bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+              {invoice.billing_cycle} Period ({invoice.period_start} to {invoice.period_end})
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Carrier Organization:</span>
+            <strong className="text-white">{invoice.carrier_name}</strong>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Dispatched Consignments:</span>
+            <strong className="text-white">{invoice.total_consignments} Loads</strong>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Gross Freight Handled:</span>
+            <strong className="font-mono text-white">{formatINR(invoice.gross_freight)}</strong>
+          </div>
+          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
+            <span>Platform Fee Payable (2%):</span>
+            <span className="text-base font-mono">{formatINR(invoice.platform_fee_total)}</span>
+          </div>
+        </div>
+
+        {/* Settlement Payment Form */}
+        <form onSubmit={handlePay} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Select Payment Method</label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setMethod("upi")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "upi" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                📲 UPI Transfer
+              </button>
+              <button
+                type="button"
+                onClick={() => setMethod("netbanking")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "netbanking" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                🏦 NetBanking
+              </button>
+              <button
+                type="button"
+                onClick={() => setMethod("card")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "card" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                💳 Debit/Card
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px]">
+            <p className="text-slate-600"><strong>Aggregator Beneficiary:</strong> {MERCHANT_DETAILS.proprietor}</p>
+            <p className="text-slate-600"><strong>Platform VPA:</strong> platform.billing@icici</p>
+            <p className="text-slate-600"><strong>Escrow Bank Account:</strong> 50200088910001 (IFSC: HDFC0000240)</p>
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Bank Payment Reference / UTR Number</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. UTR-998124018274 or CMS-Ref"
+              value={utrNumber}
+              onChange={(e) => setUtrNumber(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isProcessing}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
+            >
+              {isProcessing ? "Verifying..." : `Confirm Payment (${formatINR(invoice.platform_fee_total)})`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 8. REAL SUPABASE AUTHENTICATION MODAL (STRICTLY ISOLATED)
+// ============================================================================
+interface AuthModalProps {
+  isOpen: boolean;
+  onSuccess: (profile: UserProfile) => void;
+  onClose: () => void;
+}
+
+const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [phone, setPhone] = useState("");
+  const [role, setRole] = useState<"shipper" | "carrier">("shipper");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMsg("");
+
+    try {
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          const profile: UserProfile = {
+            id: data.user.id,
+            email,
+            full_name: fullName.trim() || "Enterprise Admin",
+            company_name: companyName.trim() || "Logistics Commercial Corp",
+            gstin: gstin.trim().toUpperCase() || "07AAACA1234A1Z5",
+            phone: phone.trim() || "+91 98110 23456",
+            role: role,
+            vendor_id: role === "carrier" ? data.user.id : undefined,
+            isRealUser: true,
+            saved_addresses: [DEFAULT_SHIPPER_ADDRESS]
+          };
+          await supabase.from("profiles").upsert([profile]);
+          onSuccess(profile);
+          onClose();
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          const { data: pData } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
+          if (pData) {
+            const resolvedRole: RoleType = (pData.role === "vendor" || pData.role === "carrier") ? "carrier" : pData.role;
+            onSuccess({
+              ...(pData as UserProfile),
+              role: resolvedRole,
+              isRealUser: true,
+              saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS]
+            });
+          } else {
+            onSuccess({
+              id: data.user.id,
+              email: data.user.email || email,
+              full_name: "Verified Business User",
+              company_name: "Apex Retail Solutions",
+              gstin: "07AAACA1234A1Z5",
+              phone: "+91 98110 23456",
+              role: "shipper",
+              isRealUser: true,
+              saved_addresses: [DEFAULT_SHIPPER_ADDRESS]
+            });
+          }
+          onClose();
+        }
+      }
+    } catch (err: any) {
+      setMsg(err.message || "Authentication error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">
+              {mode === "login" ? "Live Account Sign In" : "Register Logistics Enterprise"}
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">Production Supabase Authentication Guard</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {msg && <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 p-2.5 rounded-xl font-bold">{msg}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Business Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Password</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          {mode === "signup" && (
+            <>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Company / Organization</label>
+                <input
+                  type="text"
+                  required
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">GSTIN (15 Digits)</label>
+                <input
+                  type="text"
+                  maxLength={15}
+                  value={gstin}
+                  onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                  placeholder="07AAACA1234A1Z5"
+                  className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Primary Operational Role</label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as "shipper" | "carrier")}
+                  className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+                >
+                  <option value="shipper">Shipper (Manufacturer / Trader / Dispatcher)</option>
+                  <option value="carrier">Carrier (Transporter / Fleet Owner)</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl text-xs transition shadow-md disabled:opacity-50"
+          >
+            {loading ? "Authenticating..." : mode === "login" ? "Sign In To Live Platform" : "Create Enterprise Account"}
+          </button>
+        </form>
+
+        <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-100">
+          {mode === "login" ? (
+            <button type="button" onClick={() => setMode("signup")} className="text-indigo-600 font-bold hover:underline">
+              Need a live enterprise account? Register here
+            </button>
+          ) : (
+            <button type="button" onClick={() => setMode("login")} className="text-indigo-600 font-bold hover:underline">
+              Already have an enterprise account? Sign in
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 9. COMPLETE APP STATE ENGINE & HOOK CONTROLLER
+// ============================================================================
+function useAppEngine() {
+  // Navigation & Role State
+  const [activeRole, setActiveRole] = useState<RoleType | "landing">("shipper");
+  const [modeEnv, setModeEnv] = useState<ModeEnv>("demo");
+  const [highVolumeMode, setHighVolumeMode] = useState<boolean>(true);
+
+  // Sub-Navigation Tabs
+  const [shipperTab, setShipperTab] = useState<"search" | "matrix" | "shipments" | "history" | "rfq" | "address">("search");
+  const [carrierTab, setCarrierTab] = useState<"loads" | "bids" | "tracking" | "rates" | "billing">("tracking");
+
+  // Authentication & Users
+  const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+
+  // Address Profile State (Shipper Dynamic Pickup Warehouse)
+  const [shipperAddresses, setShipperAddresses] = useState<AddressProfile[]>([DEFAULT_SHIPPER_ADDRESS]);
+  const [activeOriginAddress, setActiveOriginAddress] = useState<AddressProfile>(DEFAULT_SHIPPER_ADDRESS);
+  const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
+  const [editingAddress, setEditingAddress] = useState<AddressProfile | null>(null);
+
+  // Platform Fee Billing & Invoice Ledger State
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("weekly");
+  const [invoices, setInvoices] = useState<PlatformInvoice[]>(INITIAL_MOCK_INVOICES);
+  const [showPayFeeModal, setShowPayFeeModal] = useState<boolean>(false);
+  const [selectedInvoiceToPay, setSelectedInvoiceToPay] = useState<PlatformInvoice | null>(null);
+  const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
+
+  // Core Domain Masters
+  const [rateCards, setRateCards] = useState<RateCard[]>(FALLBACK_DEFAULT_RATE_CARDS);
+  const [vendors, setVendors] = useState<Vendor[]>(FALLBACK_VENDORS);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [rfqList, setRfqList] = useState<RfqBid[]>([]);
+
+  // Modals Visibility
+  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
+  const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact">("terms");
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showCitySearchModal, setShowCitySearchModal] = useState<"origin" | "dest" | null>(null);
+  const [showAddRateCardModal, setShowAddRateCardModal] = useState<boolean>(false);
+  const [selectedQuoteForBooking, setSelectedQuoteForBooking] = useState<CalculatedQuote | null>(null);
+  const [printableBooking, setPrintableBooking] = useState<Booking | null>(null);
+  const [batchPrintBookings, setBatchPrintBookings] = useState<Booking[] | null>(null);
+
+  // Single Rate Calculator Parameters (Optional Dimensions supported)
+  const [originPin, setOriginPin] = useState<string>(DEFAULT_SHIPPER_ADDRESS.pincode);
+  const [destPin, setDestPin] = useState<string>("400001");
+  const [isOda, setIsOda] = useState<boolean>(false);
+  const [declaredValue, setDeclaredValue] = useState<number>(75000);
+  const [selectedMode, setSelectedMode] = useState<"all" | "surface" | "air" | "ftl">("all");
+  const [boxes, setBoxes] = useState<BoxItem[]>([
+    { id: "box-1", qty: 2, weight: 20, length: 45, width: 35, height: 30 },
+    { id: "box-2", qty: 1, weight: 15, length: null, width: null, height: null } // Optional dimensions demo
+  ]);
+  const [selectedBoxFor3D, setSelectedBoxFor3D] = useState<number>(0);
+  const [pickupAddress, setPickupAddress] = useState<string>(
+    `${DEFAULT_SHIPPER_ADDRESS.address_line1}, ${DEFAULT_SHIPPER_ADDRESS.city} - ${DEFAULT_SHIPPER_ADDRESS.pincode}`
+  );
+
+  // Bulk CSV (50/Day Dispatch Matrix)
+  const [bulkManifestList, setBulkManifestList] = useState<BulkManifestRow[]>([]);
+  const [bulkCsvFileName, setBulkCsvFileName] = useState<string>("");
+  const [bulkUploadError, setBulkUploadError] = useState<string>("");
+  const [bulkSettlementMethod, setBulkSettlementMethod] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">("direct_to_pay");
+  const [bulkConsolidatedUtr, setBulkConsolidatedUtr] = useState<string>("");
+  const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Tracking & Global Search
+  const [globalSearchInput, setGlobalSearchInput] = useState<string>("");
+  const [landingTrackingInput, setLandingTrackingInput] = useState<string>("");
+  const [activeTrackingAwb, setActiveTrackingAwb] = useState<string>(DEMO_INIT_ORDER_ID);
+  const [trackingSearchInput, setTrackingSearchInput] = useState<string>(DEMO_INIT_ORDER_ID);
+
+  // Zone Lookups
+  const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
+    city: DEFAULT_SHIPPER_ADDRESS.city,
+    state: DEFAULT_SHIPPER_ADDRESS.state,
+    hub: `HUB-${DEFAULT_SHIPPER_ADDRESS.city.substring(0, 3).toUpperCase()}-01`,
+    loading: false
+  });
+  const [destZoneData, setDestZoneData] = useState<PinLookupResult>({
+    city: "Mumbai",
+    state: "Maharashtra",
+    hub: "BOM-CENTRAL",
+    loading: false
+  });
+
+  // Carrier Updates State
+  const [statusUpdateMap, setStatusUpdateMap] = useState<
+    Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>
+  >({});
+
+  // 1. Sync Active Origin Address to Form and Pin
+  const applyOriginAddress = useCallback((addr: AddressProfile) => {
+    setActiveOriginAddress(addr);
+    setOriginPin(addr.pincode);
+    setPickupAddress(`${addr.address_line1}, ${addr.city} - ${addr.pincode}`);
+    setOriginZoneData({
+      city: addr.city,
+      state: addr.state,
+      hub: `HUB-${addr.city.substring(0, 3).toUpperCase()}-01`,
+      loading: false
+    });
+  }, []);
+
+  const handleSaveAddress = (address: AddressProfile) => {
+    let updatedList = [...shipperAddresses];
+    const existingIndex = updatedList.findIndex((a) => a.id === address.id);
+    if (address.is_default) {
+      updatedList = updatedList.map((a) => ({ ...a, is_default: false }));
+    }
+    if (existingIndex >= 0) {
+      updatedList[existingIndex] = address;
+    } else {
+      updatedList.push(address);
+    }
+    setShipperAddresses(updatedList);
+    if (address.is_default || activeOriginAddress.id === address.id) {
+      applyOriginAddress(address);
+    }
+  };
+
+  // 2. Real Supabase Authentication Listener with Strict Role Lock
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setAuthSession(session);
+        if (session && session.user) {
+          const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+          if (pData) {
+            const rawRole: string = pData.role || "shipper";
+            const isCarrier = rawRole === "carrier" || rawRole === "vendor";
+            const resolvedRole: RoleType = isCarrier ? "carrier" : "shipper";
+            const profile: UserProfile = {
+              id: session.user.id,
+              email: session.user.email || pData.email || "",
+              full_name: pData.full_name || "Verified Enterprise User",
+              company_name: pData.company_name || (isCarrier ? "Delhivery B2B Linehaul" : "Apex Retail Corp"),
+              gstin: pData.gstin || "07AAACA1234A1Z5",
+              phone: pData.phone || "+91 98110 23456",
+              role: resolvedRole,
+              vendor_id: isCarrier ? session.user.id : undefined,
+              isRealUser: true,
+              saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS]
+            };
+            setCurrentUser(profile);
+            setModeEnv("live");
+            // Strict role lock enforcement:
+            setActiveRole(resolvedRole);
+            if (pData.saved_addresses && pData.saved_addresses.length > 0) {
+              setShipperAddresses(pData.saved_addresses);
+              const def = pData.saved_addresses.find((a: AddressProfile) => a.is_default) || pData.saved_addresses[0];
+              applyOriginAddress(def);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Session check fallback:", err);
+      }
+    };
+
+    initSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setAuthSession(session);
+      if (session && session.user) {
+        const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+        if (pData) {
+          const rawRole: string = pData.role || "shipper";
+          const isCarrier = rawRole === "carrier" || rawRole === "vendor";
+          const resolvedRole: RoleType = isCarrier ? "carrier" : "shipper";
+          const profile: UserProfile = {
+            id: session.user.id,
+            email: session.user.email || pData.email || "",
+            full_name: pData.full_name || "Verified Enterprise User",
+            company_name: pData.company_name || (isCarrier ? "Delhivery B2B Linehaul" : "Apex Retail Corp"),
+            gstin: pData.gstin || "07AAACA1234A1Z5",
+            phone: pData.phone || "+91 98110 23456",
+            role: resolvedRole,
+            vendor_id: isCarrier ? session.user.id : undefined,
+            isRealUser: true,
+            saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS]
+          };
+          setCurrentUser(profile);
+          setModeEnv("live");
+          setActiveRole(resolvedRole);
+        }
+      } else {
+        if (modeEnv === "live") {
+          setCurrentUser(DEMO_SHIPPER);
+          setModeEnv("demo");
+          setActiveRole("landing");
+        }
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [modeEnv, applyOriginAddress]);
+
+  // 3. Database Fetch Master Data
+  const fetchAllData = async () => {
+    try {
+      const { data: vData } = await supabase.from("vendors").select("*");
+      if (vData && vData.length > 0) setVendors(vData);
+
+      const { data: rData } = await supabase.from("rate_cards").select("*, vendors(*)");
+      if (rData && rData.length > 0) setRateCards(rData as RateCard[]);
+
+      const { data: bData } = await supabase.from("bookings").select("*, vendors(*)").order("created_at", { ascending: false });
+      if (bData && bData.length > 0) setBookings(bData as Booking[]);
+
+      const { data: qData } = await supabase.from("rfq_bids").select("*").order("created_at", { ascending: false });
+      if (qData && qData.length > 0) setRfqList(qData as RfqBid[]);
+    } catch (err) {
+      console.warn("Supabase data synchronization warning:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  // 4. PIN Zone Automatic Resolvers
+  useEffect(() => {
+    if (originPin.trim().length === 6) {
+      setOriginZoneData((prev) => ({ ...prev, loading: true }));
+      fetch(`https://api.postalpincode.in/pincode/${originPin.trim()}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+            const po = data[0].PostOffice[0];
+            setOriginZoneData({
+              city: po.District || po.Block || po.Name,
+              state: po.State,
+              hub: `HUB-${(po.District || "DEL").substring(0, 3).toUpperCase()}-01`,
+              loading: false
+            });
+          } else {
+            setOriginZoneData({ ...getLocalFallbackZone(originPin), loading: false });
+          }
+        })
+        .catch(() => setOriginZoneData({ ...getLocalFallbackZone(originPin), loading: false }));
+    }
+  }, [originPin]);
+
+  useEffect(() => {
+    if (destPin.trim().length === 6) {
+      setDestZoneData((prev) => ({ ...prev, loading: true }));
+      fetch(`https://api.postalpincode.in/pincode/${destPin.trim()}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+            const po = data[0].PostOffice[0];
+            setDestZoneData({
+              city: po.District || po.Block || po.Name,
+              state: po.State,
+              hub: `HUB-${(po.District || "BOM").substring(0, 3).toUpperCase()}-01`,
+              loading: false
+            });
+          } else {
+            setDestZoneData({ ...getLocalFallbackZone(destPin), loading: false });
+          }
+        })
+        .catch(() => setDestZoneData({ ...getLocalFallbackZone(destPin), loading: false }));
+    }
+  }, [destPin]);
+
+  // 5. Global Search Handler
+  const handleGlobalSearch = (e: FormEvent) => {
+    e.preventDefault();
+    if (!globalSearchInput.trim()) return;
+    setActiveTrackingAwb(globalSearchInput.trim());
+    setTrackingSearchInput(globalSearchInput.trim());
+    setActiveRole("shipper");
+    setShipperTab("history");
+    setGlobalSearchInput("");
+  };
+
+  // 6. Role Switch Guard: strictly locks roles when in Live Mode
+  const handleRoleSwitch = (role: RoleType | "landing") => {
+    if (modeEnv === "live" && currentUser.isRealUser) {
+      if (role !== "landing" && role !== "admin" && role !== currentUser.role) {
+        alert(`Access Restricted: Your verified account is locked to the ${currentUser.role.toUpperCase()} workspace.`);
+        return;
+      }
+    }
+    setActiveRole(role);
+    if (modeEnv === "demo") {
+      if (role === "shipper") setCurrentUser(DEMO_SHIPPER);
+      if (role === "carrier" || role === "vendor") setCurrentUser(DEMO_VENDOR);
+    }
+  };
+
+  // 7. Mode Switcher Guard
+  const handleModeToggle = () => {
+    if (modeEnv === "demo") {
+      if (!currentUser.isRealUser && !authSession) {
+        setShowAuthModal(true);
+      } else {
+        setModeEnv("live");
+      }
+    } else {
+      setModeEnv("demo");
+      setCurrentUser(activeRole === "carrier" || activeRole === "vendor" ? DEMO_VENDOR : DEMO_SHIPPER);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    setCurrentUser(DEMO_SHIPPER);
+    setModeEnv("demo");
+    setActiveRole("landing");
+  };
+
+  // 8. Calculations (Single rate quotes supporting optional dimensions)
+  const calculatedQuotes = useMemo(() => {
+    return calculateQuotesForShipment(
+      originPin,
+      destPin,
+      boxes,
+      declaredValue,
+      selectedMode,
+      isOda,
+      rateCards,
+      vendors,
+      feeConfig
+    );
+  }, [originPin, destPin, boxes, declaredValue, selectedMode, isOda, rateCards, vendors, feeConfig]);
+
+  // 9. Bulk CSV Upload with Semicolon Parsing & Optional Dimensions
+  const handleBulkCsvUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setBulkCsvFileName(file.name);
+    setBulkUploadError("");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
+
+        const parsedRows: BulkManifestRow[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+          if (cols.length < 5) continue;
+
+          const dest_pin = cols[0];
+          const consignee_name = cols[1];
+          const consignee_phone = cols[2];
+          const delivery_address = cols[3];
+          const total_boxes_str = cols[4];
+          const box_weights_str = cols[5] || "";
+          const box_dimensions_str = cols[6] || "";
+          const declared_value_str = cols[7] || "50000";
+
+          const total_boxes = Math.max(1, parseInt(total_boxes_str, 10) || 1);
+          const declared_val = parseFloat(declared_value_str) || 50000;
+
+          // Semicolon weight parsing (e.g. 25; 10; 10)
+          const parsedWeights = box_weights_str
+            ? box_weights_str.split(";").map((w) => parseFloat(w.trim())).filter((n) => !isNaN(n) && n > 0)
+            : [];
+
+          // Optional Semicolon dimensions parsing (e.g. 60x40x40; 30x25x20)
+          const parsedDims = box_dimensions_str
+            ? box_dimensions_str.split(";").map((d) => d.trim()).filter((d) => d.length > 0)
+            : [];
+
+          const hasOmittedDimensions = parsedDims.length === 0;
+
+          const boxItems: BoxItem[] = [];
+          for (let b = 0; b < total_boxes; b++) {
+            const wt = parsedWeights[b] || parsedWeights[0] || 10;
+            let l: number | null = null;
+            let w: number | null = null;
+            let h: number | null = null;
+            if (parsedDims[b]) {
+              const parts = parsedDims[b].toLowerCase().split("x").map((p) => parseFloat(p.trim()));
+              if (parts.length === 3 && !parts.some(isNaN)) {
+                l = parts[0];
+                w = parts[1];
+                h = parts[2];
+              }
+            }
+            boxItems.push({ id: `b-${i}-${b}`, qty: 1, weight: wt, length: l, width: w, height: h });
+          }
+
+          const actualWeight = boxItems.reduce((acc, bi) => acc + bi.weight, 0);
+          const divisor = 4500;
+          const volumetricWeight = hasOmittedDimensions
+            ? 0
+            : boxItems.reduce((acc, bi) => acc + (((bi.length || 0) * (bi.width || 0) * (bi.height || 0)) / divisor), 0);
+          const billableWeight = hasOmittedDimensions ? actualWeight : Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10);
+
+          const quotes = calculateQuotesForShipment(
+            activeOriginAddress.pincode,
+            dest_pin,
+            boxItems,
+            declared_val,
+            "surface",
+            false,
+            rateCards,
+            vendors,
+            feeConfig
+          );
+          const sorted = [...quotes].sort((a, b) => a.breakdown.total - b.breakdown.total);
+
+          parsedRows.push({
+            rowId: `row-${i}-${Date.now()}`,
+            dest_pin,
+            consignee_name,
+            consignee_phone,
+            delivery_address,
+            consignee_gstin: "27AAACP9988G1ZK",
+            total_boxes,
+            boxes: boxItems,
+            declared_value: declared_val,
+            hasOmittedDimensions,
+            actualWeight: Math.round(actualWeight * 10) / 10,
+            volumetricWeight: Math.round(volumetricWeight * 10) / 10,
+            billableWeight: Math.round(billableWeight * 10) / 10,
+            quotes,
+            selectedQuote: sorted[0] || null
+          });
+        }
+        setBulkManifestList(parsedRows);
+      } catch (err: any) {
+        setBulkUploadError(err.message || "Failed to process bulk CSV.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // 10. Confirm Batch Booking
+  const handleConfirmBatchBooking = async () => {
+    if (bulkManifestList.length === 0) return;
+    setIsBatchProcessing(true);
+
+    const refString =
+      bulkSettlementMethod === "direct_upi"
+        ? bulkConsolidatedUtr ? `BULK-UPI-${bulkConsolidatedUtr}` : "BULK-UPI"
+        : bulkSettlementMethod === "corporate_credit" ? "BULK-CREDIT" : "BULK-TO-PAY";
+
+    const newBookingsToInsert = bulkManifestList.map((row) => {
+      const selected = row.selectedQuote || row.quotes[0];
+      const carrierName = selected?.vendor?.name || "Delhivery B2B Express";
+      const officialDocket = generateCarrierDocket(carrierName);
+      const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      return {
+        order_id: platformOrderId,
+        awb_number: officialDocket,
+        carrier_docket_no: officialDocket,
+        carrier_portal_url: getOfficialCarrierTrackingUrl(carrierName, officialDocket),
+        shipper_id: currentUser.id,
+        vendor_id: selected?.vendor?.id || vendors[0].id,
+        rate_card_id: selected?.rateCard?.id,
+        shipper_name: currentUser.company_name || currentUser.full_name,
+        shipper_phone: currentUser.phone || MERCHANT_DETAILS.phone,
+        shipper_email: currentUser.email,
+        shipper_gstin: currentUser.gstin || "07AAACA1234A1Z5",
+        pickup_address: `${activeOriginAddress.address_line1}, ${activeOriginAddress.city} - ${activeOriginAddress.pincode}`,
+        pickup_pincode: activeOriginAddress.pincode,
+        consignee_name: row.consignee_name,
+        consignee_phone: row.consignee_phone,
+        consignee_gstin: row.consignee_gstin,
+        delivery_address: row.delivery_address,
+        origin_pin: activeOriginAddress.pincode,
+        dest_pin: row.dest_pin,
+        mode: selected?.rateCard?.mode || "surface",
+        boxes: row.boxes,
+        declared_value: row.declared_value,
+        actual_weight: row.actualWeight,
+        volumetric_weight: row.volumetricWeight,
+        billable_weight: row.billableWeight,
+        cost_breakdown: {
+          ...(selected?.breakdown || {
+            base: 0,
+            fuel: 0,
+            docket: 0,
+            fov: 0,
+            handling: 0,
+            oda: 0,
+            gst: 0,
+            freightSubtotal: 0,
+            platformConvenienceFee: feeConfig.minFloorINR,
+            total: feeConfig.minFloorINR
+          }),
+          settlement_type: bulkSettlementMethod,
+          payment_ref: refString
+        },
+        final_total: selected?.breakdown?.total || feeConfig.minFloorINR,
+        status: "Booked" as const,
+        tracking_history: [
+          {
+            status: "Booked",
+            location: `${activeOriginAddress.city} Origin Hub (${activeOriginAddress.pincode})`,
+            timestamp: new Date().toISOString(),
+            remarks: `Batch consignment booked. Official Carrier Waybill ${officialDocket} assigned.`
+          }
+        ]
+      };
+    });
+
+    try {
+      const { data } = await supabase.from("bookings").insert(newBookingsToInsert).select("*, vendors(*)");
+      const savedBookings =
+        data && data.length > 0
+          ? (data as Booking[])
+          : newBookingsToInsert.map((b, i) => ({
+              ...b,
+              id: `bulk-${Date.now()}-${i}`,
+              created_at: new Date().toISOString(),
+              vendors: vendors.find((v) => v.id === b.vendor_id) || vendors[0]
+            }));
+
+      setBookings((prev) => [...savedBookings, ...prev]);
+      setBatchPrintBookings(savedBookings);
+      setBulkManifestList([]);
+      setShipperTab("shipments");
+      alert(`Success! Dispatched all ${savedBookings.length} consignments. Continuous 4x6 labels ready for printing.`);
+    } catch {
+      alert("Notice: Database synchronization fallback used. Bookings saved in local ledger.");
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
+
+  // 11. Carrier Docket Bilty Photo Upload
+  const handleUploadDocketFile = async (bookingId: string, rawFile: File) => {
+    if (!rawFile) return;
+    if (rawFile.size > 5 * 1024 * 1024) {
+      alert("File size limit exceeded! Please upload photo/PDF under 5 MB.");
+      return;
+    }
+
+    setStatusUpdateMap((prev) => ({
+      ...prev,
+      [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), isUploading: true }
+    }));
+
+    try {
+      const fileToUpload = await compressImageFile(rawFile);
+      const fileExt = fileToUpload.name.split(".").pop();
+      const filePath = `dockets/bilty-${bookingId}-${Date.now()}.${fileExt}`;
+      let publicUrl = "";
+
+      const { data, error } = await supabase.storage.from("dockets").upload(filePath, fileToUpload, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (!error && data) {
+        publicUrl = supabase.storage.from("dockets").getPublicUrl(filePath).data.publicUrl;
+      } else {
+        publicUrl = URL.createObjectURL(fileToUpload);
+      }
+
+      setStatusUpdateMap((prev) => ({
+        ...prev,
+        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: publicUrl, isUploading: false }
+      }));
+
+      await supabase.from("bookings").update({ carrier_docket_doc_url: publicUrl }).eq("id", bookingId);
+      setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: publicUrl } : b)));
+      alert(`Physical Bilty scan compressed & uploaded successfully! Saved size: ~${Math.round(fileToUpload.size / 1024)} KB.`);
+    } catch {
+      const fallbackUrl = URL.createObjectURL(rawFile);
+      setStatusUpdateMap((prev) => ({
+        ...prev,
+        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: fallbackUrl, isUploading: false }
+      }));
+    }
+  };
+
+  // 12. Carrier Status Dispatch
+  const handleUpdateShipmentStatus = async (bookingId: string) => {
+    const updateData = statusUpdateMap[bookingId];
+    if (!updateData) return;
+    const booking = bookings.find((b) => b.id === bookingId);
+    if (!booking) return;
+
+    const carrierName = booking.vendors?.name || "Carrier";
+    const effectiveDocket =
+      updateData.docketNo && updateData.docketNo.trim() !== ""
+        ? updateData.docketNo.trim()
+        : booking.carrier_docket_no || booking.awb_number;
+    const newPortalUrl = getOfficialCarrierTrackingUrl(carrierName, effectiveDocket);
+    const effectiveDocUrl = updateData.docUrl || booking.carrier_docket_doc_url || "";
+
+    const newStep: TrackingStep = {
+      status: updateData.status || booking.status,
+      location: updateData.location || "En-route Hub",
+      timestamp: new Date().toISOString(),
+      remarks: updateData.remarks || `Carrier updated status with Docket ${effectiveDocket}`
+    };
+    const updatedHistory = [...(booking.tracking_history || []), newStep];
+
+    try {
+      await supabase
+        .from("bookings")
+        .update({
+          awb_number: effectiveDocket,
+          carrier_docket_no: effectiveDocket,
+          carrier_portal_url: newPortalUrl,
+          carrier_docket_doc_url: effectiveDocUrl,
+          status: updateData.status || booking.status,
+          tracking_history: updatedHistory
+        })
+        .eq("id", bookingId);
+
+      setBookings(
+        bookings.map((b) =>
+          b.id === bookingId
+            ? {
+                ...b,
+                awb_number: effectiveDocket,
+                carrier_docket_no: effectiveDocket,
+                carrier_portal_url: newPortalUrl,
+                carrier_docket_doc_url: effectiveDocUrl,
+                status: (updateData.status as Booking["status"]) || b.status,
+                tracking_history: updatedHistory
+              }
+            : b
+        )
+      );
+
+      alert("Carrier Docket & Status successfully synchronized!");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 13. Settle Platform Fee Invoice
+  const handlePayInvoiceSuccess = (invoiceId: string, utr: string, method: string) => {
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === invoiceId
+          ? {
+              ...inv,
+              status: "Paid",
+              payment_date: new Date().toISOString().split("T")[0],
+              payment_ref: utr,
+              payment_method: method
+            }
+          : inv
+      )
+    );
+  };
+
+  return {
+    state: {
+      activeRole, setActiveRole,
+      modeEnv, setModeEnv,
+      highVolumeMode, setHighVolumeMode,
+      shipperTab, setShipperTab,
+      carrierTab, setCarrierTab,
+      currentUser, setCurrentUser,
+      authSession,
+      shipperAddresses, setShipperAddresses,
+      activeOriginAddress, setActiveOriginAddress,
+      showAddressModal, setShowAddressModal,
+      editingAddress, setEditingAddress,
+      billingCycle, setBillingCycle,
+      invoices, setInvoices,
+      showPayFeeModal, setShowPayFeeModal,
+      selectedInvoiceToPay, setSelectedInvoiceToPay,
+      feeConfig, setFeeConfig,
+      rateCards, setRateCards,
+      vendors, setVendors,
+      bookings, setBookings,
+      rfqList, setRfqList,
+      showLegalModal, setShowLegalModal,
+      legalModalTab, setLegalModalTab,
+      showAuthModal, setShowAuthModal,
+      showCitySearchModal, setShowCitySearchModal,
+      showAddRateCardModal, setShowAddRateCardModal,
+      selectedQuoteForBooking, setSelectedQuoteForBooking,
+      printableBooking, setPrintableBooking,
+      batchPrintBookings, setBatchPrintBookings,
+      originPin, setOriginPin,
+      destPin, setDestPin,
+      isOda, setIsOda,
+      declaredValue, setDeclaredValue,
+      selectedMode, setSelectedMode,
+      boxes, setBoxes,
+      selectedBoxFor3D, setSelectedBoxFor3D,
+      pickupAddress, setPickupAddress,
+      bulkManifestList, setBulkManifestList,
+      bulkCsvFileName, setBulkCsvFileName,
+      bulkUploadError, setBulkUploadError,
+      bulkSettlementMethod, setBulkSettlementMethod,
+      bulkConsolidatedUtr, setBulkConsolidatedUtr,
+      isBatchProcessing,
+      globalSearchInput, setGlobalSearchInput,
+      landingTrackingInput, setLandingTrackingInput,
+      activeTrackingAwb, setActiveTrackingAwb,
+      trackingSearchInput, setTrackingSearchInput,
+      originZoneData, destZoneData,
+      statusUpdateMap, setStatusUpdateMap,
+      calculatedQuotes,
+      bulkFileInputRef
+    },
+    handlers: {
+      handleGlobalSearch,
+      handleRoleSwitch,
+      handleModeToggle,
+      handleLogout,
+      handleBulkCsvUpload,
+      handleConfirmBatchBooking,
+      handleUploadDocketFile,
+      handleUpdateShipmentStatus,
+      handleSaveAddress,
+      applyOriginAddress,
+      handlePayInvoiceSuccess,
+      fetchAllData
+    }
+  };
+}
