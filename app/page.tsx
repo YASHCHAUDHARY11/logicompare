@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   BoxItem,
@@ -60,10 +60,7 @@ import { AddRateCardModal } from "@/components/modals/AddRateCardModal";
 import {
   TruckIcon,
   SearchIcon,
-  BoltIcon,
-  ShieldCheckIcon,
-  LayersIcon,
-  CurrencyRupeeIcon
+  BoltIcon
 } from "@/components/icons";
 
 export default function LogiCompareApp() {
@@ -159,7 +156,7 @@ export default function LogiCompareApp() {
             const realProfile = { ...(pData as UserProfile), isRealUser: true };
             setCurrentUser(realProfile);
             setModeEnv("live");
-            setActiveRole(realProfile.role);
+            setActiveRole(realProfile.role === "vendor" ? "carrier" : "shipper");
           }
         }
       } catch (err) {
@@ -1109,7 +1106,7 @@ export default function LogiCompareApp() {
           onSuccess={(profile) => {
             setCurrentUser(profile);
             setModeEnv("live");
-            setActiveRole(profile.role);
+            setActiveRole(profile.role === "vendor" ? "carrier" : "shipper");
           }}
           onClose={() => setShowAuthModal(false)}
         />
