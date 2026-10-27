@@ -48,7 +48,7 @@ export function Header({
         <div className="flex items-center space-x-2 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700 shadow-inner">
           <span className="text-xs font-bold text-slate-300 flex items-center space-x-1">
             <BoltIcon className="w-4 h-4 text-amber-400 animate-pulse" />
-            <span>High-Volume 50/Day:</span>
+            <span>50/Day High-Volume:</span>
           </span>
           <button
             onClick={() => setHighVolumeMode(!highVolumeMode)}
@@ -82,11 +82,11 @@ export function Header({
                 : "text-slate-300 hover:text-white"
             }`}
           >
-            🚀 Console
+            🚀 Freight Matrix Console
           </button>
         </div>
 
-        {/* User Badges & Demo Switcher */}
+        {/* User Badges & Demo Switchers */}
         <div className="flex items-center space-x-2">
           {currentUser.isRealUser ? (
             <div className="flex items-center space-x-2">
@@ -106,32 +106,41 @@ export function Header({
             </div>
           ) : (
             <>
-              <div className="hidden sm:flex items-center space-x-1.5 bg-slate-800 p-1 rounded-xl border border-slate-700">
+              {/* RESTORED DEMO BUTTONS */}
+              <div className="flex items-center space-x-1.5 bg-slate-800 p-1 rounded-xl border border-slate-700">
                 <button
                   onClick={() => switchDemoRole("shipper")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                  title="Switch to Shipper demo account (Apex Retail)"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
                     currentUser.role === "shipper" && activeView === "dashboard"
-                      ? "bg-indigo-600 text-white shadow-xs"
+                      ? "bg-indigo-600 text-white shadow-md"
                       : "text-slate-300 hover:text-white"
                   }`}
                 >
                   <span>⚡ Shipper</span>
+                  <span className="text-[10px] bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-1.5 py-0.2 rounded font-bold">
+                    Apex
+                  </span>
                 </button>
                 <button
                   onClick={() => switchDemoRole("vendor")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                  title="Switch to Carrier demo account (Delhivery B2B)"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
                     currentUser.role === "vendor" && activeView === "dashboard"
-                      ? "bg-emerald-600 text-white shadow-xs"
+                      ? "bg-emerald-600 text-white shadow-md"
                       : "text-slate-300 hover:text-white"
                   }`}
                 >
                   <span>🚛 Carrier</span>
+                  <span className="text-[10px] bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-1.5 py-0.2 rounded font-bold">
+                    Delhivery
+                  </span>
                 </button>
               </div>
 
               <button
                 onClick={() => setShowAuthModal(true)}
-                className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-xs flex items-center space-x-1.5"
+                className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                 <span>Login</span>
