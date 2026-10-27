@@ -4499,3 +4499,2824 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
     </div>
   );
 };
+
+// ============================================================================
+// 20. 2D CANVAS ANIMATED HERO TRUCK (LOCAL COMPONENT)
+// ============================================================================
+function Hero3DTruck() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [speed, setSpeed] = useState<"normal" | "turbo">("normal");
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let wheelAngle = 0;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2 + 10;
+
+      // Perspective Road Guidelines
+      ctx.save();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
+      ctx.lineWidth = 1;
+      for (let i = -140; i <= 140; i += 28) {
+        ctx.beginPath();
+        ctx.moveTo(cx + i * 1.8, cy + 50);
+        ctx.lineTo(cx + i * 0.5, cy - 20);
+        ctx.stroke();
+      }
+
+      // Highway Road Dashed Line
+      const stripeOffset = (Date.now() / (speed === "turbo" ? 35 : 75)) % 40;
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.5)";
+      ctx.lineWidth = 2;
+      for (let y = -20; y < 60; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, cy + y + stripeOffset);
+        ctx.lineTo(cx - 2, cy + y + stripeOffset + 10);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Chassis Ground Drop Shadow
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 30, 85, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Vehicle Assembly
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Cargo Container Body
+      const gradContainer = ctx.createLinearGradient(-80, -35, 10, 10);
+      gradContainer.addColorStop(0, "#4f46e5");
+      gradContainer.addColorStop(0.5, "#3730a3");
+      gradContainer.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = gradContainer;
+      ctx.strokeStyle = "#818cf8";
+      ctx.lineWidth = 1.5;
+
+      ctx.beginPath();
+      ctx.roundRect(-80, -38, 95, 48, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Corrugated Body Ribs
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.lineWidth = 1;
+      for (let rx = -70; rx < 10; rx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(rx, -36);
+        ctx.lineTo(rx, 8);
+        ctx.stroke();
+      }
+
+      // Fleet Brand Text
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("LOGICOMPARE B2B", -68, -12);
+      ctx.fillStyle = "#34d399";
+      ctx.font = "bold 7px sans-serif";
+      ctx.fillText("EXPRESS CARGO LINEHAUL", -68, -2);
+
+      // Driver Cabin Shell
+      const gradCab = ctx.createLinearGradient(16, -20, 52, 10);
+      gradCab.addColorStop(0, "#059669");
+      gradCab.addColorStop(1, "#065f46");
+      ctx.fillStyle = gradCab;
+      ctx.beginPath();
+      ctx.moveTo(15, 10);
+      ctx.lineTo(55, 10);
+      ctx.lineTo(55, -8);
+      ctx.lineTo(40, -28);
+      ctx.lineTo(15, -28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Windshield Glass
+      ctx.fillStyle = "rgba(186, 230, 253, 0.85)";
+      ctx.beginPath();
+      ctx.moveTo(38, -25);
+      ctx.lineTo(50, -9);
+      ctx.lineTo(24, -9);
+      ctx.lineTo(24, -25);
+      ctx.closePath();
+      ctx.fill();
+
+      // Headlight Beam
+      const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
+      lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
+      lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
+      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0)");
+      ctx.fillStyle = lightBeam;
+      ctx.beginPath();
+      ctx.moveTo(54, -2);
+      ctx.lineTo(110, -10);
+      ctx.lineTo(110, 22);
+      ctx.closePath();
+      ctx.fill();
+
+      // Multi-Axle Rotating Wheels
+      wheelAngle += speed === "turbo" ? 0.35 : 0.16;
+      const wheelPositions = [-62, -42, 28, 46];
+      wheelsLoop: for (let wIdx = 0; wIdx < wheelPositions.length; wIdx++) {
+        const wx = wheelPositions[wIdx];
+        ctx.save();
+        ctx.translate(wx, 14);
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.rotate(wheelAngle);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.beginPath();
+        ctx.moveTo(-5, 0);
+        ctx.lineTo(5, 0);
+        ctx.moveTo(0, -5);
+        ctx.lineTo(0, 5);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [speed]);
+
+  return (
+    <div className="relative flex flex-col items-center bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-xl w-full max-w-sm">
+      <div className="flex items-center justify-between w-full px-2 mb-1">
+        <div className="flex items-center space-x-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="text-xs font-mono font-bold text-slate-200">3D Linehaul Container Transit</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSpeed(speed === "normal" ? "turbo" : "normal")}
+          className="text-[10px] font-black uppercase tracking-wider text-indigo-300 bg-indigo-900/60 border border-indigo-500/40 px-2.5 py-1 rounded-full hover:bg-indigo-800 transition"
+        >
+          {speed === "turbo" ? "⚡ Turbo Speed" : "▶ Normal Transit"}
+        </button>
+      </div>
+
+      <canvas ref={canvasRef} width={340} height={170} className="w-full max-w-[340px] h-[170px]" />
+
+      <div className="flex items-center justify-between w-full text-[10px] text-slate-400 pt-2 border-t border-slate-800 font-mono">
+        <span>Vehicle: 32ft MXL Container</span>
+        <span className="text-emerald-400 font-bold">GPS Active • Linehaul</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 21. COMPLETE 6-SECTION LANDING PAGE (LOCAL COMPONENT)
+// ============================================================================
+interface LandingViewProps {
+  highVolumeMode: boolean;
+  vendors: Vendor[];
+  landingTrackingInput: string;
+  setLandingTrackingInput: (val: string) => void;
+  onQuickTrack: (val?: string) => void;
+  onJumpToCompare: () => void;
+  onJumpToBulk: () => void;
+  onSwitchShipperDemo: () => void;
+  onSwitchCarrierDemo: () => void;
+}
+
+const LandingView: FC<LandingViewProps> = ({
+  highVolumeMode,
+  vendors,
+  landingTrackingInput,
+  setLandingTrackingInput,
+  onQuickTrack,
+  onJumpToCompare,
+  onJumpToBulk,
+  onSwitchShipperDemo,
+  onSwitchCarrierDemo
+}) => {
+  const [workflowTab, setWorkflowTab] = useState<"shipper" | "vendor">("shipper");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  return (
+    <div className="flex-1 flex flex-col space-y-16 pb-16">
+      {/* SECTION 1: HERO & UNIVERSAL TRACKER */}
+      <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out pointer-events-none"
+          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
+        />
+        <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950 pointer-events-none" />
+
+        <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
+          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
+            <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
+              <span>🇮🇳</span>
+              <span>Hybrid Dual-ID Consignment Discovery & Dispatches</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight">
+              One-Click Bulk Freight Booking & Multi-Box 4x6 Thermal Labels.
+            </h1>
+
+            <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
+              Compare Delhivery, Blue Dart, Safexpress, TCI, and Gati rates across India. Upload semicolon-delimited CSVs, auto-assign lowest rates, and print continuous thermal labels with driver handover manifests.
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onJumpToBulk}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
+              >
+                <UploadIcon className="w-5 h-5" />
+                <span>Launch 50/Day Bulk Shipper Console</span>
+              </button>
+              <button
+                type="button"
+                onClick={onJumpToCompare}
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
+              >
+                <BoxIcon className="w-5 h-5 text-indigo-400" />
+                <span>Single Calculator</span>
+              </button>
+              <button
+                type="button"
+                onClick={onSwitchCarrierDemo}
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
+              >
+                <TruckIcon className="w-5 h-5 text-emerald-400" />
+                <span>Join as Carrier (Demo)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5 flex justify-center">
+            {!highVolumeMode ? (
+              <div className="bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-4 shadow-2xl backdrop-blur-md">
+                <Hero3DTruck />
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
+                <span className="text-5xl">⚡</span>
+                <h3 className="text-white font-black text-lg">60FPS High-Volume Mode Active</h3>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                  Direct settlements via To-Pay POD, UPI, and Monthly GST Credit with 0% markups.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Universal Tracking Quick Lookups */}
+        <div className="pt-10 max-w-xl mx-auto relative z-10">
+          <div className="bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
+            <div className="flex items-center space-x-2 px-3 py-1.5 text-slate-300 w-full sm:w-auto flex-1">
+              <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+              <input
+                type="text"
+                value={landingTrackingInput}
+                onChange={(e) => setLandingTrackingInput(e.target.value)}
+                placeholder="Enter Order Ref or Carrier Docket..."
+                className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => onQuickTrack()}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-3 rounded-xl transition shadow-md shrink-0"
+            >
+              Track Shipment
+            </button>
+          </div>
+          <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3 font-medium">
+            <span>Universal Lookup Demos:</span>
+            <button
+              type="button"
+              onClick={() => onQuickTrack(DEMO_INIT_ORDER_ID)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Ref: {DEMO_INIT_ORDER_ID}
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={() => onQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Docket: {DEMO_INIT_CARRIER_DOCKET}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 2: TRUST STATS & CARRIER STRIP */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-indigo-600">5+</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Fleets</p>
+            <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-emerald-600">19,000+</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Serviceable PIN Codes</p>
+            <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-slate-900">100%</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Direct Carrier Settlement</p>
+            <p className="text-[11px] text-slate-500">To-Pay / Direct UPI settlement</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-amber-500">2%</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Flat Verification Platform Fee</p>
+            <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
+          </div>
+        </div>
+
+        <div className="pt-8 text-center space-y-4">
+          <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">
+            Integrated National Transporters
+          </span>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {vendors.map((v) => (
+              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-400 transition">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span className="font-extrabold text-xs text-slate-900">{v.name}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3: INTERACTIVE HOW IT WORKS */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            Interactive Operational Workflow
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
+          <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+            Consolidating platform transparency with real-world carrier waybill standards.
+          </p>
+
+          <div className="inline-flex p-1.5 bg-slate-200 rounded-2xl mt-4 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setWorkflowTab("shipper")}
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              📦 For Shippers & Businesses
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkflowTab("vendor")}
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              🚛 For Logistics Vendors & Carriers
+            </button>
+          </div>
+        </div>
+
+        {workflowTab === "shipper" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">1</span>
+              <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Enter origin and destination PINs with live India Post city lookup. Dimensions are optional—dead weight calculates freight when blank.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">2</span>
+              <h3 className="font-bold text-slate-900 text-sm">Compare Carrier Rates</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">Dual-ID Generation</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Settle freight direct with carrier. Get your official Platform Ref (`LC-XXXXXX`) + Carrier Waybill (`1489...`) and print certified labels.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">4</span>
+              <h3 className="font-bold text-slate-900 text-sm">Continuous 4x6 Labels</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Print multi-box Box X of Y thermal labels and generate a Master Handover Manifest with driver and shipper signature sign-off blocks.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">1</span>
+              <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and bank account.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">2</span>
+              <h3 className="font-bold text-slate-900 text-sm">Publish Rates via Bulk CSV</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Define lane-specific tariffs individually or upload entire route sheets with city names via client-cached bulk CSV.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">Weekly / Monthly Fee Ledger</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Track 2% platform commission transparently with period breakdown, due dates, and one-click UTR payment reconciliation.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 4: 6-CARD CORE CAPABILITIES GRID */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            Enterprise Features
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
+          <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+            Direct transporter settlements combined with official carrier tracking APIs.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <LayersIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Calculates actual weight vs. volumetric weight across multiple box sizes using standard 4500 and 5000 divisors. Dead weight alone applies when dimensions are omitted.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <CurrencyRupeeIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Transparent breakdown: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+              <ShieldCheckIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected against transit damages.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <PrinterIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">4x6 Thermal Label Printing</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Continuous print engine for multi-box labels with barcode and docket, ending with a driver handover sign-off manifest.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+              <TruckIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Official Tracking Deep-Links</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Direct redirection to official carrier portals (Delhivery, Blue Dart, Safexpress, Gati, TCI) for real-time driver scans and delivery proof.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+              <CreditCardIcon className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Direct Carrier Settlements</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Shipper-to-Carrier direct settlement via To-Pay POD, direct carrier UPI transfers, or corporate credit terms alongside an automated 2% platform convenience fee.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 5: FREQUENTLY ASKED QUESTIONS */}
+      <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            FAQ & Knowledge Base
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
+          <p className="text-xs sm:text-sm text-slate-500">
+            Learn how the hybrid Dual-ID system, physical bilty uploads, and platform commission billing work.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {[
+            {
+              q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
+              a: "The Order Ref (LC-XXXXXX) is LogiCompare Pro's internal reference number used for tracking platform booking receipts, customer support, and accounting. The Carrier Docket (e.g. 12-digit numeric for Delhivery or BLU... for Blue Dart) is the transporter's official waybill used by drivers and freight hubs on the ground."
+            },
+            {
+              q: "Can I book shipments if I don't know the exact box dimensions?",
+              a: "Yes! Length, width, and height are strictly optional on LogiCompare Pro. If dimensions are omitted, our rate engine applies dead actual weight alone to generate instant carrier quotes."
+            },
+            {
+              q: "Where does the physical Bilty / LR slip photo get saved?",
+              a: "Documents are stored in a dedicated Supabase Object Storage bucket with a 5 MB file size limit to prevent storage exhaustion. Images are compressed client-side to ~100KB to retain full legibility while saving 95% storage."
+            },
+            {
+              q: "How does the weekly and monthly Platform Fee settlement work for carriers?",
+              a: "100% of the gross freight charge is collected directly by the carrier from shippers. LogiCompare generates an itemized weekly or monthly commission invoice (2%, min ₹25 per consignment) which carriers reconcile via UPI or NetBanking."
+            },
+            {
+              q: "What is your Refund & Cancellation Policy for cancelled shipments?",
+              a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund of platform verification fees. Once verified, refunds are credited back to the original source account within 5 to 7 business days."
+            }
+          ].map((faq, idx) => (
+            <div
+              key={idx}
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition"
+            >
+              <button
+                type="button"
+                onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                className="w-full p-4 text-left font-black text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
+              >
+                <span>{faq.q}</span>
+                <ChevronDownIcon
+                  className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
+                />
+              </button>
+              {openFaq === idx && (
+                <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3 font-medium">
+                  {faq.a}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* SECTION 6: BOTTOM CALL-TO-ACTION BANNER */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+        <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
+          <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+          <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+            Start Saving On B2B Freight
+          </span>
+          <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+            Ready to book with official national carrier dockets and zero hidden markups?
+          </h2>
+          <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+            Switch to the Freight Matrix Dashboard to calculate live rates, print certified carrier labels, and track consignments across India.
+          </p>
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onJumpToCompare}
+              className="bg-white hover:bg-slate-100 text-slate-950 font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg hover:scale-105"
+            >
+              Open Freight Rate Matrix
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchShipperDemo}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md shadow-md"
+            >
+              ⚡ Instant Demo as Shipper
+            </button>
+            <button
+              type="button"
+              onClick={onJumpToBulk}
+              className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md"
+            >
+              🚀 Launch 50/Day Bulk Console
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+};
+
+// ============================================================================
+// 22. SHIPPER UNIVERSAL DUAL-ID TRACKER (LOCAL COMPONENT)
+// ============================================================================
+interface ShipperTrackerSectionProps {
+  bookings: Booking[];
+  activeTrackingAwb: string;
+  setActiveTrackingAwb: (val: string) => void;
+  trackingSearchInput: string;
+  setTrackingSearchInput: (val: string) => void;
+}
+
+const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
+  bookings,
+  activeTrackingAwb,
+  setActiveTrackingAwb,
+  trackingSearchInput,
+  setTrackingSearchInput
+}) => {
+  const activeTrackBooking = useMemo(() => {
+    const input = activeTrackingAwb.trim().toLowerCase();
+    return bookings.find(
+      (b) =>
+        (b.order_id && b.order_id.toLowerCase() === input) ||
+        (b.carrier_docket_no && b.carrier_docket_no.toLowerCase() === input) ||
+        b.awb_number.toLowerCase() === input
+    );
+  }, [bookings, activeTrackingAwb]);
+
+  const stages = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
+
+  const currentStageIndex = useMemo(() => {
+    if (!activeTrackBooking) return 0;
+    const idx = stages.indexOf(activeTrackBooking.status);
+    return idx === -1 ? 0 : idx;
+  }, [activeTrackBooking]);
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Search Bar Card */}
+      <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-3">
+        <h2 className="text-base font-black text-slate-900">Universal Consignment Live Tracker</h2>
+        <p className="text-xs text-slate-500">
+          Enter either your Platform Order Ref (e.g. <strong className="text-indigo-600">{DEMO_INIT_ORDER_ID}</strong>) or official Carrier Docket No. (e.g. <strong className="text-indigo-600">{DEMO_INIT_CARRIER_DOCKET}</strong>)
+        </p>
+
+        <div className="flex gap-2 max-w-md">
+          <input
+            type="text"
+            value={trackingSearchInput}
+            onChange={(e) => setTrackingSearchInput(e.target.value)}
+            placeholder="Enter Order Ref or Docket..."
+            className="flex-1 bg-white border-2 border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => setActiveTrackingAwb(trackingSearchInput)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-5 py-2.5 rounded-xl text-xs shadow-md transition flex items-center space-x-1.5"
+          >
+            <SearchIcon className="w-4 h-4" />
+            <span>Track</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Detailed Tracking Milestone Card */}
+      {activeTrackBooking ? (
+        <div className="bg-white border border-slate-300 rounded-2xl p-6 space-y-8 shadow-sm">
+          {/* Header Summary */}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
+            <div>
+              <div className="flex items-center space-x-3">
+                <span className="text-xl font-mono font-black text-indigo-700">
+                  {activeTrackBooking.order_id || "LC-CONSIGNMENT"}
+                </span>
+                <span className="text-sm font-mono font-black text-slate-800 bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg">
+                  Carrier Docket: {activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number}
+                </span>
+                <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs px-3 py-1 rounded-full font-black uppercase">
+                  {activeTrackBooking.status}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-2 font-medium">
+                Carrier Partner: <strong className="text-slate-900">{activeTrackBooking.vendors?.name || "Delhivery B2B Express"}</strong>
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:items-end gap-2.5">
+              <div className="flex items-center space-x-2">
+                {activeTrackBooking.carrier_docket_doc_url && (
+                  <a
+                    href={activeTrackBooking.carrier_docket_doc_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5"
+                  >
+                    <DocumentIcon className="w-3.5 h-3.5" />
+                    <span>View Physical Bilty Scan</span>
+                  </a>
+                )}
+                <a
+                  href={
+                    activeTrackBooking.carrier_portal_url ||
+                    getOfficialCarrierTrackingUrl(
+                      activeTrackBooking.vendors?.name || "Delhivery",
+                      activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number
+                    )
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5"
+                >
+                  <span>Official Carrier Portal</span>
+                  <ExternalLinkIcon className="w-3.5 h-3.5" />
+                </a>
+              </div>
+              <span className="text-xs text-slate-600">
+                Route: <strong className="text-slate-900 font-mono">{activeTrackBooking.origin_pin} → {activeTrackBooking.dest_pin}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Visual Milestone Progress Pipeline */}
+          <div className="py-2">
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-6">Delivery Milestone Pipeline</h4>
+            <div className="grid grid-cols-5 gap-2 relative">
+              {stages.map((stage, idx) => {
+                const isPassed = idx <= currentStageIndex;
+                const isCurrent = idx === currentStageIndex;
+
+                return (
+                  <div key={stage} className="flex flex-col items-center text-center space-y-2">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
+                        isPassed
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-200 text-slate-500"
+                      } ${isCurrent ? "ring-4 ring-emerald-200 scale-110" : ""}`}
+                    >
+                      {isPassed ? <CheckCircleIcon className="w-4 h-4" /> : idx + 1}
+                    </div>
+                    <span className={`text-[11px] font-bold ${isPassed ? "text-slate-900 font-black" : "text-slate-400"}`}>
+                      {stage}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Milestone Audit Trail History */}
+          <div className="border-t border-slate-200 pt-6">
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-4">Milestone Audit Log</h4>
+            <div className="space-y-3">
+              {(activeTrackBooking.tracking_history || []).map((step, idx) => (
+                <div key={idx} className="flex items-start space-x-3 text-xs">
+                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 mt-1.5 shrink-0"></div>
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex-1 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-black text-slate-900 text-xs">{step.status}</span>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {new Date(step.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+                      </span>
+                    </div>
+                    <p className="text-indigo-800 font-bold mt-0.5">{step.location}</p>
+                    <p className="text-slate-600 mt-1">{step.remarks}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center shadow-sm">
+          <p className="text-slate-600 text-sm font-medium">
+            Consignment identifier <strong className="text-slate-900">"{activeTrackingAwb}"</strong> not found.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 23. SHIPPER HEAVY LOAD REVERSE AUCTION (LOCAL COMPONENT)
+// ============================================================================
+interface ShipperRfqSectionProps {
+  currentUser: UserProfile;
+  rfqList: RfqBid[];
+  setRfqList: React.Dispatch<React.SetStateAction<RfqBid[]>>;
+}
+
+const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, rfqList, setRfqList }) => {
+  const [newRfqOrigin, setNewRfqOrigin] = useState("110001");
+  const [newRfqDest, setNewRfqDest] = useState("560001");
+  const [newRfqDesc, setNewRfqDesc] = useState("Industrial Gearboxes and Heavy Machinery Parts");
+  const [newRfqWeight, setNewRfqWeight] = useState(8500);
+  const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
+  const [newRfqBudget, setNewRfqBudget] = useState(65000);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleCreateRfq = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    const newRecord: Partial<RfqBid> = {
+      shipper_name: currentUser.company_name || currentUser.full_name,
+      origin_pin: newRfqOrigin.trim(),
+      dest_pin: newRfqDest.trim(),
+      cargo_description: newRfqDesc.trim(),
+      total_weight_kg: Number(newRfqWeight),
+      truck_type: newRfqTruck,
+      target_price: Number(newRfqBudget),
+      status: "Open",
+      bids: []
+    };
+
+    try {
+      const { data, error } = await supabase.from("rfq_bids").insert([newRecord]).select();
+      if (!error && data && data[0]) {
+        setRfqList([data[0] as RfqBid, ...rfqList]);
+      } else {
+        const localRfq: RfqBid = {
+          ...(newRecord as RfqBid),
+          id: `rfq-${Date.now()}`,
+          created_at: new Date().toISOString()
+        };
+        setRfqList([localRfq, ...rfqList]);
+      }
+      alert("Heavy cargo load successfully broadcast to national fleet operators!");
+    } catch (err) {
+      console.error("Failed to post RFQ load:", err);
+      const localRfq: RfqBid = {
+        ...(newRecord as RfqBid),
+        id: `rfq-${Date.now()}`,
+        created_at: new Date().toISOString()
+      };
+      setRfqList([localRfq, ...rfqList]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-6">
+        <div className="border-b border-slate-200 pb-4">
+          <h2 className="text-lg font-black text-slate-900">Post Heavy / FTL Cargo Load for Reverse Auction</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Verified fleet operators and trailer transporters will bid competitively below your ceiling target price.
+          </p>
+        </div>
+
+        <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Origin Pincode (Pickup)</label>
+            <input
+              type="text"
+              maxLength={6}
+              value={newRfqOrigin}
+              onChange={(e) => setNewRfqOrigin(e.target.value)}
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Destination Pincode (Drop)</label>
+            <input
+              type="text"
+              maxLength={6}
+              value={newRfqDest}
+              onChange={(e) => setNewRfqDest(e.target.value)}
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Cargo Description</label>
+            <input
+              type="text"
+              value={newRfqDesc}
+              onChange={(e) => setNewRfqDesc(e.target.value)}
+              placeholder="e.g. Electrical Panels / Steel Coils"
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Total Cargo Weight (Kg)</label>
+            <input
+              type="number"
+              value={newRfqWeight}
+              onChange={(e) => setNewRfqWeight(Number(e.target.value))}
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Required Vehicle / Truck Body</label>
+            <select
+              value={newRfqTruck}
+              onChange={(e) => setNewRfqTruck(e.target.value)}
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-2.5 py-2 font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+            >
+              <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
+              <option value="24ft Container Truck">24ft Container Truck</option>
+              <option value="Taurus 21-Tonner (10-Tyre)">Taurus 21-Tonner (10-Tyre)</option>
+              <option value="19ft Open Body Truck">19ft Open Body Truck</option>
+              <option value="Tata 407 (3.5T)">Tata 407 (3.5T)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Ceiling Target Budget (₹)</label>
+            <input
+              type="number"
+              value={newRfqBudget}
+              onChange={(e) => setNewRfqBudget(Number(e.target.value))}
+              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div className="md:col-span-3 flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-7 py-3 rounded-xl text-xs transition shadow-md flex items-center space-x-2 disabled:opacity-50"
+            >
+              <span>{isSubmitting ? "Broadcasting..." : "Broadcast Load to Verified Transporters"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-base font-black text-slate-900">Your Broadcasted Loads & Carrier Counter-Bids</h3>
+        {rfqList.length === 0 ? (
+          <div className="bg-white border border-slate-300 rounded-2xl p-8 text-center text-slate-500 text-xs shadow-sm">
+            No reverse auction loads posted yet. Fill the form above to invite competitive carrier bidding.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {rfqList.map((rfq) => (
+              <div key={rfq.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
+                        PIN {rfq.origin_pin} → {rfq.dest_pin}
+                      </span>
+                      <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">
+                        {rfq.truck_type}
+                      </span>
+                      <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold uppercase">
+                        {rfq.status}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-black text-slate-900 mt-1.5">{rfq.cargo_description}</h4>
+                    <p className="text-xs text-slate-500 font-medium">Cargo Weight: {rfq.total_weight_kg.toLocaleString()} kg</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Ceiling Target Budget</span>
+                    <span className="text-xl font-black text-emerald-700 font-mono">{formatINR(rfq.target_price)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-slate-700 block uppercase tracking-wider">
+                    Received Carrier Bids ({(rfq.bids || []).length})
+                  </span>
+                  {(!rfq.bids || rfq.bids.length === 0) ? (
+                    <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      Awaiting bids from fleet operators on the carrier exchange...
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {rfq.bids.map((bid, bIdx) => (
+                        <div key={bIdx} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                          <div>
+                            <span className="font-black text-slate-900 block">{bid.vendor_name}</span>
+                            <span className="text-[11px] text-slate-600 font-medium mt-0.5 block">{bid.notes}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-base font-black text-emerald-700 font-mono block">{formatINR(bid.bid_amount)}</span>
+                            <span className="text-[11px] text-slate-500 font-bold block">SLA: {bid.transit_days} Days</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 24. SYSTEM ADMINISTRATION & AUDIT OVERSIGHT (LOCAL COMPONENT)
+// ============================================================================
+interface AdminOverviewSectionProps {
+  bookings: Booking[];
+  vendors: Vendor[];
+  rateCards: RateCard[];
+}
+
+const AdminOverviewSection: FC<AdminOverviewSectionProps> = ({ bookings, vendors }) => {
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-slate-200 pb-4">
+        <h1 className="text-2xl font-black text-slate-900 tracking-tight">System Administration & Oversight</h1>
+        <p className="text-xs text-slate-500 mt-0.5">Platform Performance, Verified Fleets & Statutory Margin Audit</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Total Dispatches</span>
+          <span className="text-3xl font-black text-slate-900">{bookings.length}</span>
+          <p className="text-[11px] text-emerald-600 font-bold">Dual-ID Carrier Verified</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Active Carrier Partners</span>
+          <span className="text-3xl font-black text-indigo-600">{vendors.length}</span>
+          <p className="text-[11px] text-indigo-600 font-bold">100% KYC Approved</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Gross Freight Routed</span>
+          <span className="text-3xl font-black text-slate-900 font-mono">
+            {formatINR(bookings.reduce((acc, b) => acc + (b.cost_breakdown?.freightSubtotal || b.final_total || 0), 0))}
+          </span>
+          <p className="text-[11px] text-slate-500 font-bold">0% Aggregator Markup</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Platform Fees (2%)</span>
+          <span className="text-3xl font-black text-emerald-600 font-mono">
+            {formatINR(bookings.reduce((acc, b) => acc + (b.cost_breakdown?.platformConvenienceFee || 25), 0))}
+          </span>
+          <p className="text-[11px] text-emerald-700 font-bold">Statutory Margin Accrued</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <h3 className="text-base font-black text-slate-900">Active Integrated Transporters</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-slate-700">
+            <thead className="bg-slate-950 text-white font-black uppercase text-[11px] tracking-wider">
+              <tr>
+                <th className="py-3 px-4">Carrier Name</th>
+                <th className="py-3 px-4">Rating</th>
+                <th className="py-3 px-4">GSTIN</th>
+                <th className="py-3 px-4">Fleet Types</th>
+                <th className="py-3 px-4">Direct UPI VPA</th>
+                <th className="py-3 px-4">Live Tracking Base</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {vendors.map((v) => (
+                <tr key={v.id} className="hover:bg-slate-50">
+                  <td className="py-3 px-4 font-bold text-slate-900">{v.name}</td>
+                  <td className="py-3 px-4 text-amber-500 font-bold">★ {v.rating}</td>
+                  <td className="py-3 px-4 font-mono">{v.gstin}</td>
+                  <td className="py-3 px-4 text-[11px] text-slate-500">{v.fleet_types.join(", ")}</td>
+                  <td className="py-3 px-4 font-mono text-emerald-700 font-bold">{v.upi_id}</td>
+                  <td className="py-3 px-4 font-mono text-[10px] text-indigo-600 truncate max-w-[150px]">{v.tracking_base_url}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 25. SINGLE AD-HOC DIRECT BOOKING MODAL (LOCAL COMPONENT)
+// ============================================================================
+interface DirectBookingModalProps {
+  quote: CalculatedQuote;
+  currentUser: UserProfile;
+  originPin: string;
+  destPin: string;
+  boxes: BoxItem[];
+  declaredValue: number;
+  pickupAddress: string;
+  onClose: () => void;
+  onSuccess: (b: Booking) => void;
+}
+
+const DirectBookingModal: FC<DirectBookingModalProps> = ({
+  quote,
+  currentUser,
+  originPin,
+  destPin,
+  boxes,
+  declaredValue,
+  pickupAddress,
+  onClose,
+  onSuccess
+}) => {
+  const [consigneeName, setConsigneeName] = useState("Prime Electronics Retail");
+  const [consigneePhone, setConsigneePhone] = useState("+91 98200 44556");
+  const [consigneeGstin, setConsigneeGstin] = useState("27AAACP9988G1ZK");
+  const [deliveryAddress, setDeliveryAddress] = useState("Warehouse 4B, Bhiwandi Logistics Park, Mumbai");
+  const [settlementType, setSettlementType] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">("direct_to_pay");
+  const [directPaymentUtr, setDirectPaymentUtr] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
+    if (!termsAccepted) {
+      alert("Please accept the consignment booking terms before proceeding.");
+      return;
+    }
+    setIsSubmitting(true);
+
+    const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
+    const carrierName = quote.vendor.name;
+    const initialCarrierDocket = generateCarrierDocket(carrierName);
+    const portalUrl = getOfficialCarrierTrackingUrl(carrierName, initialCarrierDocket);
+
+    let refString = "DIRECT-TO-PAY-POD";
+    if (settlementType === "direct_upi") {
+      refString = directPaymentUtr ? `UPI-UTR-${directPaymentUtr}` : `DIRECT-UPI-${quote.vendor.upi_id}`;
+    } else if (settlementType === "corporate_credit") {
+      refString = "B2B-DIRECT-CREDIT-TERMS";
+    }
+
+    const enhancedBreakdown = {
+      ...quote.breakdown,
+      settlement_type: settlementType,
+      payment_method: settlementType === "direct_upi" ? "Direct Carrier UPI" : settlementType === "corporate_credit" ? "B2B Monthly Credit" : "Direct To-Pay POD",
+      payment_ref: refString,
+      carrier_upi: quote.vendor.upi_id
+    };
+
+    const newBookingRecord: Partial<Booking> = {
+      order_id: platformOrderId,
+      awb_number: initialCarrierDocket,
+      carrier_docket_no: initialCarrierDocket,
+      carrier_portal_url: portalUrl,
+      shipper_id: currentUser.id,
+      vendor_id: quote.vendor.id,
+      rate_card_id: quote.rateCard.id,
+      shipper_name: currentUser.company_name || currentUser.full_name,
+      shipper_phone: currentUser.phone || MERCHANT_DETAILS.phone,
+      shipper_email: currentUser.email,
+      shipper_gstin: currentUser.gstin || "07AAACA1234A1Z5",
+      pickup_address: pickupAddress,
+      pickup_pincode: originPin,
+      consignee_name: consigneeName,
+      consignee_phone: consigneePhone,
+      consignee_gstin: consigneeGstin,
+      delivery_address: deliveryAddress,
+      origin_pin: originPin,
+      dest_pin: destPin,
+      mode: quote.rateCard.mode,
+      boxes,
+      declared_value: declaredValue,
+      actual_weight: quote.actualWeight,
+      volumetric_weight: quote.volumetricWeight,
+      billable_weight: quote.billableWeight,
+      cost_breakdown: enhancedBreakdown,
+      final_total: quote.breakdown.total,
+      status: "Booked",
+      tracking_history: [
+        {
+          status: "Booked",
+          location: `Origin Hub (${originPin})`,
+          timestamp: new Date().toISOString(),
+          remarks: `Order Ref ${platformOrderId} generated. Carrier Docket ${initialCarrierDocket} assigned. Direct freight (${formatINR(enhancedBreakdown.freightSubtotal)}) payable to ${quote.vendor.name} [Ref: ${refString}]. Platform 2% fee (₹${enhancedBreakdown.platformConvenienceFee}) recorded.`
+        }
+      ]
+    };
+
+    try {
+      const { data, error } = await supabase.from("bookings").insert([newBookingRecord]).select("*, vendors(*)");
+      if (!error && data && data[0]) {
+        onSuccess(data[0] as Booking);
+      } else {
+        const localMock = {
+          ...(newBookingRecord as Booking),
+          id: `book-${Date.now()}`,
+          created_at: new Date().toISOString(),
+          vendors: quote.vendor
+        };
+        onSuccess(localMock);
+      }
+    } catch {
+      const localMock = {
+        ...(newBookingRecord as Booking),
+        id: `book-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        vendors: quote.vendor
+      };
+      onSuccess(localMock);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-lg font-black text-slate-900">Direct Consignment Booking & Carrier Settlement</h3>
+            <p className="text-xs text-slate-500">
+              Carrier Partner: <strong className="text-emerald-700 font-bold">{quote.vendor.name}</strong>
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="bg-slate-950 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Direct Freight (Payable to {quote.vendor.name}):</span>
+            <strong className="text-base text-white font-mono">{formatINR(quote.breakdown.freightSubtotal)}</strong>
+          </div>
+          <div className="flex justify-between items-center text-indigo-300">
+            <span>Platform Docket Verification Fee (2%, min ₹25):</span>
+            <strong className="font-mono">₹{quote.breakdown.platformConvenienceFee}</strong>
+          </div>
+          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
+            <span>Total Consignment Outlay:</span>
+            <span className="font-mono text-base">{formatINR(quote.breakdown.total)}</span>
+          </div>
+        </div>
+
+        <div className="space-y-3 text-xs">
+          <label className="block text-slate-900 font-black uppercase tracking-wider">Choose Settlement Method:</label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "direct_to_pay" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
+              <input
+                type="radio"
+                name="settlement_type"
+                checked={settlementType === "direct_to_pay"}
+                onChange={() => setSettlementType("direct_to_pay")}
+                className="text-emerald-600"
+              />
+              <span className="font-bold block mt-1 text-slate-900">💵 To-Pay at Delivery</span>
+              <p className="text-[10px] text-slate-500">Pay cash/cheque upon delivery.</p>
+            </label>
+
+            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "direct_upi" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
+              <input
+                type="radio"
+                name="settlement_type"
+                checked={settlementType === "direct_upi"}
+                onChange={() => setSettlementType("direct_upi")}
+                className="text-emerald-600"
+              />
+              <span className="font-bold block mt-1 text-slate-900">📲 Direct Carrier UPI</span>
+              <p className="text-[10px] text-slate-500">Transfer freight directly to carrier.</p>
+            </label>
+
+            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "corporate_credit" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
+              <input
+                type="radio"
+                name="settlement_type"
+                checked={settlementType === "corporate_credit"}
+                onChange={() => setSettlementType("corporate_credit")}
+                className="text-emerald-600"
+              />
+              <span className="font-bold block mt-1 text-slate-900">🏢 B2B Monthly Credit</span>
+              <p className="text-[10px] text-slate-500">Pre-approved GST credit terms.</p>
+            </label>
+          </div>
+
+          {settlementType === "direct_upi" && (
+            <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200 space-y-2 font-mono">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-emerald-950 font-bold">Carrier UPI Handle:</span>
+                <span className="bg-white px-2 py-0.5 rounded font-black text-slate-900 border border-emerald-200">
+                  {quote.vendor.upi_id || "delhivery.b2b@icici"}
+                </span>
+              </div>
+              <input
+                type="text"
+                placeholder="Payment Reference / UTR Number (Optional)"
+                value={directPaymentUtr}
+                onChange={(e) => setDirectPaymentUtr(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-mono text-slate-900"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2.5 pt-2">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Consignee Name</label>
+                <input
+                  type="text"
+                  value={consigneeName}
+                  onChange={(e) => setConsigneeName(e.target.value)}
+                  className="w-full border rounded-lg p-2 font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Consignee Phone</label>
+                <input
+                  type="text"
+                  value={consigneePhone}
+                  onChange={(e) => setConsigneePhone(e.target.value)}
+                  className="w-full border rounded-lg p-2 font-medium"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Destination Address</label>
+              <input
+                type="text"
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                className="w-full border rounded-lg p-2 font-medium"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-start space-x-2 pt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 text-indigo-600 rounded"
+            />
+            <span className="text-[11px] text-slate-600 font-medium">
+              I agree to settle freight directly with {quote.vendor.name} under Carriage by Road Act 2007 guidelines.
+            </span>
+          </label>
+        </div>
+
+        <div className="flex justify-end space-x-3 border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={isSubmitting || !termsAccepted}
+            onClick={handleConfirm}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl text-xs shadow-md transition disabled:opacity-50"
+          >
+            {isSubmitting ? "Assigning Docket..." : "Confirm Booking & Assign Carrier Docket"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 26. CONTINUOUS 4x6 THERMAL MULTI-BOX LABEL & HANDOVER MANIFEST MODAL
+// ============================================================================
+interface ThermalPrintModalProps {
+  printableBooking: Booking | null;
+  batchPrintBookings: Booking[] | null;
+  onClose: () => void;
+}
+
+const ThermalPrintModal: FC<ThermalPrintModalProps> = ({
+  printableBooking,
+  batchPrintBookings,
+  onClose
+}) => {
+  const allBookings = batchPrintBookings || (printableBooking ? [printableBooking] : []);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white select-none">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          header, footer, nav, button, .no-print {
+            display: none !important;
+          }
+          .thermal-page-break {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+          .thermal-label-container {
+            width: 4in !important;
+            height: 6in !important;
+            max-height: 6in !important;
+            overflow: hidden !important;
+            padding: 0.2in !important;
+            box-sizing: border-box !important;
+            border: 3px solid black !important;
+            margin: 0 auto !important;
+          }
+          .manifest-sheet {
+            width: 100% !important;
+            page-break-before: always !important;
+            break-before: page !important;
+          }
+        }
+      `}} />
+
+      <div className="bg-white text-black rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-6 my-8 print:m-0 print:p-0 print:shadow-none print:w-full border border-slate-300">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3 no-print">
+          <div>
+            <h3 className="text-base font-black text-slate-900">
+              {batchPrintBookings
+                ? `Batch 4x6 Thermal Labels (${batchPrintBookings.length} Consignments) + Handover Manifest`
+                : "4x6 Thermal Multi-Box Shipping Labels"}
+            </h3>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Continuous thermal page layout calibrated for Zebra, TSC, Rollo, and standard 4x6 label printers
+            </p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
+            >
+              <PrinterIcon className="w-4 h-4" />
+              <span>Print Continuous 4x6 Sheet</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-6 print:space-y-0">
+          {allBookings.map((booking) => {
+            const boxCount = booking.boxes?.length || 1;
+
+            return (
+              <React.Fragment key={booking.id}>
+                {Array.from({ length: boxCount }).map((_, boxIdx) => {
+                  const box = booking.boxes?.[boxIdx] || {
+                    weight: booking.actual_weight,
+                    length: null,
+                    width: null,
+                    height: null
+                  };
+
+                  return (
+                    <div
+                      key={`${booking.id}-box-${boxIdx}`}
+                      className="thermal-label-container thermal-page-break font-sans bg-white text-black border-4 border-black p-3 space-y-2.5 rounded-sm"
+                    >
+                      <div className="flex justify-between items-start border-b-2 border-black pb-1.5">
+                        <div>
+                          <h2 className="text-lg font-black leading-tight tracking-tight uppercase">
+                            {booking.vendors?.name || "DELHIVERY B2B EXPRESS"}
+                          </h2>
+                          <span className="text-[8px] font-black uppercase tracking-widest block text-slate-700">
+                            OFFICIAL CARRIER CONSIGNMENT NOTE
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-base font-black font-mono">
+                            HUB-{booking.origin_pin.slice(0, 3)} / HUB-{booking.dest_pin.slice(0, 3)}
+                          </span>
+                          <span className="text-[9px] font-black uppercase bg-black text-white px-1.5 py-0.5 rounded-sm block mt-0.5">
+                            BOX {boxIdx + 1} OF {boxCount}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-center py-1.5 border-b-2 border-black space-y-1">
+                        <div className="flex justify-center items-center space-x-0.5 h-10">
+                          {[2, 1, 3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 3, 4, 1, 2, 3, 2, 4, 1, 2, 1, 3, 1, 4].map((w, i) => (
+                            <div key={i} className="bg-black h-full" style={{ width: `${w * 2.2}px` }} />
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-center space-x-2 font-mono">
+                          <span className="text-sm font-black tracking-widest">
+                            DOCKET: {booking.carrier_docket_no || booking.awb_number}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-700">
+                            [{booking.order_id}]
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 border-b-2 border-black pb-1.5 text-[10px] leading-tight">
+                        <div>
+                          <span className="text-[8px] font-black uppercase block text-slate-700">SHIPPER (CONSIGNOR):</span>
+                          <strong className="block truncate font-black text-xs">{booking.shipper_name}</strong>
+                          <p className="truncate text-slate-800">{booking.pickup_address}</p>
+                          <p className="font-mono font-bold mt-0.5">PIN: {booking.origin_pin}</p>
+                          <p className="font-mono text-[9px]">GSTIN: {booking.shipper_gstin}</p>
+                        </div>
+                        <div>
+                          <span className="text-[8px] font-black uppercase block text-slate-700">DELIVER TO (CONSIGNEE):</span>
+                          <strong className="block truncate font-black text-xs">{booking.consignee_name}</strong>
+                          <p className="truncate text-slate-800">{booking.delivery_address}</p>
+                          <p className="font-mono font-bold mt-0.5">PIN: {booking.dest_pin} • Ph: {booking.consignee_phone}</p>
+                          <p className="font-mono text-[9px]">GSTIN: {booking.consignee_gstin}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1 text-center border-b-2 border-black pb-1.5 text-[10px]">
+                        <div>
+                          <span className="text-[7px] font-bold block uppercase text-slate-700">THIS BOX WT</span>
+                          <strong className="text-xs font-mono font-black">{box.weight} KG</strong>
+                        </div>
+                        <div>
+                          <span className="text-[7px] font-bold block uppercase text-slate-700">TOTAL BILLABLE</span>
+                          <strong className="text-xs font-mono font-black">{booking.billable_weight} KG</strong>
+                        </div>
+                        <div>
+                          <span className="text-[7px] font-bold block uppercase text-slate-700">BOX DIMS</span>
+                          <strong className="text-[9px] font-mono font-bold">
+                            {box.length && box.width && box.height ? `${box.length}x${box.width}x${box.height}` : "DEAD WT"}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[7px] font-bold block uppercase text-slate-700">TERMS</span>
+                          <strong className="text-[9px] font-mono font-black uppercase truncate block">
+                            {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center text-[8px] text-slate-700 pt-0.5 font-mono">
+                        <span>Carriage by Road Act 2007 Verified Consignment</span>
+                        <span>{new Date(booking.created_at).toLocaleDateString("en-IN")}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+
+          {batchPrintBookings && (
+            <div className="manifest-sheet bg-white text-black p-6 border-4 border-black font-sans space-y-5 rounded-sm">
+              <div className="flex justify-between border-b-2 border-black pb-3">
+                <div>
+                  <h2 className="text-lg font-black tracking-tight">MASTER PICKUP HANDOVER MANIFEST</h2>
+                  <p className="text-xs text-slate-700 font-medium">Shipper Dispatch Facility: {MERCHANT_DETAILS.defaultWarehouseAddress}</p>
+                  <p className="text-xs text-slate-700 font-mono">Origin Pincode: {MERCHANT_DETAILS.defaultOriginPin}</p>
+                </div>
+                <div className="text-right font-mono font-bold text-xs space-y-0.5">
+                  <p>DISPATCH DATE: {new Date().toLocaleDateString("en-IN")}</p>
+                  <p className="text-sm font-black text-black">TOTAL CONSIGNMENTS: {batchPrintBookings.length}</p>
+                  <p>
+                    TOTAL WEIGHT:{" "}
+                    {batchPrintBookings.reduce((acc, b) => acc + (b.billable_weight || 0), 0).toFixed(1)} KG
+                  </p>
+                </div>
+              </div>
+
+              <table className="w-full text-left text-[10px] border border-black">
+                <thead className="bg-slate-200 border-b-2 border-black font-black uppercase">
+                  <tr>
+                    <th className="p-1.5 border-r border-black">#</th>
+                    <th className="p-1.5 border-r border-black">Order Ref</th>
+                    <th className="p-1.5 border-r border-black">Carrier Docket</th>
+                    <th className="p-1.5 border-r border-black">Consignee</th>
+                    <th className="p-1.5 border-r border-black">Dest PIN</th>
+                    <th className="p-1.5 border-r border-black">Boxes</th>
+                    <th className="p-1.5 border-r border-black">Billable (kg)</th>
+                    <th className="p-1.5">Driver Sign</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black font-medium">
+                  {batchPrintBookings.map((b, i) => (
+                    <tr key={b.id}>
+                      <td className="p-1.5 border-r border-black font-mono font-bold">{i + 1}</td>
+                      <td className="p-1.5 border-r border-black font-mono font-black">{b.order_id}</td>
+                      <td className="p-1.5 border-r border-black font-mono">{b.carrier_docket_no}</td>
+                      <td className="p-1.5 border-r border-black truncate max-w-[130px] font-bold">{b.consignee_name}</td>
+                      <td className="p-1.5 border-r border-black font-mono font-bold">{b.dest_pin}</td>
+                      <td className="p-1.5 border-r border-black font-mono">{b.boxes?.length || 1}</td>
+                      <td className="p-1.5 border-r border-black font-mono font-bold">{b.billable_weight}</td>
+                      <td className="p-1.5"></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="grid grid-cols-2 gap-8 pt-6 border-t-2 border-black text-xs font-bold">
+                <div className="space-y-1">
+                  <p>Shipper Dispatch Signature: _______________________</p>
+                  <p className="text-[10px] text-slate-600 font-normal">I certify that all cargo packages are sealed and handed over intact.</p>
+                </div>
+                <div className="space-y-1">
+                  <p>Carrier Driver Handover Signature: ___________________</p>
+                  <p className="text-[10px] text-slate-600 font-normal">Vehicle / Route No. & Official Linehaul Handover Timestamp</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 27. POSTAL PIN DIRECTORY SEARCH MODAL (LOCAL COMPONENT)
+// ============================================================================
+interface CitySearchModalProps {
+  target: "origin" | "dest";
+  onSelectPin: (pin: string) => void;
+  onClose: () => void;
+}
+
+const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClose }) => {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Array<{ name: string; district: string; state: string; pincode: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const handleSearch = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!query || query.trim().length < 3) return;
+    setLoading(true);
+    setHasSearched(true);
+    try {
+      const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if (data && data[0]?.Status === "Success" && data[0]?.PostOffice) {
+        setResults(
+          data[0].PostOffice.map((item: any) => ({
+            name: item.Name,
+            district: item.District,
+            state: item.State,
+            pincode: item.Pincode
+          }))
+        );
+      } else {
+        setResults([]);
+      }
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 select-none">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">
+              Find PIN Code for {target === "origin" ? "Origin" : "Destination"}
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">Search Indian cities, districts, or branch post offices</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="e.g. Ludhiana, Meerut, Panipat, Bhiwandi..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              autoFocus
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50"
+          >
+            <SearchIcon className="w-4 h-4" />
+            <span>{loading ? "..." : "Search"}</span>
+          </button>
+        </form>
+
+        <div className="max-h-64 overflow-y-auto space-y-2 divide-y divide-slate-100 pr-1">
+          {results.length > 0 ? (
+            results.map((item, idx) => (
+              <div
+                key={idx}
+                onClick={() => {
+                  onSelectPin(item.pincode);
+                  onClose();
+                }}
+                className="pt-2 flex items-center justify-between p-2 rounded-xl hover:bg-indigo-50/80 cursor-pointer transition text-xs group"
+              >
+                <div>
+                  <p className="font-bold text-slate-900 group-hover:text-indigo-900 flex items-center space-x-1">
+                    <MapPinIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>{item.name}</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500">{item.district}, {item.state}</p>
+                </div>
+                <span className="font-mono font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
+                  {item.pincode}
+                </span>
+              </div>
+            ))
+          ) : hasSearched && !loading ? (
+            <p className="text-center text-xs text-slate-400 py-6">No matching post offices found. Try another city name.</p>
+          ) : (
+            <p className="text-center text-xs text-slate-400 py-6">Type at least 3 letters of your city and press search.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 28. MANUAL LANE RATE CARD PUBLISHER MODAL (LOCAL COMPONENT)
+// ============================================================================
+interface AddRateCardModalProps {
+  currentUser: UserProfile;
+  vendors: Vendor[];
+  onSuccess: (card: RateCard) => void;
+  onClose: () => void;
+}
+
+const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, vendors, onSuccess, onClose }) => {
+  const [card, setCard] = useState({
+    origin_prefix: "110",
+    dest_prefix: "400",
+    mode: "surface" as "surface" | "air" | "ftl",
+    min_weight_kg: 10,
+    base_rate: 400,
+    per_kg_rate: 14,
+    fuel_surcharge_pct: 12,
+    docket_charge: 150,
+    fov_pct: 0.2,
+    oda_charge: 450,
+    handling_per_kg: 2,
+    sla_days: 3
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const payload = { ...card, vendor_id: vendorId, is_active: true };
+
+    try {
+      const { data, error } = await supabase.from("rate_cards").insert([payload]).select("*, vendors(*)");
+      if (!error && data && data[0]) {
+        onSuccess(data[0] as RateCard);
+      } else {
+        const localCard: RateCard = {
+          ...(payload as RateCard),
+          id: `rc-${Date.now()}`,
+          vendors: vendors.find((v) => v.id === vendorId)
+        };
+        onSuccess(localCard);
+      }
+      onClose();
+    } catch {
+      const localCard: RateCard = {
+        ...(payload as RateCard),
+        id: `rc-${Date.now()}`,
+        vendors: vendors.find((v) => v.id === vendorId)
+      };
+      onSuccess(localCard);
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-xl w-full p-6 space-y-4 shadow-2xl my-8">
+        <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+          <h3 className="text-base font-black text-slate-900">Publish New Commercial Rate Tariff</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Origin Prefix (3 digits or %)</label>
+            <input
+              type="text"
+              value={card.origin_prefix}
+              onChange={(e) => setCard({ ...card, origin_prefix: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Dest Prefix (3 digits or %)</label>
+            <input
+              type="text"
+              value={card.dest_prefix}
+              onChange={(e) => setCard({ ...card, dest_prefix: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Transport Mode</label>
+            <select
+              value={card.mode}
+              onChange={(e) => setCard({ ...card, mode: e.target.value as any })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            >
+              <option value="surface">Surface Express</option>
+              <option value="air">Air Cargo</option>
+              <option value="ftl">Full Truck Load (FTL)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Transit SLA (Days)</label>
+            <input
+              type="number"
+              value={card.sla_days}
+              onChange={(e) => setCard({ ...card, sla_days: Number(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Base Rate (₹)</label>
+            <input
+              type="number"
+              value={card.base_rate}
+              onChange={(e) => setCard({ ...card, base_rate: Number(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Rate Per Kg (₹)</label>
+            <input
+              type="number"
+              step={0.1}
+              value={card.per_kg_rate}
+              onChange={(e) => setCard({ ...card, per_kg_rate: Number(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Fuel Surcharge (%)</label>
+            <input
+              type="number"
+              step={0.5}
+              value={card.fuel_surcharge_pct}
+              onChange={(e) => setCard({ ...card, fuel_surcharge_pct: Number(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Docket / AWB Charge (₹)</label>
+            <input
+              type="number"
+              value={card.docket_charge}
+              onChange={(e) => setCard({ ...card, docket_charge: Number(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              required
+            />
+          </div>
+
+          <div className="col-span-2 flex justify-end space-x-2 pt-3 border-t border-slate-200">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-2 rounded-xl shadow-sm transition"
+            >
+              {isSubmitting ? "Publishing..." : "Publish Tariff Card"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 29. LEGAL & COMPLIANCE MODAL (LOCAL COMPONENT)
+// ============================================================================
+interface LegalModalProps {
+  tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact";
+  setTab: (t: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => void;
+  onClose: () => void;
+}
+
+const LegalModal: FC<LegalModalProps> = ({ tab, setTab, onClose }) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Legal, Governance & Razorpay KYC Compliance</h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Merchant: {MERCHANT_DETAILS.proprietor} • Jurisdiction: {MERCHANT_DETAILS.jurisdiction}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-2">
+          {[
+            { id: "terms", label: "Terms of Service" },
+            { id: "privacy", label: "Privacy Policy" },
+            { id: "refund", label: "Refund & Cancellation" },
+            { id: "shipping", label: "Shipping Policy" },
+            { id: "prohibited", label: "Prohibited Goods" },
+            { id: "contact", label: "Contact Us" }
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id as any)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                tab === t.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="text-xs text-slate-600 space-y-3 max-h-96 overflow-y-auto pr-2 leading-relaxed">
+          {tab === "terms" && (
+            <div className="space-y-2.5">
+              <h4 className="font-black text-slate-900 text-sm">Terms and Conditions of Service</h4>
+              <p>
+                <strong>1. Platform Nature:</strong> {MERCHANT_DETAILS.platformName} is a proprietary B2B freight aggregator platform operated by <strong>{MERCHANT_DETAILS.proprietor}</strong>. LogiCompare connects commercial shippers with third-party verified fleet operators (Delhivery, Blue Dart, TCI, Safexpress, Gati).
+              </p>
+              <p>
+                <strong>2. Statutory Compliance & E-Way Bills:</strong> Shippers warrant that consignments exceeding ₹50,000 are accompanied by valid, active GST E-Way Bills and commercial invoices.
+              </p>
+              <p>
+                <strong>3. Governing Law:</strong> These terms are governed by the laws of India. Any dispute shall be subject to the exclusive jurisdiction of the competent courts in <strong>{MERCHANT_DETAILS.jurisdiction}</strong>.
+              </p>
+            </div>
+          )}
+
+          {tab === "privacy" && (
+            <div className="space-y-2.5">
+              <h4 className="font-black text-slate-900 text-sm">Privacy & Data Protection Policy</h4>
+              <p>
+                <strong>1. Collection of Business Data:</strong> We collect business contact details, GSTIN identifiers, pickup/delivery warehouse addresses, and package specifications solely to facilitate freight calculations, AWB barcode printing, and linehaul tracking.
+              </p>
+              <p>
+                <strong>2. Designated Grievance Officer:</strong> In compliance with the Information Technology Act, 2000 and Digital Personal Data Protection Act, the designated Grievance Officer is:
+              </p>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-800 space-y-0.5">
+                <p><strong>Officer:</strong> {MERCHANT_DETAILS.proprietor}</p>
+                <p><strong>Email:</strong> {MERCHANT_DETAILS.email}</p>
+                <p><strong>Helpline:</strong> {MERCHANT_DETAILS.phone}</p>
+                <p><strong>Address:</strong> {MERCHANT_DETAILS.address}</p>
+              </div>
+            </div>
+          )}
+
+          {tab === "refund" && (
+            <div className="space-y-2.5">
+              <h4 className="font-black text-slate-900 text-sm">Refund & Cancellation Policy</h4>
+              <p>
+                <strong>1. Cancellation Prior to Pickup:</strong> Consignments cancelled before carrier pickup attempt qualify for a <strong>100% full refund</strong> of platform verification fees.
+              </p>
+              <p>
+                <strong>2. Refund Settlement Timeframe:</strong> All approved refunds are processed back to the original source account via Razorpay. The standard credit window is <strong>5 to 7 business days</strong>.
+              </p>
+            </div>
+          )}
+
+          {tab === "shipping" && (
+            <div className="space-y-2.5">
+              <h4 className="font-black text-slate-900 text-sm">Shipping, Transit SLAs & Delivery Policy</h4>
+              <p>
+                <strong>1. Serviceable Network:</strong> LogiCompare Pro services 19,000+ PIN codes across India via aggregated multi-modal express networks.
+              </p>
+              <p>
+                <strong>2. Estimated Transit SLAs:</strong> Surface Express (3–6 business days), Air Express Cargo (24–48 hours connecting primary metro airport gateways).
+              </p>
+            </div>
+          )}
+
+          {tab === "prohibited" && (
+            <div className="space-y-2.5">
+              <h4 className="font-black text-slate-900 text-sm">Strictly Prohibited & Banned Cargo</h4>
+              <ul className="list-disc pl-5 space-y-1 text-slate-700">
+                <li>Explosives, fireworks, ammunition, and hazardous chemicals (Classes 1–9 Hazmat).</li>
+                <li>Flammable liquids, gases, compressed cylinders, and corrosives.</li>
+                <li>Unregistered bullion, loose precious gems, and sovereign cash/currency notes.</li>
+                <li>Narcotics and contraband goods prohibited under the NDPS Act.</li>
+              </ul>
+            </div>
+          )}
+
+          {tab === "contact" && (
+            <div className="space-y-3">
+              <h4 className="font-black text-slate-900 text-sm">Official Merchant Contact & Support</h4>
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5 font-medium">
+                <p><strong className="text-slate-900">Proprietor / Merchant:</strong> {MERCHANT_DETAILS.proprietor}</p>
+                <p><strong className="text-slate-900">Platform:</strong> {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.category})</p>
+                <p><strong className="text-slate-900">Email:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.email}</a></p>
+                <p><strong className="text-slate-900">Helpline:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.phone}</a></p>
+                <p><strong className="text-slate-900">Operating Address:</strong> {MERCHANT_DETAILS.address}</p>
+                <p><strong className="text-slate-900">Operating Hours:</strong> {MERCHANT_DETAILS.operatingHours}</p>
+                <p><strong className="text-slate-900">Jurisdiction:</strong> {MERCHANT_DETAILS.jurisdiction}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs px-5 py-2 rounded-xl transition"
+          >
+            Close Compliance Window
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 30. COMPLIANCE & LEGAL FOOTER (LOCAL COMPONENT)
+// ============================================================================
+interface FooterSectionProps {
+  openLegalModal: (tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => void;
+}
+
+const FooterSection: FC<FooterSectionProps> = ({ openLegalModal }) => {
+  return (
+    <footer className="mt-auto border-t border-slate-800 bg-slate-950 text-slate-300 text-xs no-print select-none">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-10 space-y-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-slate-800/80 pb-8">
+          <div className="space-y-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
+                <TruckIcon className="w-5 h-5" />
+              </div>
+              <span className="font-black text-base text-white tracking-tight">{MERCHANT_DETAILS.platformName}</span>
+            </div>
+            <p className="text-[12px] text-slate-400 leading-relaxed">
+              Proprietary freight aggregator connecting commercial shippers with verified fleets (Delhivery, Blue Dart, Safexpress, TCI, Gati) with 0% freight markups.
+            </p>
+            <div className="inline-flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md text-[11px] text-slate-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>Jurisdiction: <strong>{MERCHANT_DETAILS.jurisdiction}</strong></span>
+            </div>
+          </div>
+
+          <div className="space-y-2 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
+            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
+              Merchant Contact & Grievance
+            </span>
+            <p className="text-[11px] text-slate-300"><strong>Proprietor:</strong> {MERCHANT_DETAILS.proprietor}</p>
+            <p className="text-[11px] text-slate-300">
+              <strong>Helpline:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-400 hover:underline">{MERCHANT_DETAILS.phone}</a>
+            </p>
+            <p className="text-[11px] text-slate-300">
+              <strong>Support:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-400 hover:underline">{MERCHANT_DETAILS.email}</a>
+            </p>
+            <p className="text-[11px] text-slate-400 leading-tight">
+              <strong>Address:</strong> {MERCHANT_DETAILS.address}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
+              Governance & Policies
+            </span>
+            <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-400">
+              <button type="button" onClick={() => openLegalModal("terms")} className="text-left hover:text-white transition">
+                Terms of Service
+              </button>
+              <button type="button" onClick={() => openLegalModal("privacy")} className="text-left hover:text-white transition">
+                Privacy Policy
+              </button>
+              <button type="button" onClick={() => openLegalModal("refund")} className="text-left hover:text-white transition">
+                Refund & Cancellation
+              </button>
+              <button type="button" onClick={() => openLegalModal("shipping")} className="text-left hover:text-white transition">
+                Shipping Policy
+              </button>
+              <button type="button" onClick={() => openLegalModal("prohibited")} className="text-left hover:text-white transition">
+                Prohibited Cargo
+              </button>
+              <button type="button" onClick={() => openLegalModal("contact")} className="text-left hover:text-white transition">
+                Contact Us
+              </button>
+            </div>
+            <div className="pt-2 flex flex-wrap gap-2 text-[10px]">
+              <span className="bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 px-2 py-0.5 rounded font-mono font-bold">
+                100% Direct Settlement
+              </span>
+              <span className="bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded font-mono font-bold">
+                GST 18% GTA
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-[11px]">
+          <p>© 2026 {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.proprietor}). All rights reserved across India.</p>
+          <div className="flex items-center space-x-3">
+            <span>Carriage by Road Act 2007</span>
+            <span>•</span>
+            <span>Refund SLA: 5–7 Days</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+// ============================================================================
+// 31. THE SINGLE MASTER ROOT EXPORT: Page()
+// ============================================================================
+export default function Page() {
+  const { state, handlers } = useAppEngine();
+
+  // Strict role lock and auth isolation enforcement
+  const isRealAuthLive = state.modeEnv === "live" && state.currentUser.isRealUser;
+  const isShipper = state.currentUser.role === "shipper";
+  const isCarrier = state.currentUser.role === "carrier" || state.currentUser.role === "vendor";
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
+      {/* 1. Global Navigation Bar */}
+      <header className="sticky top-0 z-40 bg-slate-950 text-white border-b border-slate-800 shadow-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Logo & Platform Identity */}
+          <div
+            className="flex items-center space-x-3 cursor-pointer select-none"
+            onClick={() => handlers.handleRoleSwitch("landing")}
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md shadow-indigo-500/20">
+              <TruckIcon className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-1.5">
+                <span className="font-black text-lg tracking-tight text-white">LogiCompare</span>
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-1.5 py-0.2 rounded font-mono font-bold uppercase">
+                  Pro
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium">B2B Freight Discovery</p>
+            </div>
+          </div>
+
+          {/* Global Search Bar */}
+          <form onSubmit={handlers.handleGlobalSearch} className="hidden md:flex items-center max-w-sm w-full relative">
+            <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+            <input
+              type="text"
+              value={state.globalSearchInput}
+              onChange={(e) => state.setGlobalSearchInput(e.target.value)}
+              placeholder="Search Order Ref (LC-...) or Docket..."
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
+            />
+          </form>
+
+          {/* Role Navigation: STRICT ROLE LOCKING */}
+          <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => handlers.handleRoleSwitch("landing")}
+              className={`px-3 py-1.5 rounded-lg transition ${
+                state.activeRole === "landing" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Overview
+            </button>
+
+            {/* In Live Auth mode, show ONLY the verified user's authorized role */}
+            {isRealAuthLive ? (
+              <>
+                {isShipper && (
+                  <button
+                    type="button"
+                    onClick={() => handlers.handleRoleSwitch("shipper")}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      state.activeRole === "shipper" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Shipper Console
+                  </button>
+                )}
+                {isCarrier && (
+                  <button
+                    type="button"
+                    onClick={() => handlers.handleRoleSwitch("carrier")}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      state.activeRole === "carrier" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Carrier Hub
+                  </button>
+                )}
+              </>
+            ) : (
+              /* In Demo Sandbox mode, allow testing across all consoles */
+              <>
+                <button
+                  type="button"
+                  onClick={() => handlers.handleRoleSwitch("shipper")}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    state.activeRole === "shipper" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Shipper
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlers.handleRoleSwitch("carrier")}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    state.activeRole === "carrier" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Carrier
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlers.handleRoleSwitch("admin")}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    state.activeRole === "admin" ? "bg-amber-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Admin
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* AUTH ISOLATION & USER STATE */}
+          <div className="flex items-center space-x-2.5">
+            {/* Demo Sandbox Controls: COMPLETELY HIDDEN WHEN AUTHENTICATED IN LIVE MODE */}
+            {!isRealAuthLive && (
+              <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-black px-1.5 text-amber-400">Sandbox:</span>
+                <button
+                  type="button"
+                  onClick={() => handlers.handleRoleSwitch("shipper")}
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                    state.currentUser.role === "shipper" && state.activeRole === "shipper"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>⚡ Apex</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlers.handleRoleSwitch("carrier")}
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                    (state.currentUser.role === "carrier" || state.currentUser.role === "vendor") && state.activeRole === "carrier"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🚛 Delhivery</span>
+                </button>
+              </div>
+            )}
+
+            {/* Real Auth Status */}
+            {isRealAuthLive ? (
+              <div className="flex items-center space-x-2">
+                <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center space-x-2 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="font-bold text-white max-w-[120px] truncate">{state.currentUser.company_name}</span>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono uppercase font-bold">
+                    {state.currentUser.role}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlers.handleLogout}
+                  className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => state.setShowAuthModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs transition"
+              >
+                Sign In / Register
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* 2. Workspace View Routing */}
+      <div className="flex-1">
+        {/* VIEW A: OVERVIEW LANDING PAGE */}
+        {state.activeRole === "landing" && (
+          <LandingView
+            highVolumeMode={state.highVolumeMode}
+            vendors={state.vendors}
+            landingTrackingInput={state.landingTrackingInput}
+            setLandingTrackingInput={state.setLandingTrackingInput}
+            onQuickTrack={(val) => {
+              const target = val || state.landingTrackingInput || DEMO_INIT_ORDER_ID;
+              state.setActiveTrackingAwb(target);
+              state.setTrackingSearchInput(target);
+              handlers.handleRoleSwitch("shipper");
+              state.setShipperTab("history");
+            }}
+            onJumpToCompare={() => {
+              handlers.handleRoleSwitch("shipper");
+              state.setShipperTab("search");
+            }}
+            onJumpToBulk={() => {
+              handlers.handleRoleSwitch("shipper");
+              state.setShipperTab("matrix");
+            }}
+            onSwitchShipperDemo={() => {
+              handlers.handleRoleSwitch("shipper");
+              state.setCurrentUser(DEMO_SHIPPER);
+              state.setModeEnv("demo");
+            }}
+            onSwitchCarrierDemo={() => {
+              handlers.handleRoleSwitch("carrier");
+              state.setCurrentUser(DEMO_VENDOR);
+              state.setModeEnv("demo");
+            }}
+          />
+        )}
+
+        {/* VIEW B: SHIPPER WORKSPACE (ONLY MOUNTED FOR AUTHORIZED SHIPPERS) */}
+        {state.activeRole === "shipper" && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+              <div>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Shipper Console</h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Consignment Matrix & Dispatches • Active Organization: <strong className="text-slate-800">{state.currentUser.company_name}</strong>
+                </p>
+              </div>
+
+              {/* 50/Day High-Volume Speed Toggle */}
+              <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                <span className="text-xs font-bold text-slate-600 flex items-center space-x-1">
+                  <BoltIcon className="w-4 h-4 text-amber-500" />
+                  <span>50/Day High-Volume:</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => state.setHighVolumeMode(!state.highVolumeMode)}
+                  className={`px-2.5 py-0.5 rounded-md text-xs font-black transition ${
+                    state.highVolumeMode ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  {state.highVolumeMode ? "ACTIVE (60FPS)" : "OFF"}
+                </button>
+              </div>
+            </div>
+
+            {/* Shipper Dashboard Sub-Tabs */}
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 text-xs">
+              {[
+                { id: "search", label: "🔍 New Rate Search" },
+                { id: "matrix", label: "⚡ Rate Matrix (50/Day Bulk)" },
+                { id: "shipments", label: "📦 Active Shipments" },
+                { id: "history", label: "📍 History & Live Track" },
+                { id: "rfq", label: "⚖️ Load Auction (RFQ)" },
+                { id: "address", label: "🏢 Dispatch Facilities" }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => state.setShipperTab(tab.id as any)}
+                  className={`px-4 py-2 rounded-xl font-bold transition shadow-sm ${
+                    state.shipperTab === tab.id
+                      ? "bg-indigo-600 text-white"
+                      : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab 1: Single Rate Calculator */}
+            {state.shipperTab === "search" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <ShipperSingleCalculatorSection
+                  highVolumeMode={state.highVolumeMode}
+                  activeOriginAddress={state.activeOriginAddress}
+                  onChangeAddressTrigger={() => state.setShipperTab("address")}
+                  originPin={state.originPin}
+                  setOriginPin={state.setOriginPin}
+                  destPin={state.destPin}
+                  setDestPin={state.setDestPin}
+                  declaredValue={state.declaredValue}
+                  setDeclaredValue={state.setDeclaredValue}
+                  selectedMode={state.selectedMode}
+                  setSelectedMode={state.setSelectedMode}
+                  isOda={state.isOda}
+                  setIsOda={state.setIsOda}
+                  boxes={state.boxes}
+                  setBoxes={state.setBoxes}
+                  selectedBoxFor3D={state.selectedBoxFor3D}
+                  setSelectedBoxFor3D={state.setSelectedBoxFor3D}
+                  originZoneData={state.originZoneData}
+                  destZoneData={state.destZoneData}
+                  calculatedQuotes={state.calculatedQuotes}
+                  onOpenCityModal={(t) => state.setShowCitySearchModal(t)}
+                  onSelectQuoteForBooking={(q) => state.setSelectedQuoteForBooking(q)}
+                />
+              </div>
+            )}
+
+            {/* Tab 2: Rate Matrix (50/Day Bulk CSV) */}
+            {state.shipperTab === "matrix" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <ShipperBulkCsvSection
+                  highVolumeMode={state.highVolumeMode}
+                  activeOriginAddress={state.activeOriginAddress}
+                  bulkManifestList={state.bulkManifestList}
+                  setBulkManifestList={state.setBulkManifestList}
+                  onAutoSelectCheapest={() =>
+                    state.setBulkManifestList((prev) =>
+                      prev.map((r) => ({
+                        ...r,
+                        selectedQuote: [...r.quotes].sort((a, b) => a.breakdown.total - b.breakdown.total)[0]
+                      }))
+                    )
+                  }
+                  onAutoSelectFastest={() =>
+                    state.setBulkManifestList((prev) =>
+                      prev.map((r) => ({
+                        ...r,
+                        selectedQuote: [...r.quotes].sort((a, b) => a.rateCard.sla_days - b.rateCard.sla_days)[0]
+                      }))
+                    )
+                  }
+                  onSelectCarrierForRow={(rowId, vId) =>
+                    state.setBulkManifestList((prev) =>
+                      prev.map((r) => (r.rowId === rowId ? { ...r, selectedQuote: r.quotes.find((q) => q.vendor.id === vId) || r.quotes[0] } : r))
+                    )
+                  }
+                  bulkSettlementMethod={state.bulkSettlementMethod}
+                  setBulkSettlementMethod={state.setBulkSettlementMethod}
+                  bulkConsolidatedUtr={state.bulkConsolidatedUtr}
+                  setBulkConsolidatedUtr={state.setBulkConsolidatedUtr}
+                  onConfirmBatchBooking={handlers.handleConfirmBatchBooking}
+                  isBatchProcessing={state.isBatchProcessing}
+                  handleBulkCsvUpload={handlers.handleBulkCsvUpload}
+                  bulkCsvFileName={state.bulkCsvFileName}
+                  bulkUploadError={state.bulkUploadError}
+                />
+              </div>
+            )}
+
+            {/* Tab 3: Active Shipments */}
+            {state.shipperTab === "shipments" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <ShipperShipmentsSection
+                  bookings={state.bookings}
+                  onRefresh={handlers.fetchAllData}
+                  onOpenLabelModal={(b) => state.setPrintableBooking(b)}
+                  onOpenTrackerTab={(orderRef) => {
+                    state.setActiveTrackingAwb(orderRef);
+                    state.setTrackingSearchInput(orderRef);
+                    state.setShipperTab("history");
+                  }}
+                  onBatchPrintLabels={() => state.setBatchPrintBookings(state.bookings.slice(0, 50))}
+                />
+              </div>
+            )}
+
+            {/* Tab 4: History & Live Tracker */}
+            {state.shipperTab === "history" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <ShipperTrackerSection
+                  bookings={state.bookings}
+                  activeTrackingAwb={state.activeTrackingAwb}
+                  setActiveTrackingAwb={state.setActiveTrackingAwb}
+                  trackingSearchInput={state.trackingSearchInput}
+                  setTrackingSearchInput={state.setTrackingSearchInput}
+                />
+              </div>
+            )}
+
+            {/* Tab 5: Heavy Load Reverse Auction (RFQ) */}
+            {state.shipperTab === "rfq" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <ShipperRfqSection
+                  currentUser={state.currentUser}
+                  rfqList={state.rfqList}
+                  setRfqList={state.setRfqList}
+                />
+              </div>
+            )}
+
+            {/* Tab 6: Dynamic Origin Address Manager */}
+            {state.shipperTab === "address" && (
+              <ShipperAddressSection
+                addresses={state.shipperAddresses}
+                activeAddress={state.activeOriginAddress}
+                onSelectAddress={(addr) => handlers.applyOriginAddress(addr)}
+                onAddNewAddress={() => {
+                  state.setEditingAddress(null);
+                  state.setShowAddressModal(true);
+                }}
+                onEditAddress={(addr) => {
+                  state.setEditingAddress(addr);
+                  state.setShowAddressModal(true);
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        {/* VIEW C: CARRIER WORKSPACE (ONLY MOUNTED FOR AUTHORIZED CARRIERS) */}
+        {(state.activeRole === "carrier" || state.activeRole === "vendor") && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+              <div>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Carrier Operations Hub</h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Operating Fleet: <strong className="text-emerald-700 font-bold">{state.currentUser.company_name}</strong>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => state.setShowAddRateCardModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm transition"
+              >
+                + Publish New Lane Tariff
+              </button>
+            </div>
+
+            {/* Carrier Sub-Tabs */}
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 text-xs">
+              {[
+                { id: "loads", label: "🎯 Available Loads (RFQs)" },
+                { id: "tracking", label: "📋 Fleet Tracking & Bilty" },
+                { id: "rates", label: "🏷️ Commercial Rate Cards" },
+                { id: "billing", label: "💳 Platform Fee Billing" },
+                { id: "earnings", label: "🏦 Settlement Bank Profile" }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => state.setCarrierTab(tab.id as any)}
+                  className={`px-4 py-2 rounded-xl font-bold transition shadow-sm ${
+                    state.carrierTab === tab.id
+                      ? "bg-emerald-600 text-white"
+                      : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {state.carrierTab === "loads" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <CarrierBidsSection
+                  currentUser={state.currentUser}
+                  rfqList={state.rfqList}
+                  setRfqList={state.setRfqList}
+                />
+              </div>
+            )}
+
+            {state.carrierTab === "tracking" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <CarrierOrdersSection
+                  currentUser={state.currentUser}
+                  bookings={state.bookings}
+                  statusUpdateMap={state.statusUpdateMap}
+                  setStatusUpdateMap={state.setStatusUpdateMap}
+                  onUploadDocketFile={handlers.handleUploadDocketFile}
+                  onUpdateShipmentStatus={handlers.handleUpdateShipmentStatus}
+                />
+              </div>
+            )}
+
+            {state.carrierTab === "rates" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <CarrierRatesSection
+                  currentUser={state.currentUser}
+                  rateCards={state.rateCards}
+                  setRateCards={state.setRateCards}
+                  vendors={state.vendors}
+                  onOpenAddRateModal={() => state.setShowAddRateCardModal(true)}
+                />
+              </div>
+            )}
+
+            {state.carrierTab === "billing" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <CarrierBillingSection
+                  currentUser={state.currentUser}
+                  invoices={state.invoices}
+                  billingCycle={state.billingCycle}
+                  setBillingCycle={state.setBillingCycle}
+                  onOpenPayFeeModal={(inv) => {
+                    state.setSelectedInvoiceToPay(inv);
+                    state.setShowPayFeeModal(true);
+                  }}
+                />
+              </div>
+            )}
+
+            {state.carrierTab === "earnings" && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <CarrierBankSection
+                  currentUser={state.currentUser}
+                  vendors={state.vendors}
+                  setVendors={state.setVendors}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW D: ADMIN / EXECUTIVE OVERSIGHT VIEW */}
+        {state.activeRole === "admin" && !isRealAuthLive && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            <AdminOverviewSection
+              bookings={state.bookings}
+              vendors={state.vendors}
+              rateCards={state.rateCards}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 3. Global Modals (Strictly Controlled) */}
+      {state.selectedQuoteForBooking && (
+        <DirectBookingModal
+          quote={state.selectedQuoteForBooking}
+          currentUser={state.currentUser}
+          originPin={state.originPin}
+          destPin={state.destPin}
+          boxes={state.boxes}
+          declaredValue={state.declaredValue}
+          pickupAddress={state.pickupAddress}
+          onClose={() => state.setSelectedQuoteForBooking(null)}
+          onSuccess={(b) => {
+            state.setBookings([b, ...state.bookings]);
+            state.setSelectedQuoteForBooking(null);
+            state.setShipperTab("shipments");
+          }}
+        />
+      )}
+
+      {(state.printableBooking || state.batchPrintBookings) && (
+        <ThermalPrintModal
+          printableBooking={state.printableBooking}
+          batchPrintBookings={state.batchPrintBookings}
+          onClose={() => {
+            state.setPrintableBooking(null);
+            state.setBatchPrintBookings(null);
+          }}
+        />
+      )}
+
+      {state.showAddressModal && (
+        <AddressModal
+          isOpen={state.showAddressModal}
+          onClose={() => {
+            state.setShowAddressModal(false);
+            state.setEditingAddress(null);
+          }}
+          onSave={handlers.handleSaveAddress}
+          initialAddress={state.editingAddress}
+        />
+      )}
+
+      {state.showPayFeeModal && state.selectedInvoiceToPay && (
+        <PayPlatformFeeModal
+          isOpen={state.showPayFeeModal}
+          onClose={() => {
+            state.setShowPayFeeModal(false);
+            state.setSelectedInvoiceToPay(null);
+          }}
+          invoice={state.selectedInvoiceToPay}
+          onPaySuccess={handlers.handlePayInvoiceSuccess}
+        />
+      )}
+
+      {state.showLegalModal && (
+        <LegalModal
+          tab={state.legalModalTab}
+          setTab={state.setLegalModalTab}
+          onClose={() => state.setShowLegalModal(false)}
+        />
+      )}
+
+      {state.showCitySearchModal && (
+        <CitySearchModal
+          target={state.showCitySearchModal}
+          onSelectPin={(pin) => {
+            if (state.showCitySearchModal === "origin") state.setOriginPin(pin);
+            else state.setDestPin(pin);
+          }}
+          onClose={() => state.setShowCitySearchModal(null)}
+        />
+      )}
+
+      {state.showAuthModal && (
+        <AuthModal
+          isOpen={state.showAuthModal}
+          onSuccess={(profile) => {
+            state.setCurrentUser(profile);
+            state.setModeEnv("live");
+            state.setActiveRole(profile.role === "vendor" ? "carrier" : profile.role);
+          }}
+          onClose={() => state.setShowAuthModal(false)}
+        />
+      )}
+
+      {state.showAddRateCardModal && (
+        <AddRateCardModal
+          currentUser={state.currentUser}
+          vendors={state.vendors}
+          onSuccess={(card) => state.setRateCards([card, ...state.rateCards])}
+          onClose={() => state.setShowAddRateCardModal(false)}
+        />
+      )}
+
+      {/* 4. Global Compliance Footer */}
+      <FooterSection
+        openLegalModal={(tab) => {
+          state.setLegalModalTab(tab);
+          state.setShowLegalModal(true);
+        }}
+      />
+    </div>
+  );
+}
