@@ -2220,3 +2220,1330 @@ function useAppEngine() {
     }
   };
 }
+// ============================================================================
+// 10. VISUAL 3D CANVAS & TRAJECTORY ENGINES (LOCAL COMPONENTS)
+// ============================================================================
+interface Interactive3DBoxProps {
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) => {
+  const [rotX, setRotX] = useState(-20);
+  const [rotY, setRotY] = useState(35);
+  const [isDragging, setIsDragging] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const safeL = Number(length) > 0 ? Number(length) : 30;
+  const safeW = Number(width) > 0 ? Number(width) : 30;
+  const safeH = Number(height) > 0 ? Number(height) : 30;
+
+  useEffect(() => {
+    if (!autoRotate || isDragging) return;
+    const interval = setInterval(() => {
+      setRotY((prev) => (prev + 0.6) % 360);
+    }, 30);
+    return () => clearInterval(interval);
+  }, [autoRotate, isDragging]);
+
+  const maxDim = Math.max(safeL, safeW, safeH, 20);
+  const scale = 110 / maxDim;
+  const l = Math.max(45, Math.min(150, safeL * scale));
+  const w = Math.max(45, Math.min(150, safeW * scale));
+  const h = Math.max(45, Math.min(150, safeH * scale));
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setAutoRotate(false);
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    setRotY((prev) => prev + dx * 0.7);
+    setRotX((prev) => Math.max(-75, Math.min(75, prev - dy * 0.7)));
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  return (
+    <div className="flex flex-col items-center select-none bg-gradient-to-b from-slate-900/80 to-slate-950 p-4 rounded-2xl border border-slate-700/60 shadow-xl backdrop-blur-md w-full">
+      <div className="flex items-center justify-between w-full mb-2">
+        <span className="text-[10px] uppercase font-black tracking-wider text-indigo-300 flex items-center space-x-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1"></span>
+          Live 3D Carton Visualizer
+        </span>
+        <button
+          type="button"
+          onClick={() => setAutoRotate(!autoRotate)}
+          className="text-[10px] font-bold text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 transition"
+        >
+          {autoRotate ? "Pause 360°" : "Auto 360°"}
+        </button>
+      </div>
+
+      <div
+        className="w-48 h-44 flex items-center justify-center cursor-grab active:cursor-grabbing"
+        style={{ perspective: "800px" }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <div
+          className="relative transition-transform duration-75"
+          style={{
+            width: `${l}px`,
+            height: `${h}px`,
+            transformStyle: "preserve-3d",
+            transform: `rotateX(${rotX}deg) rotateY(${rotY}deg)`
+          }}
+        >
+          {/* Front Face */}
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-amber-700 via-amber-600 to-amber-800 border border-amber-900/60 shadow-inner flex flex-col justify-between p-2 text-white overflow-hidden rounded-sm"
+            style={{ transform: `translateZ(${w / 2}px)` }}
+          >
+            <div className="flex justify-between items-start opacity-90">
+              <span className="text-[8px] font-black uppercase tracking-widest text-amber-950 bg-amber-400 px-1 py-0.5 rounded-sm">
+                FRAGILE
+              </span>
+              <span className="text-[7px] font-mono text-amber-200">↑ THIS SIDE UP</span>
+            </div>
+            <div className="flex flex-col items-center my-auto">
+              <div className="w-12 h-3.5 bg-white/90 rounded-sm flex items-center justify-center space-x-0.5 px-1 py-0.5 shadow-sm">
+                {[1, 2, 1, 3, 1, 2, 1, 2, 1, 3, 1].map((n, i) => (
+                  <div key={i} className="bg-black h-full" style={{ width: `${n}px` }} />
+                ))}
+              </div>
+              <span className="text-[7px] font-mono font-black text-amber-100 tracking-wider mt-0.5">
+                {safeL}×{safeW}×{safeH} CM
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-amber-950/60 rounded-sm"></div>
+          </div>
+
+          {/* Back Face */}
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-amber-800 to-amber-900 border border-amber-950 flex items-center justify-center text-amber-300 font-mono text-[8px] font-bold"
+            style={{ transform: `rotateY(180deg) translateZ(${w / 2}px)` }}
+          >
+            <span>LOGICOMPARE B2B</span>
+          </div>
+
+          {/* Left Face */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-800 via-amber-700 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
+            style={{
+              width: `${w}px`,
+              height: `${h}px`,
+              left: `${(l - w) / 2}px`,
+              transform: `rotateY(-90deg) translateZ(${l / 2}px)`
+            }}
+          >
+            <span className="text-[7px] font-bold rotate-90 opacity-75">WIDTH: {safeW}cm</span>
+          </div>
+
+          {/* Right Face */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-700 via-amber-800 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
+            style={{
+              width: `${w}px`,
+              height: `${h}px`,
+              left: `${(l - w) / 2}px`,
+              transform: `rotateY(90deg) translateZ(${l / 2}px)`
+            }}
+          >
+            <span className="text-[7px] font-bold -rotate-90 opacity-75">HT: {safeH}cm</span>
+          </div>
+
+          {/* Top Face */}
+          <div
+            className="absolute bg-gradient-to-br from-amber-600 via-amber-500 to-amber-700 border border-amber-900 flex items-center justify-center overflow-hidden"
+            style={{
+              width: `${l}px`,
+              height: `${w}px`,
+              top: `${(h - w) / 2}px`,
+              transform: `rotateX(90deg) translateZ(${h / 2}px)`
+            }}
+          >
+            <div className="w-full h-3 bg-amber-400/50 shadow-inner flex items-center justify-center">
+              <span className="text-[6px] font-black text-amber-950 tracking-widest uppercase">HEAVY DUTY SEAL</span>
+            </div>
+          </div>
+
+          {/* Bottom Face */}
+          <div
+            className="absolute bg-amber-950 shadow-2xl"
+            style={{
+              width: `${l}px`,
+              height: `${w}px`,
+              top: `${(h - w) / 2}px`,
+              transform: `rotateX(-90deg) translateZ(${h / 2}px)`
+            }}
+          />
+        </div>
+      </div>
+      <span className="text-[9px] text-slate-400 mt-1 font-mono">Drag with mouse to rotate 360°</span>
+    </div>
+  );
+};
+
+interface RouteTrajectory3DProps {
+  originHub: string;
+  destHub: string;
+}
+
+const RouteTrajectory3D: FC<RouteTrajectory3DProps> = ({ originHub, destHub }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let progress = 0;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = canvas.width;
+      const h = canvas.height;
+
+      const p1 = { x: 45, y: h - 35 };
+      const p2 = { x: w - 45, y: h - 35 };
+      const cp = { x: w / 2, y: 15 };
+
+      ctx.save();
+      ctx.fillStyle = "rgba(99, 102, 241, 0.05)";
+      ctx.beginPath();
+      ctx.ellipse(w / 2, h - 30, w / 2 - 20, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.4)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+      ctx.stroke();
+      ctx.restore();
+
+      progress = (progress + 0.008) % 1;
+      const t = progress;
+      const bx = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * cp.x + t * t * p2.x;
+      const by = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * cp.y + t * t * p2.y;
+
+      ctx.save();
+      const glow = ctx.createRadialGradient(bx, by, 1, bx, by, 12);
+      glow.addColorStop(0, "rgba(52, 211, 153, 1)");
+      glow.addColorStop(0.6, "rgba(52, 211, 153, 0.4)");
+      glow.addColorStop(1, "rgba(52, 211, 153, 0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(bx, by, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.fillStyle = "#6366f1";
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.6)";
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#10b981";
+      ctx.beginPath();
+      ctx.arc(p2.x, p2.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.6)";
+      ctx.beginPath();
+      ctx.arc(p2.x, p2.y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [originHub, destHub]);
+
+  return (
+    <div className="relative bg-slate-900/80 p-3 rounded-2xl border border-slate-700/60 text-white flex flex-col items-center w-full shadow-md">
+      <div className="flex justify-between items-center w-full text-[10px] font-mono mb-1">
+        <span className="text-indigo-300 font-black">📍 {originHub || "DEL-ORIGIN"}</span>
+        <span className="text-emerald-300 font-black">🎯 {destHub || "BOM-DEST"}</span>
+      </div>
+      <canvas ref={canvasRef} width={300} height={90} className="w-full max-w-[300px] h-[90px]" />
+      <span className="text-[9px] text-slate-400 font-mono mt-0.5">3D Parabolic Linehaul Trajectory Active</span>
+    </div>
+  );
+};
+
+// ============================================================================
+// 11. DYNAMIC ORIGIN ADDRESS PROFILE MANAGER (SHIPPER WORKSPACE)
+// ============================================================================
+interface ShipperAddressSectionProps {
+  addresses: AddressProfile[];
+  activeAddress: AddressProfile;
+  onSelectAddress: (address: AddressProfile) => void;
+  onAddNewAddress: () => void;
+  onEditAddress: (address: AddressProfile) => void;
+}
+
+const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
+  addresses,
+  activeAddress,
+  onSelectAddress,
+  onAddNewAddress,
+  onEditAddress
+}) => {
+  return (
+    <div className="space-y-4 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+        <div>
+          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+            <BuildingOfficeIcon className="w-5 h-5 text-indigo-600" />
+            <span>Pickup Warehouse & Origin Addresses</span>
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Manage dynamic dispatch facilities across India. Eliminates hardcoded addresses.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onAddNewAddress}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
+        >
+          <PlusIcon className="w-4 h-4" />
+          <span>Add Warehouse Facility</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {addresses.map((addr) => {
+          const isActive = activeAddress.id === addr.id;
+          return (
+            <div
+              key={addr.id}
+              onClick={() => onSelectAddress(addr)}
+              className={`p-4 rounded-xl border-2 cursor-pointer transition relative flex flex-col justify-between ${
+                isActive
+                  ? "bg-indigo-50/70 border-indigo-600 ring-2 ring-indigo-200 shadow-sm"
+                  : "bg-white border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-black text-xs text-slate-900">{addr.label}</span>
+                  {addr.is_default && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                      Default Origin
+                    </span>
+                  )}
+                </div>
+                <strong className="block text-xs text-slate-800">{addr.company_name}</strong>
+                <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                  {addr.address_line1}
+                  {addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                </p>
+                <p className="text-[11px] font-bold text-slate-800 mt-0.5">
+                  {addr.city}, {addr.state} - <span className="font-mono text-indigo-700">{addr.pincode}</span>
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                  Contact: {addr.contact_name} ({addr.phone})
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-xs">
+                <span className={`text-[10px] font-bold ${isActive ? "text-indigo-700" : "text-slate-400"}`}>
+                  {isActive ? "✓ Selected for Dispatches" : "Click to select"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditAddress(addr);
+                  }}
+                  className="text-slate-600 hover:text-indigo-600 font-bold text-[11px] underline"
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 12. SHIPPER SINGLE RATE CALCULATOR (STRICT OPTIONAL DIMENSIONS)
+// ============================================================================
+interface ShipperSingleCalculatorSectionProps {
+  highVolumeMode: boolean;
+  activeOriginAddress: AddressProfile;
+  onChangeAddressTrigger: () => void;
+  originPin: string;
+  setOriginPin: (val: string) => void;
+  destPin: string;
+  setDestPin: (val: string) => void;
+  declaredValue: number;
+  setDeclaredValue: (val: number) => void;
+  selectedMode: "all" | "surface" | "air" | "ftl";
+  setSelectedMode: (val: "all" | "surface" | "air" | "ftl") => void;
+  isOda: boolean;
+  setIsOda: (val: boolean) => void;
+  boxes: BoxItem[];
+  setBoxes: React.Dispatch<React.SetStateAction<BoxItem[]>>;
+  selectedBoxFor3D: number;
+  setSelectedBoxFor3D: (idx: number) => void;
+  originZoneData: PinLookupResult;
+  destZoneData: PinLookupResult;
+  calculatedQuotes: CalculatedQuote[];
+  onOpenCityModal: (target: "origin" | "dest") => void;
+  onSelectQuoteForBooking: (q: CalculatedQuote) => void;
+}
+
+const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = ({
+  highVolumeMode,
+  activeOriginAddress,
+  onChangeAddressTrigger,
+  originPin,
+  setOriginPin,
+  destPin,
+  setDestPin,
+  declaredValue,
+  setDeclaredValue,
+  selectedMode,
+  setSelectedMode,
+  isOda,
+  setIsOda,
+  boxes,
+  setBoxes,
+  selectedBoxFor3D,
+  setSelectedBoxFor3D,
+  originZoneData,
+  destZoneData,
+  calculatedQuotes,
+  onOpenCityModal,
+  onSelectQuoteForBooking
+}) => {
+  const hasDimensions = useMemo(() => {
+    return boxes.some((b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0);
+  }, [boxes]);
+
+  const totalActualWeight = useMemo(() => {
+    return boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0);
+  }, [boxes]);
+
+  const totalVolumetricWeight = useMemo(() => {
+    if (!hasDimensions) return 0;
+    const divisor = selectedMode === "air" ? 5000 : 4500;
+    return boxes.reduce((acc, b) => {
+      if (!b.length || !b.width || !b.height || Number(b.length) <= 0 || Number(b.width) <= 0 || Number(b.height) <= 0) return acc;
+      const volKg = ((Number(b.length)) * (Number(b.width)) * (Number(b.height))) / divisor;
+      return acc + volKg * (Number(b.qty) || 1);
+    }, 0);
+  }, [boxes, selectedMode, hasDimensions]);
+
+  const billableWeight = useMemo(() => {
+    if (!hasDimensions) return totalActualWeight;
+    return Math.max(totalActualWeight, Math.round(totalVolumetricWeight * 10) / 10);
+  }, [totalActualWeight, totalVolumetricWeight, hasDimensions]);
+
+  const addBox = () => {
+    setBoxes([...boxes, { id: `box-${Date.now()}`, qty: 1, weight: 10, length: null, width: null, height: null }]);
+  };
+
+  const removeBox = (id: string) => {
+    if (boxes.length <= 1) return;
+    setBoxes(boxes.filter((b) => b.id !== id));
+  };
+
+  const updateBox = (id: string, field: keyof BoxItem, value: any) => {
+    setBoxes(boxes.map((b) => (b.id === id ? { ...b, [field]: value === "" ? null : Number(value) } : b)));
+  };
+
+  const currentBox3D = boxes[selectedBoxFor3D] || boxes[0];
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Dynamic Origin Facility Banner */}
+      <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center space-x-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Active Dispatch Facility:</span>
+            <span className="font-black text-sm text-white">{activeOriginAddress.label}</span>
+          </div>
+          <p className="text-xs text-slate-300 font-medium">
+            {activeOriginAddress.address_line1}, {activeOriginAddress.city} - <span className="font-mono font-bold text-emerald-400">{activeOriginAddress.pincode}</span>
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onChangeAddressTrigger}
+          className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl text-xs shadow-sm transition"
+        >
+          Change Origin Facility
+        </button>
+      </div>
+
+      {/* 2. Parameters Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Origin Pincode */}
+        <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-black text-indigo-950 uppercase tracking-wider">Origin PIN</label>
+            <button
+              type="button"
+              onClick={() => onOpenCityModal("origin")}
+              className="text-[11px] text-indigo-700 hover:underline font-bold flex items-center space-x-1"
+            >
+              <MapPinIcon className="w-3.5 h-3.5" />
+              <span>Lookup</span>
+            </button>
+          </div>
+          <input
+            type="text"
+            maxLength={6}
+            value={originPin}
+            onChange={(e) => setOriginPin(e.target.value)}
+            className="w-full bg-white border-2 border-indigo-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
+          />
+          <div className="mt-2 text-[11px] font-bold text-indigo-800 truncate">
+            📍 {originZoneData.loading ? "Checking..." : `${originZoneData.city} (${originZoneData.hub})`}
+          </div>
+        </div>
+
+        {/* Destination Pincode */}
+        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-black text-emerald-950 uppercase tracking-wider">Destination PIN</label>
+            <button
+              type="button"
+              onClick={() => onOpenCityModal("dest")}
+              className="text-[11px] text-emerald-700 hover:underline font-bold flex items-center space-x-1"
+            >
+              <MapPinIcon className="w-3.5 h-3.5" />
+              <span>Lookup</span>
+            </button>
+          </div>
+          <input
+            type="text"
+            maxLength={6}
+            value={destPin}
+            onChange={(e) => setDestPin(e.target.value)}
+            placeholder="e.g. 400001"
+            className="w-full bg-white border-2 border-emerald-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
+          />
+          <div className="mt-2 text-[11px] font-bold text-emerald-800 truncate">
+            🎯 {destZoneData.loading ? "Checking..." : `${destZoneData.city} (${destZoneData.hub})`}
+          </div>
+        </div>
+
+        {/* Declared Value (FOV) */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <label className="block text-xs font-black text-slate-800 uppercase tracking-wider mb-1">
+            Declared Value (₹) FOV
+          </label>
+          <input
+            type="number"
+            value={declaredValue}
+            onChange={(e) => setDeclaredValue(Number(e.target.value))}
+            className="w-full bg-white border-2 border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
+          />
+          <p className="text-[11px] text-slate-500 mt-2 font-medium">0.20% FOV cargo risk coverage</p>
+        </div>
+
+        {/* Mode & ODA */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between">
+          <div>
+            <label className="block text-xs font-black text-slate-800 uppercase tracking-wider mb-1">
+              Transport Mode
+            </label>
+            <select
+              value={selectedMode}
+              onChange={(e) => setSelectedMode(e.target.value as any)}
+              className="w-full bg-white border-2 border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:outline-none"
+            >
+              <option value="all">All Modes (Air, Surface, FTL)</option>
+              <option value="surface">Surface Express Only</option>
+              <option value="air">Air Cargo Only</option>
+              <option value="ftl">Full Truck Load (FTL)</option>
+            </select>
+          </div>
+
+          <label className="flex items-center space-x-2 mt-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={isOda}
+              onChange={(e) => setIsOda(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-600 border-slate-300"
+            />
+            <span className="text-xs text-slate-800 font-bold">Out of Delivery Area (+₹450)</span>
+          </label>
+        </div>
+      </div>
+
+      {/* 3. Trajectory Canvas (Bypassed if highVolumeMode is active) */}
+      {!highVolumeMode && (
+        <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+          <RouteTrajectory3D originHub={originZoneData.hub} destHub={destZoneData.hub} />
+        </div>
+      )}
+
+      {/* 4. Multi-Box Carton Specifications with Optional Dimensions */}
+      <div className="border border-slate-200 rounded-2xl p-5 bg-slate-50/70 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+              Carton Specs ({boxes.length} Box Type{boxes.length > 1 ? "s" : ""})
+            </span>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Dimensions are strictly optional. Dead weight alone is used to calculate freight if blank.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addBox}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-black flex items-center space-x-1"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span>Add Another Carton</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+          <div className={highVolumeMode ? "lg:col-span-12 space-y-2.5" : "lg:col-span-8 space-y-2.5"}>
+            {boxes.map((box, idx) => (
+              <div
+                key={box.id}
+                onClick={() => setSelectedBoxFor3D(idx)}
+                className={`grid grid-cols-2 sm:grid-cols-6 gap-2.5 p-3.5 rounded-xl border-2 items-center text-xs shadow-xs cursor-pointer transition ${
+                  selectedBoxFor3D === idx
+                    ? "bg-indigo-50/80 border-indigo-400 ring-2 ring-indigo-200"
+                    : "bg-white border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Box #{idx + 1} Qty</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={box.qty}
+                    onChange={(e) => updateBox(box.id, "qty", Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Weight (Kg/box) *</span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.5}
+                    value={box.weight}
+                    onChange={(e) => updateBox(box.id, "weight", parseFloat(e.target.value) || 0)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Length (cm)</span>
+                  <input
+                    type="number"
+                    placeholder="Optional"
+                    value={box.length ?? ""}
+                    onChange={(e) => updateBox(box.id, "length", e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Width (cm)</span>
+                  <input
+                    type="number"
+                    placeholder="Optional"
+                    value={box.width ?? ""}
+                    onChange={(e) => updateBox(box.id, "width", e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Height (cm)</span>
+                  <input
+                    type="number"
+                    placeholder="Optional"
+                    value={box.height ?? ""}
+                    onChange={(e) => updateBox(box.id, "height", e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end space-x-2 pt-2 sm:pt-0">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {box.length && box.width && box.height
+                      ? `${(((box.length * box.width * box.height) / (selectedMode === "air" ? 5000 : 4500)) * box.qty).toFixed(1)}kg vol`
+                      : "Dead wt"}
+                  </span>
+                  {boxes.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeBox(box.id);
+                      }}
+                      className="text-rose-500 hover:text-rose-700 p-1"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!highVolumeMode && (
+            <div className="lg:col-span-4 flex justify-center">
+              <Interactive3DBox
+                length={currentBox3D.length}
+                width={currentBox3D.width}
+                height={currentBox3D.height}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Calculation Summary Ribbon */}
+        <div className="flex flex-wrap items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-xs">
+          <div className="flex flex-wrap gap-6 font-medium">
+            <div>
+              <span className="text-slate-500">Dead Actual Weight: </span>
+              <span className="font-mono font-black text-slate-900">{totalActualWeight.toFixed(1)} kg</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Volumetric Weight: </span>
+              <span className="font-mono font-black text-indigo-700">
+                {hasDimensions ? `${totalVolumetricWeight.toFixed(1)} kg` : "Omitted (0 kg)"}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">Billable Chargeable: </span>
+              <span className="font-mono font-black text-emerald-700 text-sm">{billableWeight.toFixed(1)} kg</span>
+            </div>
+          </div>
+          {!hasDimensions && (
+            <span className="text-[11px] bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold">
+              Dead Weight Applied
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 5. Real-Time Rate Matrix Cards */}
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-black text-slate-900">Direct Carrier Freight Rate Matrix</h3>
+          <span className="text-xs bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1 rounded-full font-black">
+            {calculatedQuotes.length} Verified Tariffs Found
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          {calculatedQuotes.map((quote) => (
+            <div
+              key={quote.rateCard.id}
+              className="bg-white border-2 border-slate-200 hover:border-indigo-500 rounded-2xl p-5 shadow-sm hover:shadow-md transition"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-base font-black text-slate-900">{quote.vendor.name}</span>
+                    <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+                      {quote.vendor.badge}
+                    </span>
+                    <span className="text-amber-500 text-xs font-black">★ {quote.vendor.rating}</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 font-medium">
+                    <span className="flex items-center space-x-1 capitalize text-slate-900 font-bold">
+                      {quote.rateCard.mode === "air" ? (
+                        <PlaneIcon className="w-4 h-4 text-sky-600" />
+                      ) : (
+                        <TruckIcon className="w-4 h-4 text-emerald-600" />
+                      )}
+                      <span>{quote.rateCard.mode} Linehaul</span>
+                    </span>
+                    <span>•</span>
+                    <span>Transit SLA: <strong className="text-slate-900">{quote.rateCard.sla_days} Days</strong></span>
+                    <span>•</span>
+                    <span>Billable Wt: <strong className="text-slate-900">{quote.billableWeight} kg</strong></span>
+                    <span>•</span>
+                    <span className="font-mono text-emerald-800 font-bold">Direct UPI: {quote.vendor.upi_id}</span>
+                  </div>
+                </div>
+
+                {/* Line Item Fee Breakdown Matrix */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-5 gap-3 text-center sm:text-left">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block">Base Freight</span>
+                    <span className="font-bold text-slate-900">{formatINR(quote.breakdown.base)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block">Fuel Surcharge</span>
+                    <span className="font-bold text-slate-900">{formatINR(quote.breakdown.fuel)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block">Docket + FOV</span>
+                    <span className="font-bold text-slate-900">{formatINR(quote.breakdown.docket + quote.breakdown.fov)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block">GST (18%)</span>
+                    <span className="font-bold text-slate-900">{formatINR(quote.breakdown.gst)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-indigo-700 font-bold block">Platform Fee (2%)</span>
+                    <span className="font-black text-indigo-700">₹{quote.breakdown.platformConvenienceFee}</span>
+                  </div>
+                </div>
+
+                {/* Direct Action */}
+                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0">
+                  <div className="text-left sm:text-right">
+                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Total Consignment Cost</span>
+                    <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSelectQuoteForBooking(quote)}
+                    className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2.5 rounded-xl transition flex items-center space-x-1.5 shadow-sm"
+                  >
+                    <span>Direct Book Consignment</span>
+                    <ArrowRightIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 13. SHIPPER BULK CSV DISPATCH MATRIX (50/DAY)
+// ============================================================================
+interface ShipperBulkCsvSectionProps {
+  highVolumeMode: boolean;
+  activeOriginAddress: AddressProfile;
+  bulkManifestList: BulkManifestRow[];
+  setBulkManifestList: React.Dispatch<React.SetStateAction<BulkManifestRow[]>>;
+  onAutoSelectCheapest: () => void;
+  onAutoSelectFastest: () => void;
+  onSelectCarrierForRow: (rowId: string, vendorId: string) => void;
+  bulkSettlementMethod: "direct_to_pay" | "direct_upi" | "corporate_credit";
+  setBulkSettlementMethod: (val: "direct_to_pay" | "direct_upi" | "corporate_credit") => void;
+  bulkConsolidatedUtr: string;
+  setBulkConsolidatedUtr: (val: string) => void;
+  onConfirmBatchBooking: () => Promise<void>;
+  isBatchProcessing: boolean;
+  handleBulkCsvUpload: (e: ChangeEvent<HTMLInputElement>) => void;
+  bulkCsvFileName: string;
+  bulkUploadError: string;
+}
+
+const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
+  activeOriginAddress,
+  bulkManifestList,
+  onAutoSelectCheapest,
+  onAutoSelectFastest,
+  onSelectCarrierForRow,
+  bulkSettlementMethod,
+  setBulkSettlementMethod,
+  bulkConsolidatedUtr,
+  setBulkConsolidatedUtr,
+  onConfirmBatchBooking,
+  isBatchProcessing,
+  handleBulkCsvUpload,
+  bulkCsvFileName,
+  bulkUploadError
+}) => {
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadBulkTemplate = () => {
+    const csvHeader = "dest_pin,consignee_name,consignee_phone,delivery_address,total_boxes,box_weights,box_dimensions,declared_value\n";
+    const sampleRows = [
+      "400001,Prime Retailers Mumbai,9820044556,Shop 4 Crawford Market Mumbai,2,18; 12,45x35x30; 30x25x20,45000",
+      "560001,Apex Tech Electronics,9845012345,7th Cross Electronic City Bengaluru,3,25; 10; 10,,65000",
+      "700001,East Coast Traders,9830098765,Strand Road Burrabazar Kolkata,1,30,50x50x40,30000",
+      "600001,South Goods Depot,9840011223,Parrys Corner George Town Chennai,2,15; 15,,25000",
+      "500001,Deccan Pharma Hub,9849033445,Abids Circle Hyderabad,4,10; 10; 10; 10,,95000"
+    ].join("\n");
+
+    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "logicompare_bulk_consignments_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Origin Dispatch Warehouse Lock Banner */}
+      <div className="bg-slate-950 text-white p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1.5">
+          <div className="flex items-center space-x-2.5">
+            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-black text-sm uppercase tracking-wide">Dynamic Dispatch Facility:</span>
+            <span className="font-mono bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2.5 py-0.5 rounded text-xs font-bold">
+              {activeOriginAddress.label} (PIN: {activeOriginAddress.pincode})
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 font-medium leading-relaxed">
+            {activeOriginAddress.address_line1}, {activeOriginAddress.city} - {activeOriginAddress.pincode}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleDownloadBulkTemplate}
+          className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-md shrink-0 transition"
+        >
+          <DownloadIcon className="w-4 h-4 text-indigo-600" />
+          <span>Download Template (.csv)</span>
+        </button>
+      </div>
+
+      {/* 2. Drag-and-Drop CSV Upload Area */}
+      <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-8 text-center space-y-4 shadow-sm hover:border-indigo-500 transition">
+        <input
+          type="file"
+          ref={bulkFileInputRef}
+          accept=".csv,text/csv"
+          onChange={handleBulkCsvUpload}
+          className="hidden"
+          id="bulk-csv-input"
+        />
+        <div className="max-w-lg mx-auto space-y-2.5">
+          <label
+            htmlFor="bulk-csv-input"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3 rounded-xl text-xs cursor-pointer inline-flex items-center space-x-2 shadow-md transition hover:scale-105"
+          >
+            <UploadIcon className="w-4 h-4" />
+            <span>{bulkCsvFileName ? `Replace File (${bulkCsvFileName})` : "Select Bulk Consignment CSV (40-50 Locations)"}</span>
+          </label>
+          <p className="text-xs text-slate-600 font-medium">
+            Dimensions column is optional. Supports semicolon weights (e.g. <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>).
+          </p>
+        </div>
+
+        {bulkUploadError && (
+          <div className="text-xs text-rose-800 bg-rose-50 border border-rose-300 p-3 rounded-xl font-bold max-w-lg mx-auto">
+            {bulkUploadError}
+          </div>
+        )}
+      </div>
+
+      {/* 3. Manifest Preview Table */}
+      {bulkManifestList.length > 0 && (
+        <div className="bg-white border border-slate-300 rounded-2xl shadow-md overflow-hidden space-y-5 p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-900 flex items-center space-x-2.5">
+                <span>Bulk Consignment Manifest</span>
+                <span className="bg-indigo-600 text-white text-xs px-3 py-0.5 rounded-full font-bold">
+                  {bulkManifestList.length} Destinations
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">Multi-carrier quotes calculated client-side with 0ms server latency.</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={onAutoSelectCheapest}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
+              >
+                <span>⚡ Auto-Select Lowest Price</span>
+              </button>
+              <button
+                type="button"
+                onClick={onAutoSelectFastest}
+                className="bg-sky-600 hover:bg-sky-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
+              >
+                <span>🚀 Auto-Select Fastest SLA</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-inner">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
+                <tr>
+                  <th className="py-3 px-3.5">#</th>
+                  <th className="py-3 px-3.5">Dest PIN / City</th>
+                  <th className="py-3 px-3.5">Consignee & Address</th>
+                  <th className="py-3 px-3.5">Packages</th>
+                  <th className="py-3 px-3.5">Billable Wt</th>
+                  <th className="py-3 px-3.5">Carrier</th>
+                  <th className="py-3 px-3.5">Freight</th>
+                  <th className="py-3 px-3.5">2% Fee</th>
+                  <th className="py-3 px-3.5 text-right">Total Outlay</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 font-medium">
+                {bulkManifestList.map((row, idx) => {
+                  const quote = row.selectedQuote || row.quotes[0];
+
+                  return (
+                    <tr
+                      key={row.rowId}
+                      className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/60 transition" : "bg-slate-50 hover:bg-indigo-50/60 transition"}
+                    >
+                      <td className="py-3 px-3.5 font-mono font-bold text-slate-500">{idx + 1}</td>
+                      <td className="py-3 px-3.5">
+                        <span className="font-mono font-black text-slate-900 block text-xs">{row.dest_pin}</span>
+                        <span className="text-[11px] text-slate-500 font-semibold">{getLocalFallbackZone(row.dest_pin).city}</span>
+                      </td>
+                      <td className="py-3 px-3.5">
+                        <span className="font-bold text-slate-900 block">{row.consignee_name}</span>
+                        <span className="text-[11px] text-slate-500 truncate max-w-[180px] block">{row.delivery_address}</span>
+                      </td>
+                      <td className="py-3 px-3.5">
+                        <span className="font-black text-indigo-700 block">{row.total_boxes} Box(es)</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {row.boxes.map((b) => `${b.weight}kg`).join(", ")}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3.5">
+                        <span className="font-black font-mono text-slate-900 block text-xs">{row.billableWeight} kg</span>
+                        {row.hasOmittedDimensions && (
+                          <span
+                            className="text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded font-black block mt-0.5"
+                            title="Dead weight applied since dimensions were not specified."
+                          >
+                            Dead Wt Applied
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3.5">
+                        <select
+                          value={quote?.vendor?.id || ""}
+                          onChange={(e) => onSelectCarrierForRow(row.rowId, e.target.value)}
+                          className="bg-white border-2 border-indigo-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                        >
+                          {row.quotes.map((q) => (
+                            <option key={q.vendor.id} value={q.vendor.id}>
+                              {q.vendor.name} ({q.rateCard.sla_days}d - {formatINR(q.breakdown.total)})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-3 px-3.5 font-mono font-bold text-slate-800">
+                        {formatINR(quote?.breakdown?.freightSubtotal || 0)}
+                      </td>
+                      <td className="py-3 px-3.5 font-mono text-indigo-700 font-bold">
+                        ₹{quote?.breakdown?.platformConvenienceFee || 25}
+                      </td>
+                      <td className="py-3 px-3.5 font-mono font-black text-right text-emerald-800 text-sm">
+                        {formatINR(quote?.breakdown?.total || 0)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 4. Single Consolidated Settlement Bar */}
+          <div className="bg-slate-950 text-white p-6 rounded-2xl shadow-md space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <span className="text-sm font-black uppercase text-indigo-400 block tracking-wide">
+                  Consolidated Settlement Method ({bulkManifestList.length} Shipments)
+                </span>
+                <p className="text-xs text-slate-400 mt-0.5">100% of freight is settled directly with transporters. Platform fee is 2% (min ₹25).</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "direct_to_pay" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
+                  <input
+                    type="radio"
+                    name="bulk_settlement"
+                    checked={bulkSettlementMethod === "direct_to_pay"}
+                    onChange={() => setBulkSettlementMethod("direct_to_pay")}
+                    className="hidden"
+                  />
+                  💵 To-Pay POD
+                </label>
+                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "direct_upi" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
+                  <input
+                    type="radio"
+                    name="bulk_settlement"
+                    checked={bulkSettlementMethod === "direct_upi"}
+                    onChange={() => setBulkSettlementMethod("direct_upi")}
+                    className="hidden"
+                  />
+                  📲 Direct Carrier UPI
+                </label>
+                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "corporate_credit" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
+                  <input
+                    type="radio"
+                    name="bulk_settlement"
+                    checked={bulkSettlementMethod === "corporate_credit"}
+                    onChange={() => setBulkSettlementMethod("corporate_credit")}
+                    className="hidden"
+                  />
+                  🏢 Monthly GST Credit
+                </label>
+              </div>
+            </div>
+
+            {bulkSettlementMethod === "direct_upi" && (
+              <div className="flex items-center space-x-3 text-xs bg-slate-900 p-3.5 rounded-xl border border-slate-800">
+                <label className="font-bold text-slate-300 shrink-0">Consolidated UTR Reference:</label>
+                <input
+                  type="text"
+                  value={bulkConsolidatedUtr}
+                  onChange={(e) => setBulkConsolidatedUtr(e.target.value)}
+                  placeholder="e.g. 409827104928"
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 font-mono text-white flex-1 max-w-sm focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+              <div className="text-xs">
+                <span className="text-slate-400">Total Manifest Outlay: </span>
+                <strong className="text-xl text-emerald-400 font-mono font-black ml-2">
+                  {formatINR(bulkManifestList.reduce((acc, r) => acc + (r.selectedQuote?.breakdown?.total || 0), 0))}
+                </strong>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  Includes Platform Fee: {formatINR(bulkManifestList.reduce((acc, r) => acc + (r.selectedQuote?.breakdown?.platformConvenienceFee || 25), 0))}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                disabled={isBatchProcessing}
+                onClick={onConfirmBatchBooking}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-7 py-3.5 rounded-xl text-xs transition shadow-lg flex items-center space-x-2 disabled:opacity-50"
+              >
+                <CheckCircleIcon className="w-5 h-5 text-slate-950" />
+                <span>{isBatchProcessing ? "Assigning Carrier Dockets..." : `Confirm & Book All ${bulkManifestList.length} Shipments`}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 14. SHIPPER ACTIVE SHIPMENTS & PRINT ALL LABELS ENGINE
+// ============================================================================
+interface ShipperShipmentsSectionProps {
+  bookings: Booking[];
+  onRefresh: () => void;
+  onOpenLabelModal: (b: Booking) => void;
+  onOpenTrackerTab: (orderRef: string) => void;
+  onBatchPrintLabels: () => void;
+}
+
+const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({
+  bookings,
+  onRefresh,
+  onOpenLabelModal,
+  onOpenTrackerTab,
+  onBatchPrintLabels
+}) => {
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Consignment Manifests & Thermal Printing</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Internal Order IDs, synced carrier dockets, printable 4x6 labels, and deep-links to carrier tracking portals
+          </p>
+        </div>
+
+        <div className="flex items-center space-x-2.5">
+          {bookings.length > 0 && (
+            <button
+              type="button"
+              onClick={onBatchPrintLabels}
+              className="bg-slate-950 hover:bg-slate-800 text-white font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-sm transition"
+            >
+              <PrinterIcon className="w-4 h-4 text-emerald-400" />
+              <span>🖨️ Print All 4x6 Labels & Manifest</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="bg-white hover:bg-slate-100 text-slate-800 px-4 py-2.5 rounded-xl text-xs font-black border border-slate-300 shadow-sm transition"
+          >
+            🔄 Refresh List
+          </button>
+        </div>
+      </div>
+
+      {/* Grid */}
+      {bookings.length === 0 ? (
+        <div className="bg-white border border-slate-300 rounded-2xl p-12 text-center shadow-sm space-y-2">
+          <p className="text-slate-800 font-bold text-sm">No shipments booked yet.</p>
+          <p className="text-slate-500 text-xs">
+            Calculate freight tariffs or upload a bulk CSV to dispatch your first consignment!
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-left text-xs text-slate-700">
+            <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
+              <tr>
+                <th className="py-3.5 px-4">Order Ref / Carrier Docket</th>
+                <th className="py-3.5 px-4">Carrier Partner</th>
+                <th className="py-3.5 px-4">Route PIN</th>
+                <th className="py-3.5 px-4">Freight (Direct)</th>
+                <th className="py-3.5 px-4">Physical Bilty</th>
+                <th className="py-3.5 px-4">Status</th>
+                <th className="py-3.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {bookings.map((booking, idx) => {
+                const carrierName = booking.vendors?.name || "Carrier Partner";
+                const docketNo = booking.carrier_docket_no || booking.awb_number;
+                const orderRef = booking.order_id || booking.id.slice(0, 8);
+                const portalUrl = booking.carrier_portal_url || getOfficialCarrierTrackingUrl(carrierName, docketNo);
+
+                return (
+                  <tr
+                    key={booking.id}
+                    className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/60 transition" : "bg-slate-50 hover:bg-indigo-50/60 transition"}
+                  >
+                    <td className="py-3.5 px-4">
+                      <span className="font-mono font-black text-indigo-700 block text-xs">{orderRef}</span>
+                      <span className="font-mono text-[11px] text-slate-600 block mt-0.5">
+                        Docket: <strong className="text-slate-900">{docketNo}</strong>
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <span className="font-black text-slate-900 block">{carrierName}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">{booking.consignee_name}</span>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center space-x-1 font-mono font-bold text-slate-900">
+                        <span>{booking.origin_pin}</span>
+                        <span className="text-slate-400">→</span>
+                        <span>{booking.dest_pin}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 block">
+                        {booking.boxes?.length || 1} Box(es) • {booking.billable_weight} kg
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 font-mono font-black text-slate-900 text-sm">
+                      {formatINR(booking.cost_breakdown?.freightSubtotal || booking.final_total)}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      {booking.carrier_docket_doc_url ? (
+                        <a
+                          href={booking.carrier_docket_doc_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 underline text-[11px]"
+                        >
+                          <DocumentIcon className="w-3.5 h-3.5" />
+                          <span>View Bilty Scan</span>
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 text-[10px] font-semibold bg-slate-100 px-2 py-0.5 rounded">
+                          Pending Upload
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                          booking.status === "Delivered"
+                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                            : booking.status === "In Transit"
+                            ? "bg-sky-100 text-sky-800 border-sky-300"
+                            : booking.status === "Picked Up"
+                            ? "bg-amber-100 text-amber-800 border-amber-300"
+                            : "bg-slate-100 text-slate-700 border-slate-300"
+                        }`}
+                      >
+                        {booking.status}
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right space-x-2">
+                      <a
+                        href={portalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
+                        title="Open Official Carrier Live Portal"
+                      >
+                        <span>Carrier Site</span>
+                        <ExternalLinkIcon className="w-3 h-3" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => onOpenLabelModal(booking)}
+                        className="bg-white hover:bg-slate-100 text-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 inline-flex items-center space-x-1 shadow-xs transition"
+                      >
+                        <PrinterIcon className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Label</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTrackerTab(orderRef)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
+                      >
+                        <span>Track</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
