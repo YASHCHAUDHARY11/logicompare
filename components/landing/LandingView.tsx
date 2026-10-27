@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from "react";
@@ -13,8 +12,10 @@ import {
   PrinterIcon,
   CreditCardIcon,
   ChevronDownIcon,
-  SearchIcon
+  SearchIcon,
+  UploadIcon
 } from "@/components/icons";
+import { DEMO_INIT_ORDER_ID, DEMO_INIT_CARRIER_DOCKET } from "@/lib/constants";
 
 interface LandingViewProps {
   highVolumeMode: boolean;
@@ -24,6 +25,7 @@ interface LandingViewProps {
   onQuickTrack: (val?: string) => void;
   onJumpToCompare: () => void;
   onJumpToBulk: () => void;
+  onSwitchShipperDemo: () => void;
   onSwitchCarrierDemo: () => void;
 }
 
@@ -35,15 +37,18 @@ export function LandingView({
   onQuickTrack,
   onJumpToCompare,
   onJumpToBulk,
+  onSwitchShipperDemo,
   onSwitchCarrierDemo
 }: LandingViewProps) {
   const [workflowTab, setWorkflowTab] = useState<"shipper" | "vendor">("shipper");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   return (
-    <div className="flex-1 flex flex-col space-y-16 pb-12">
-      {/* SECTION 1: CINEMATIC HERO */}
-      <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-20 px-4 lg:px-8 border-b border-slate-800">
+    <div className="flex-1 flex flex-col space-y-16 pb-16">
+      {/* ============================================================== */}
+      {/* SECTION 1: CINEMATIC 3D HERO SECTION */}
+      {/* ============================================================== */}
+      <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out"
           style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
@@ -66,29 +71,30 @@ export function LandingView({
             </h1>
 
             <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-              Seamlessly manage internal order manifests while dispatching cargo with official carrier dockets (Delhivery, Blue Dart, Safexpress, Gati, TCI) and deep-linking to live tracking portals.
+              Seamlessly manage internal order manifests (`LC-XXXXXX`) while dispatching cargo with official carrier dockets (Delhivery, Blue Dart, Safexpress, Gati, TCI) and deep-linking to live tracking portals.
             </p>
 
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
               <button
                 onClick={onJumpToBulk}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
               >
-                <BoxIcon className="w-5 h-5" />
+                <UploadIcon className="w-5 h-5" />
                 <span>Launch 50/Day Bulk Shipper Console</span>
               </button>
               <button
                 onClick={onJumpToCompare}
-                className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
               >
+                <BoxIcon className="w-5 h-5 text-indigo-400" />
                 <span>Single Calculator</span>
               </button>
               <button
                 onClick={onSwitchCarrierDemo}
-                className="bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
               >
                 <TruckIcon className="w-5 h-5 text-emerald-400" />
-                <span>Join as Carrier</span>
+                <span>Join as Carrier (Demo)</span>
               </button>
             </div>
           </div>
@@ -97,9 +103,9 @@ export function LandingView({
             {!highVolumeMode ? (
               <Hero3DTruck />
             ) : (
-              <div className="bg-slate-900/90 border border-indigo-500/30 p-8 rounded-3xl text-center space-y-3">
-                <span className="text-4xl">⚡</span>
-                <h3 className="text-white font-bold text-base">High-Volume Mode Active</h3>
+              <div className="bg-slate-900/90 border border-indigo-500/30 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
+                <span className="text-5xl">⚡</span>
+                <h3 className="text-white font-black text-lg">60FPS High-Volume Mode Active</h3>
                 <p className="text-xs text-slate-400 max-w-xs mx-auto">
                   3D canvas paused to eliminate GPU overhead for 50+ consignments/day dispatchers.
                 </p>
@@ -108,11 +114,11 @@ export function LandingView({
           </div>
         </div>
 
-        <div className="pt-8 max-w-xl mx-auto relative z-10">
-          <div className="bg-white/10 backdrop-blur-md p-2 sm:p-2.5 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
-            <div className="flex items-center space-x-2 px-3 py-1 text-slate-300 w-full sm:w-auto">
+        {/* Quick Track Input with Universal Lookup Chips */}
+        <div className="pt-10 max-w-xl mx-auto relative z-10">
+          <div className="bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
+            <div className="flex items-center space-x-2 px-3 py-1.5 text-slate-300 w-full sm:w-auto flex-1">
               <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span className="text-xs font-semibold text-slate-400 shrink-0">Track Order/Docket:</span>
               <input
                 type="text"
                 value={landingTrackingInput}
@@ -123,59 +129,79 @@ export function LandingView({
             </div>
             <button
               onClick={() => onQuickTrack()}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl transition shadow-md shrink-0"
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-3 rounded-xl transition shadow-md shrink-0"
             >
               Track Shipment
+            </button>
+          </div>
+          <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3 font-medium">
+            <span>Universal Lookup Demos:</span>
+            <button
+              onClick={() => onQuickTrack(DEMO_INIT_ORDER_ID)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Ref: {DEMO_INIT_ORDER_ID}
+            </button>
+            <span>•</span>
+            <button
+              onClick={() => onQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Docket: {DEMO_INIT_CARRIER_DOCKET}
             </button>
           </div>
         </div>
       </section>
 
+      {/* ============================================================== */}
       {/* SECTION 2: TRUST METRICS & CARRIER STRIP */}
+      {/* ============================================================== */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
-          <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-indigo-600">5+</span>
-            <p className="text-xs font-bold text-slate-800 mt-1">Verified National Carriers</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Carriers</p>
             <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
           </div>
-          <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-emerald-600">19,000+</span>
-            <p className="text-xs font-bold text-slate-800 mt-1">Serviceable PIN Codes</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Serviceable PIN Codes</p>
             <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
           </div>
-          <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-slate-900">100%</span>
-            <p className="text-xs font-bold text-slate-800 mt-1">Direct Shipper-to-Carrier</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Direct Shipper-to-Carrier</p>
             <p className="text-[11px] text-slate-500">To-Pay / Direct UPI settlement</p>
           </div>
-          <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-slate-200/80 text-center shadow-xs">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-amber-500">2%</span>
-            <p className="text-xs font-bold text-slate-800 mt-1">Transparent Platform Fee</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Transparent Platform Fee</p>
             <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
           </div>
         </div>
 
         <div className="pt-8 text-center space-y-4">
-          <span className="text-xs uppercase font-bold text-slate-500 tracking-widest block">
+          <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">
             Official Multi-Carrier Logistics Integration & Tracking
           </span>
           <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1">
             {vendors.map((v) => (
-              <div key={v.id} className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-2xs">
+              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-xs hover:border-indigo-400 transition">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                <span className="font-extrabold text-xs text-slate-800">{v.name}</span>
-                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+                <span className="font-extrabold text-xs text-slate-900">{v.name}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* ============================================================== */}
       {/* SECTION 3: INTERACTIVE "HOW IT WORKS" WORKFLOW */}
+      {/* ============================================================== */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
         <div className="text-center space-y-2">
-          <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
             Interactive Operational Workflow
           </span>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
@@ -183,19 +209,19 @@ export function LandingView({
             Consolidating platform transparency with real-world carrier waybill standards.
           </p>
 
-          <div className="inline-flex p-1 bg-slate-200/70 rounded-xl mt-4">
+          <div className="inline-flex p-1.5 bg-slate-200 rounded-2xl mt-4 shadow-inner">
             <button
               onClick={() => setWorkflowTab("shipper")}
-              className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
-                workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600"
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               📦 For Shippers & Businesses
             </button>
             <button
               onClick={() => setWorkflowTab("vendor")}
-              className={`px-5 py-2 rounded-lg text-xs font-bold transition ${
-                workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600"
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               🚛 For Logistics Vendors & Carriers
@@ -205,54 +231,59 @@ export function LandingView({
 
         {workflowTab === "shipper" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">1</span>
-              <h3 className="font-bold text-slate-900 text-sm">Bulk CSV or Single PIN</h3>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">1</span>
+              <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Enter single PINs or drop a 50-location CSV with multi-box weights (e.g. 25; 10; 10) and optional dimensions.
+                Enter origin and destination PINs with live India Post city lookup. Add multiple cartons with weight and (L x W x H cm) dimensions.
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">2</span>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">2</span>
               <h3 className="font-bold text-slate-900 text-sm">Compare Carrier Rates</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Inspect transparent line-item pricing: Base Freight, Fuel %, Docket Fee, ODA Surcharge, 0.2% FOV Insurance, and 18% GST.
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">3</span>
-              <h3 className="font-bold text-slate-900 text-sm">One-Click Dual-ID Booking</h3>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">Dual-ID Generation</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Settle freight direct with carrier. Get your official Platform Ref + Carrier Waybill and print continuous 4x6 labels.
+                Settle freight direct with carrier. Get your official Platform Ref (`LC-XXXXXX`) + Carrier Waybill (`1489...`) and print certified labels.
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-sm">4</span>
-              <h3 className="font-bold text-slate-900 text-sm">Live Carrier Tracking</h3>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">4</span>
+              <h3 className="font-bold text-slate-900 text-sm">Universal Live Tracking</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Track status with either ID on LogiCompare or click the direct portal button (↗) to view live scans on carrier portals.
+                Track status with either ID on LogiCompare or click the direct portal button (↗) to view live scans on Delhivery, Blue Dart, or TCI.
               </p>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">1</span>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">1</span>
               <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and bank account.
+                Register as a verified transporter, enter GSTIN credentials, and link your direct UPI ID and fleet types.
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">2</span>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">2</span>
               <h3 className="font-bold text-slate-900 text-sm">Publish Rates via Bulk CSV</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Define lane-specific tariffs individually or upload entire route sheets with city names via client-cached bulk CSV.
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">3</span>
-              <h3 className="font-bold text-slate-900 text-sm">Update Official Bilty Scan</h3>
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">Update Official Bilty / Docket</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Receive bookings, enter your branch's physical Bilty/Docket number, attach photos/PDF scans, and collect direct settlements.
               </p>
@@ -261,10 +292,12 @@ export function LandingView({
         )}
       </section>
 
-      {/* SECTION 4: 6-CARD CORE FEATURES */}
+      {/* ============================================================== */}
+      {/* SECTION 4: 6-CARD CORE ENTERPRISE CAPABILITIES GRID */}
+      {/* ============================================================== */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
         <div className="text-center space-y-2">
-          <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
             Enterprise Features
           </span>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
@@ -274,7 +307,7 @@ export function LandingView({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <LayersIcon className="w-5 h-5" />
             </div>
@@ -284,7 +317,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <CurrencyRupeeIcon className="w-5 h-5" />
             </div>
@@ -294,7 +327,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
               <ShieldCheckIcon className="w-5 h-5" />
             </div>
@@ -304,7 +337,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <PrinterIcon className="w-5 h-5" />
             </div>
@@ -314,7 +347,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
               <TruckIcon className="w-5 h-5" />
             </div>
@@ -324,7 +357,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
               <CreditCardIcon className="w-5 h-5" />
             </div>
@@ -336,10 +369,12 @@ export function LandingView({
         </div>
       </section>
 
-      {/* SECTION 5: FAQ ACCORDION */}
+      {/* ============================================================== */}
+      {/* SECTION 5: FREQUENTLY ASKED QUESTIONS (ACCORDION) */}
+      {/* ============================================================== */}
       <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
         <div className="text-center space-y-2">
-          <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
             FAQ & Knowledge Base
           </span>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
@@ -360,7 +395,7 @@ export function LandingView({
             },
             {
               q: "Where does the physical Bilty / LR slip photo get saved?",
-              a: "Documents are stored in a dedicated Supabase Object Storage bucket with a 5 MB file size limit. Images are compressed client-side to ~100KB to prevent storage exhaustion while preserving full legibility."
+              a: "Documents are stored in a dedicated Supabase Object Storage bucket with a 5 MB file size limit to prevent storage exhaustion. Images are compressed client-side to ~100KB to retain full legibility while saving 95% storage."
             },
             {
               q: "How does Direct Settlement work between Shipper and Carrier?",
@@ -371,16 +406,21 @@ export function LandingView({
               a: "Shipments cancelled prior to carrier pickup qualify for a 100% full refund of platform verification fees. Once verified, refunds are credited back to the original source account within 5 to 7 business days."
             }
           ].map((faq, idx) => (
-            <div key={idx} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs transition">
+            <div
+              key={idx}
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs transition"
+            >
               <button
                 onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full p-4 text-left font-bold text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
+                className="w-full p-4 text-left font-black text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
               >
                 <span>{faq.q}</span>
-                <ChevronDownIcon className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`} />
+                <ChevronDownIcon
+                  className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`}
+                />
               </button>
               {openFaq === idx && (
-                <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
+                <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3 font-medium">
                   {faq.a}
                 </div>
               )}
@@ -389,9 +429,12 @@ export function LandingView({
         </div>
       </section>
 
-      {/* SECTION 6: BOTTOM CTA BANNER */}
+      {/* ============================================================== */}
+      {/* SECTION 6: BOTTOM CALL-TO-ACTION BANNER WITH DEMO SWITCH */}
+      {/* ============================================================== */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
         <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
+          <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
           <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
             Start Saving On B2B Freight
           </span>
@@ -403,16 +446,22 @@ export function LandingView({
           </p>
           <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
-              onClick={onJumpToBulk}
-              className="bg-white hover:bg-slate-100 text-slate-950 font-extrabold px-7 py-3 rounded-xl text-sm transition shadow-lg hover:scale-105"
+              onClick={onJumpToCompare}
+              className="bg-white hover:bg-slate-100 text-slate-950 font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg hover:scale-105"
             >
-              Open Bulk Shipper Console
+              Open Freight Rate Matrix
             </button>
             <button
-              onClick={onJumpToCompare}
-              className="bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-400/30 font-bold px-7 py-3 rounded-xl text-sm transition backdrop-blur-md"
+              onClick={onSwitchShipperDemo}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md shadow-md"
             >
-              Single Freight Calculator
+              ⚡ Instant Demo as Shipper
+            </button>
+            <button
+              onClick={onJumpToBulk}
+              className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md"
+            >
+              🚀 Launch 50/Day Bulk Console
             </button>
           </div>
         </div>
