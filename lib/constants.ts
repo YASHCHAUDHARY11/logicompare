@@ -179,3 +179,20 @@ export const FALLBACK_DEFAULT_RATE_CARDS: RateCard[] = [
     is_active: true
   }
 ];
+
+export const clientLocationCache: Record<string, string> = {
+  delhi: "110",
+  "new delhi": "110",
+  mumbai: "400",
+  bengaluru: "560",
+  bangalore: "560",
+  chandigarh: "160",
+  ludhiana: "141",
+  meerut: "250",
+  kolkata: "700",
+  chennai: "600",
+  hyderabad: "500",
+  ahmedabad: "380",
+  pune: "411",
+  jaipur: "302"
+};
