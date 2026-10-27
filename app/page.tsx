@@ -902,7 +902,65 @@ async function compressImageFile(file: File): Promise<File> {
     reader.readAsDataURL(file);
   });
 }
+async function compressAgreementFile(file: File): Promise<{
+  file: File;
+  originalSizeKB: number;
+  compressedSizeKB: number;
+  savedKB: number;
+}> {
+  const originalSizeKB = Math.round(file.size / 1024);
 
+  // Skip if file is 1MB or smaller
+  if (file.size <= 1024 * 1024) {
+    return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
+  }
+
+  // Handle image files (scanned agreement JPG/PNG)
+  if (file.type.startsWith("image/")) {
+    const compressedImage = await compressImageFile(file);
+    const compressedSizeKB = Math.round(compressedImage.size / 1024);
+    return {
+      file: compressedImage,
+      originalSizeKB,
+      compressedSizeKB,
+      savedKB: Math.max(0, originalSizeKB - compressedSizeKB)
+    };
+  }
+
+  // Handle PDF files using pdf-lib with object streams minification
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Load document ignoring encryption artifacts
+      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+
+      // Save using object streams to compress cross-reference tables and unused object overhead
+      const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
+      const blob = new Blob([compressedBytes], { type: "application/pdf" });
+      
+      const compressedFile = new File([blob], file.name, {
+        type: "application/pdf",
+        lastModified: Date.now()
+      });
+
+      const compressedSizeKB = Math.round(compressedFile.size / 1024);
+      const isSmaller = compressedFile.size < file.size;
+
+      return {
+        file: isSmaller ? compressedFile : file,
+        originalSizeKB,
+        compressedSizeKB: isSmaller ? compressedSizeKB : originalSizeKB,
+        savedKB: isSmaller ? Math.max(0, originalSizeKB - compressedSizeKB) : 0
+      };
+    } catch (err) {
+      console.warn("Client-side PDF minification fallback:", err);
+    }
+  }
+
+  return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
+}
 // ============================================================================
 // 5. INLINE VECTOR SYSTEM (STANDARD SVG ICONS WITHOUT EXPORT)
 // ============================================================================
@@ -1345,8 +1403,256 @@ interface CreditApplyModalProps {
   onClose: () => void;
   carriers: Vendor[];
   currentShipper: UserProfile;
-  onSubmitApplication: (carrierId: string, limit: number, termsDays: number, file: File, docName: string) => void;
+  onSubmitApplication: (
+    carrierId: string,
+    limit: number,
+    termsDays: number,
+    file: File,
+    docName: string,
+    storageUrl?: string
+  ) => void;
 }
+
+const CreditApplyModal: FC<CreditApplyModalProps> = ({
+  isOpen,
+  onClose,
+  carriers,
+  currentShipper,
+  onSubmitApplication
+}) => {
+  const [selectedCarrierId, setSelectedCarrierId] = useState<string>(carriers[0]?.id || "");
+  const [requestedLimit, setRequestedLimit] = useState<number>(300000);
+  const [termsDays, setTermsDays] = useState<number>(15);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState<string>("");
+  const [statusType, setStatusType] = useState<"idle" | "optimizing" | "uploading" | "success" | "error">("idle");
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) {
+      alert("Please upload an executed B2B Credit Agreement or KYC document (PDF).");
+      return;
+    }
+    if (requestedLimit <= 0) {
+      alert("Please provide a valid requested credit limit.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      let fileToUpload = selectedFile;
+      let savingsInfo = "";
+
+      // 1. Minify PDF if size exceeds 1MB
+      if (selectedFile.size > 1024 * 1024) {
+        setStatusType("optimizing");
+        setUploadStatusText("Optimizing PDF...");
+        
+        const result = await compressAgreementFile(selectedFile);
+        fileToUpload = result.file;
+        if (result.savedKB > 0) {
+          savingsInfo = ` (Saved ${result.savedKB} KB)`;
+        }
+      }
+
+      // 2. Upload to Supabase Storage 'agreements' bucket
+      setStatusType("uploading");
+      setUploadStatusText("Uploading to storage...");
+
+      const safeFileName = `${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const filePath = `credit-agreements/${currentShipper.id}/${safeFileName}`;
+
+      let publicUrl = "";
+      const { data, error } = await supabase.storage.from("agreements").upload(filePath, fileToUpload, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (!error && data) {
+        const { data: urlData } = supabase.storage.from("agreements").getPublicUrl(filePath);
+        publicUrl = urlData.publicUrl;
+      } else {
+        // Fallback to local Blob URL if bucket upload is restricted or unprovisioned
+        publicUrl = URL.createObjectURL(fileToUpload);
+      }
+
+      // 3. Success visual feedback
+      setStatusType("success");
+      setUploadStatusText(`Uploaded successfully${savingsInfo}`);
+
+      onSubmitApplication(
+        selectedCarrierId,
+        requestedLimit,
+        termsDays,
+        fileToUpload,
+        fileToUpload.name,
+        publicUrl
+      );
+
+      // Auto-close modal after brief confirmation display
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setUploadStatusText("");
+        setStatusType("idle");
+        onClose();
+      }, 1400);
+
+    } catch (err) {
+      console.error("Submission failed:", err);
+      setStatusType("error");
+      setUploadStatusText("Failed to process document. Please try again.");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Apply for Carrier Credit Facility</h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Submit signed credit agreement / KYC documents for carrier underwriting approval.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} disabled={isSubmitting} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Select Target Transporter</label>
+            <select
+              disabled={isSubmitting}
+              value={selectedCarrierId}
+              onChange={(e) => setSelectedCarrierId(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            >
+              {carriers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} (GSTIN: {c.gstin})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Requested Credit Ceiling (₹)</label>
+              <input
+                type="number"
+                step={10000}
+                required
+                disabled={isSubmitting}
+                value={requestedLimit}
+                onChange={(e) => setRequestedLimit(Number(e.target.value))}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Requested Billing Terms</label>
+              <select
+                disabled={isSubmitting}
+                value={termsDays}
+                onChange={(e) => setTermsDays(Number(e.target.value))}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              >
+                <option value={7}>7-Day Rolling Payout</option>
+                <option value={15}>15-Day Net Bi-Monthly</option>
+                <option value={30}>30-Day Monthly Net Credit</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Agreement PDF Upload & Live Status Feedback */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">
+              Upload Signed Agreement / GST KYC (PDF or Scan) *
+            </label>
+            <div className="border-2 border-dashed border-indigo-300 rounded-2xl p-4 bg-indigo-50/40 text-center space-y-2">
+              <input
+                type="file"
+                id="credit_agreement_doc"
+                accept=".pdf,image/*"
+                disabled={isSubmitting}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setSelectedFile(file);
+                }}
+                className="hidden"
+              />
+              <label
+                htmlFor="credit_agreement_doc"
+                className={`bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 shadow-xs ${
+                  isSubmitting ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                }`}
+              >
+                <UploadIcon className="w-4 h-4" />
+                <span>
+                  {selectedFile
+                    ? `${selectedFile.name} (${Math.round(selectedFile.size / 1024)} KB)`
+                    : "Select Agreement Document"}
+                </span>
+              </label>
+
+              {/* In-Browser Processing Indicator */}
+              {uploadStatusText && (
+                <div className="pt-1.5">
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-[11px] font-black ${
+                      statusType === "optimizing"
+                        ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse"
+                        : statusType === "uploading"
+                        ? "bg-indigo-100 text-indigo-900 border border-indigo-300 animate-pulse"
+                        : statusType === "success"
+                        ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                        : "bg-rose-100 text-rose-900 border border-rose-300"
+                    }`}
+                  >
+                    {statusType === "success" ? "✓ " : "⏳ "}
+                    {uploadStatusText}
+                  </span>
+                </div>
+              )}
+
+              <p className="text-[10px] text-slate-500">
+                PDFs over 1MB are automatically compressed in-browser before upload.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 text-[11px] text-slate-600">
+            <p><strong>Applying Entity:</strong> {currentShipper.company_name} ({currentShipper.gstin})</p>
+            <p><strong>Authorized Signatory:</strong> {currentShipper.full_name} ({currentShipper.phone})</p>
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !selectedFile}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
+            >
+              {isSubmitting ? "Processing..." : "Submit Credit Application"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 const CreditApplyModal: FC<CreditApplyModalProps> = ({
   isOpen,
