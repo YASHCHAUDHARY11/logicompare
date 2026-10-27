@@ -7205,7 +7205,7 @@ export default function Page() {
               </div>
             )}
 
-            {state.carrierTab === "earnings" && (
+            {(state.carrierTab as any)=== "earnings" && (
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <CarrierBankSection
                   currentUser={state.currentUser}
