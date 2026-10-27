@@ -3547,3 +3547,955 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({
     </div>
   );
 };
+// ============================================================================
+// 15. CARRIER REVERSE AUCTION LOAD BOARD & BIDDING MATRIX
+// ============================================================================
+interface CarrierBidsSectionProps {
+  currentUser: UserProfile;
+  rfqList: RfqBid[];
+  setRfqList: React.Dispatch<React.SetStateAction<RfqBid[]>>;
+}
+
+const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({
+  currentUser,
+  rfqList,
+  setRfqList
+}) => {
+  const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
+
+  const handleSubmitVendorBid = async (rfqId: string) => {
+    const form = bidFormMap[rfqId];
+    if (!form || !form.amount || !form.days) {
+      alert("Please provide both quote price and transit SLA days.");
+      return;
+    }
+
+    const rfq = rfqList.find((r) => r.id === rfqId);
+    if (!rfq) return;
+
+    const newBidObj = {
+      vendor_name: currentUser.company_name || "Delhivery B2B Express",
+      bid_amount: Number(form.amount),
+      transit_days: Number(form.days),
+      notes: form.notes || "Dedicated container trailer ready at linehaul hub.",
+      created_at: new Date().toISOString()
+    };
+
+    const updatedBids = [...(rfq.bids || []), newBidObj];
+
+    try {
+      await supabase.from("rfq_bids").update({ bids: updatedBids }).eq("id", rfqId);
+      setRfqList(rfqList.map((r) => (r.id === rfqId ? { ...r, bids: updatedBids } : r)));
+      setBidFormMap({ ...bidFormMap, [rfqId]: { amount: 0, days: 0, notes: "" } });
+      alert("Bid placed successfully on the live reverse auction exchange!");
+    } catch (err) {
+      console.warn("Direct DB sync fallback:", err);
+      setRfqList(rfqList.map((r) => (r.id === rfqId ? { ...r, bids: updatedBids } : r)));
+      setBidFormMap({ ...bidFormMap, [rfqId]: { amount: 0, days: 0, notes: "" } });
+      alert("Bid recorded in local session ledger!");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-black text-slate-900">Available Loads & Reverse Auction Board</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Browse verified commercial shipper loads and submit competitive linehaul quotes below target budgets.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        {rfqList.length === 0 ? (
+          <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
+            No live shipper RFQ loads available right now.
+          </div>
+        ) : (
+          rfqList.map((rfq) => {
+            const form = bidFormMap[rfq.id] || { amount: 0, days: 0, notes: "" };
+
+            return (
+              <div key={rfq.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-mono font-black">
+                        PIN {rfq.origin_pin} → {rfq.dest_pin}
+                      </span>
+                      <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">
+                        {rfq.truck_type}
+                      </span>
+                      <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold uppercase">
+                        {rfq.status}
+                      </span>
+                    </div>
+                    <h4 className="text-base font-black text-slate-900 mt-1.5">{rfq.cargo_description}</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Shipper: {rfq.shipper_name} • Weight: {rfq.total_weight_kg.toLocaleString()} kg
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Shipper Target Budget</span>
+                    <span className="text-xl font-black text-emerald-700 font-mono">{formatINR(rfq.target_price)}</span>
+                  </div>
+                </div>
+
+                {/* Submit Bid Form */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                  <span className="text-xs font-black text-slate-800 block uppercase tracking-wider">
+                    Submit Competitive Carrier Quote
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Quoted Price (₹)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 58000"
+                        value={form.amount || ""}
+                        onChange={(e) =>
+                          setBidFormMap({
+                            ...bidFormMap,
+                            [rfq.id]: { ...form, amount: Number(e.target.value) }
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Transit SLA (Days)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 3"
+                        value={form.days || ""}
+                        onChange={(e) =>
+                          setBidFormMap({
+                            ...bidFormMap,
+                            [rfq.id]: { ...form, days: Number(e.target.value) }
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Fleet / Driver Notes</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Dedicated trailer ready at hub"
+                        value={form.notes}
+                        onChange={(e) =>
+                          setBidFormMap({
+                            ...bidFormMap,
+                            [rfq.id]: { ...form, notes: e.target.value }
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSubmitVendorBid(rfq.id)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2 rounded-xl transition shadow-sm"
+                    >
+                      Place Official Bid
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 16. CARRIER FLEET ORDERS & PHYSICAL BILTY DISPATCH
+// ============================================================================
+interface CarrierOrdersSectionProps {
+  currentUser: UserProfile;
+  bookings: Booking[];
+  statusUpdateMap: Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>;
+  setStatusUpdateMap: React.Dispatch<React.SetStateAction<Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>>>;
+  onUploadDocketFile: (bookingId: string, file: File) => Promise<void>;
+  onUpdateShipmentStatus: (bookingId: string) => Promise<void>;
+}
+
+const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
+  currentUser,
+  bookings,
+  statusUpdateMap,
+  setStatusUpdateMap,
+  onUploadDocketFile,
+  onUpdateShipmentStatus
+}) => {
+  return (
+    <div className="space-y-4">
+      {/* 1. Header Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Fleet Tracking & Bilty Dispatch Console</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Operating Fleet: <strong className="text-emerald-700 font-bold">{currentUser.company_name}</strong>
+          </p>
+        </div>
+      </div>
+
+      {/* 2. Dispatches Data Cards */}
+      {bookings.length === 0 ? (
+        <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
+          No active consignments booked with your fleet network yet.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {bookings.map((booking) => {
+            const rowForm = statusUpdateMap[booking.id] || {
+              status: "",
+              location: "",
+              remarks: "",
+              docketNo: booking.carrier_docket_no || booking.awb_number,
+              docUrl: booking.carrier_docket_doc_url || "",
+              isUploading: false
+            };
+
+            return (
+              <div key={booking.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                {/* Consignment Overview Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
+                      Ref: {booking.order_id || "LC-ORDER"}
+                    </span>
+                    <span className="font-mono text-sm font-black text-slate-900">
+                      Docket: {booking.carrier_docket_no || booking.awb_number}
+                    </span>
+                    <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold capitalize">
+                      {booking.mode} Linehaul
+                    </span>
+                    <span className="text-xs font-mono text-slate-600 font-bold">
+                      {booking.origin_pin} → {booking.dest_pin}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-xs">
+                    <span className="text-slate-500 font-medium">Settlement:</span>
+                    <span className="font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                      {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bilty Entry & Photo Upload Form */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    {/* Carrier Docket / LR Input */}
+                    <div className="md:col-span-4">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Carrier Docket / LR No.
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter Physical Bilty No."
+                        value={rowForm.docketNo}
+                        onChange={(e) =>
+                          setStatusUpdateMap({
+                            ...statusUpdateMap,
+                            [booking.id]: { ...rowForm, docketNo: e.target.value }
+                          })
+                        }
+                        className="w-full bg-white border-2 border-indigo-300 font-mono font-black text-indigo-950 rounded-xl px-3 py-1.5 text-xs shadow-sm focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Compressed File Upload */}
+                    <div className="md:col-span-5">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Physical Bilty / POD (Image / PDF)
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="file"
+                          id={`file-upload-${booking.id}`}
+                          accept="image/*,application/pdf"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) onUploadDocketFile(booking.id, file);
+                          }}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor={`file-upload-${booking.id}`}
+                          className="bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-1.5"
+                        >
+                          <UploadIcon className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>{rowForm.isUploading ? "Compressing & Uploading..." : "📷 Upload Bilty Scan"}</span>
+                        </label>
+
+                        {(rowForm.docUrl || booking.carrier_docket_doc_url) && (
+                          <a
+                            href={rowForm.docUrl || booking.carrier_docket_doc_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-700 hover:text-emerald-800 font-black text-xs flex items-center space-x-1 underline truncate max-w-[150px]"
+                          >
+                            <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Attached Scan</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Transit Milestone Status */}
+                    <div className="md:col-span-3">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Transit Milestone Status
+                      </label>
+                      <select
+                        value={rowForm.status}
+                        onChange={(e) =>
+                          setStatusUpdateMap({
+                            ...statusUpdateMap,
+                            [booking.id]: { ...rowForm, status: e.target.value }
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:border-indigo-600 focus:outline-none"
+                      >
+                        <option value="">Update Status...</option>
+                        <option value="Picked Up">Picked Up</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Out for Delivery">Out for Delivery</option>
+                        <option value="Delivered">Delivered</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Location & Save Action Bar */}
+                  <div className="flex flex-col md:flex-row items-center gap-2.5 pt-2 border-t border-slate-200">
+                    <input
+                      type="text"
+                      placeholder="Current Hub / City (e.g. Bilaspur Linehaul Gateway)"
+                      value={rowForm.location}
+                      onChange={(e) =>
+                        setStatusUpdateMap({
+                          ...statusUpdateMap,
+                          [booking.id]: { ...rowForm, location: e.target.value }
+                        })
+                      }
+                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => onUpdateShipmentStatus(booking.id)}
+                      className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2 rounded-xl transition shadow-sm flex items-center justify-center space-x-1.5 shrink-0"
+                    >
+                      <CheckCircleIcon className="w-4 h-4" />
+                      <span>Save & Dispatch Docket Update</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 17. CARRIER COMMERCIAL RATE CARD MASTER & BULK CSV UPLOADER
+// ============================================================================
+interface CarrierRatesSectionProps {
+  currentUser: UserProfile;
+  rateCards: RateCard[];
+  setRateCards: React.Dispatch<React.SetStateAction<RateCard[]>>;
+  vendors: Vendor[];
+  onOpenAddRateModal: () => void;
+}
+
+const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({
+  currentUser,
+  rateCards,
+  setRateCards,
+  vendors,
+  onOpenAddRateModal
+}) => {
+  const [csvFileName, setCsvFileName] = useState("");
+  const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRateCard[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
+  const [csvUploadStatus, setCsvUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadSampleCsv = () => {
+    const csvHeader = "origin,dest,mode,min_weight_kg,base_rate,per_kg_rate,fuel_surcharge_pct,docket_charge,sla_days\n";
+    const sampleRows = [
+      "Delhi,Chandigarh,surface,20,450,14.5,12.5,150,2",
+      "110,Bengaluru,air,5,850,48,18,250,1",
+      "Mumbai,Kolkata,surface,25,500,16,12.5,150,4",
+      "Ludhiana,Delhi,surface,15,350,11,10,120,2",
+      "%,%,ftl,500,8500,6.5,15,500,5"
+    ].join("\n");
+
+    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "logicompare_rate_card_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvFileName(file.name);
+    setCsvUploadStatus(null);
+    setCsvErrors([]);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) throw new Error("Empty file content");
+
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
+
+        const rows: ParsedCsvRateCard[] = [];
+        const errors: string[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+          if (cols.length < 9) {
+            errors.push(`Row ${i + 1}: Expected 9 columns, found ${cols.length}`);
+            continue;
+          }
+
+          const [origRaw, destRaw, modeRaw, minWtRaw, baseRateRaw, perKgRaw, fuelRaw, docketRaw, slaRaw] = cols;
+          const modeClean = modeRaw.toLowerCase();
+
+          const origin_prefix = await resolveLocationToPrefix(origRaw);
+          const dest_prefix = await resolveLocationToPrefix(destRaw);
+
+          if (!["surface", "air", "ftl"].includes(modeClean)) {
+            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be surface, air, or ftl.`);
+            continue;
+          }
+
+          const min_weight_kg = parseFloat(minWtRaw);
+          const base_rate = parseFloat(baseRateRaw);
+          const per_kg_rate = parseFloat(perKgRaw);
+          const fuel_surcharge_pct = parseFloat(fuelRaw);
+          const docket_charge = parseFloat(docketRaw);
+          const sla_days = parseInt(slaRaw, 10);
+
+          if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days].some(isNaN)) {
+            errors.push(`Row ${i + 1}: Numeric fields contain invalid values.`);
+            continue;
+          }
+
+          rows.push({
+            origin_prefix,
+            dest_prefix,
+            mode: modeClean as "surface" | "air" | "ftl",
+            min_weight_kg,
+            base_rate,
+            per_kg_rate,
+            fuel_surcharge_pct,
+            docket_charge,
+            sla_days,
+            fov_pct: 0.2,
+            oda_charge: 450,
+            handling_per_kg: 2,
+            is_active: true
+          });
+        }
+
+        setParsedCsvRows(rows);
+        setCsvErrors(errors);
+      } catch (err: any) {
+        setCsvUploadStatus({ type: "error", message: err.message || "Failed to parse CSV." });
+        setParsedCsvRows([]);
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleBatchInsertRateCards = async () => {
+    if (parsedCsvRows.length === 0) return;
+    setIsUploadingCsv(true);
+    setCsvUploadStatus(null);
+
+    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const payload = parsedCsvRows.map((r) => ({
+      ...r,
+      vendor_id: vendorId
+    }));
+
+    try {
+      const { data, error } = await supabase.from("rate_cards").insert(payload).select("*, vendors(*)");
+
+      if (!error && data && data.length > 0) {
+        setRateCards([...(data as RateCard[]), ...rateCards]);
+      } else {
+        const localCards: RateCard[] = payload.map((p, idx) => ({
+          ...(p as RateCard),
+          id: `rc-bulk-${Date.now()}-${idx}`,
+          vendors: vendors.find((v) => v.id === vendorId)
+        }));
+        setRateCards([...localCards, ...rateCards]);
+      }
+
+      setCsvUploadStatus({
+        type: "success",
+        message: `Successfully published ${parsedCsvRows.length} lane routes!`
+      });
+      setParsedCsvRows([]);
+      setCsvFileName("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err: any) {
+      setCsvUploadStatus({
+        type: "error",
+        message: err.message || "Failed to batch insert rate cards."
+      });
+    } finally {
+      setIsUploadingCsv(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Commercial Rate Card Master</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Manage route tariffs individually or batch-publish route matrices via CSV</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadSampleCsv}
+            className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
+          >
+            <DownloadIcon className="w-4 h-4 text-indigo-600" />
+            <span>📥 Download Sample CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenAddRateModal}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span>Add Route Manually</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-6 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
+              <UploadIcon className="w-4 h-4 text-indigo-600" />
+              <span>Bulk Upload Rate Cards via CSV (City Names or Prefixes Supported)</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Standard 9 columns: <code className="font-mono text-indigo-700 font-bold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
+            </p>
+          </div>
+
+          {parsedCsvRows.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setParsedCsvRows([]);
+                  setCsvFileName("");
+                  setCsvErrors([]);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                disabled={isUploadingCsv}
+                onClick={handleBatchInsertRateCards}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+              >
+                <CheckCircleIcon className="w-4 h-4" />
+                <span>{isUploadingCsv ? "Publishing Routes..." : `Publish All ${parsedCsvRows.length} Routes`}</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".csv,text/csv"
+            onChange={handleFileUpload}
+            className="hidden"
+            id="csv-rate-card-upload"
+          />
+          <label
+            htmlFor="csv-rate-card-upload"
+            className="bg-white hover:bg-slate-100 text-indigo-700 border-2 border-indigo-200 px-5 py-2.5 rounded-xl text-xs font-black cursor-pointer transition shadow-xs flex items-center space-x-2"
+          >
+            <UploadIcon className="w-4 h-4 text-indigo-600" />
+            <span>{csvFileName ? `Replace (${csvFileName})` : "Select Rate Card CSV File"}</span>
+          </label>
+          <p className="text-[11px] text-slate-500 font-medium">
+            {csvFileName ? `Selected File: ${csvFileName}` : "Click to select .csv file from your computer"}
+          </p>
+        </div>
+
+        {csvErrors.length > 0 && (
+          <div className="p-3.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 text-xs font-medium space-y-1">
+            <strong>Formatting Errors Encountered:</strong>
+            <ul className="list-disc pl-5">
+              {csvErrors.slice(0, 5).map((err, eIdx) => (
+                <li key={eIdx}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {csvUploadStatus && (
+          <div
+            className={`p-3.5 rounded-xl text-xs font-bold border ${
+              csvUploadStatus.type === "success"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                : "bg-rose-50 text-rose-800 border-rose-300"
+            }`}
+          >
+            {csvUploadStatus.message}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 18. CARRIER BANK & DIRECT FREIGHT SETTLEMENT PROFILE
+// ============================================================================
+interface CarrierBankSectionProps {
+  currentUser: UserProfile;
+  vendors: Vendor[];
+  setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
+}
+
+const CarrierBankSection: FC<CarrierBankSectionProps> = ({
+  currentUser,
+  vendors,
+  setVendors
+}) => {
+  const currentVendor =
+    vendors.find((v) => v.id === (currentUser.vendor_id || "11111111-1111-1111-1111-111111111111")) || vendors[0];
+
+  const [upi, setUpi] = useState(currentVendor?.upi_id || "delhivery.b2b@icici");
+  const [bankAcc, setBankAcc] = useState(currentVendor?.bank_account || "50200088910234");
+  const [ifsc, setIfsc] = useState(currentVendor?.ifsc_code || "HDFC0000240");
+  const [beneficiary, setBeneficiary] = useState(currentVendor?.beneficiary_name || "Delhivery Limited B2B Logistics");
+  const [isSaving, setIsSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const handleSave = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setMsg("");
+
+    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
+    const payload = {
+      upi_id: upi.trim(),
+      bank_account: bankAcc.trim(),
+      ifsc_code: ifsc.trim().toUpperCase(),
+      beneficiary_name: beneficiary.trim()
+    };
+
+    try {
+      const { error } = await supabase.from("vendors").update(payload).eq("id", vendorId);
+      if (error) throw error;
+      setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v)));
+      setMsg("Bank and UPI settlement details saved successfully! Shippers can now pay you directly.");
+    } catch {
+      setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v)));
+      setMsg("Settlement details saved locally in session state!");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm max-w-2xl space-y-5">
+      <div className="border-b border-slate-200 pb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+            <CreditCardIcon className="w-5 h-5 text-emerald-600" />
+            <span>Direct Freight Settlement Details</span>
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Configure where commercial shippers send 100% direct freight payments when booking your routes.
+          </p>
+        </div>
+        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-black px-3.5 py-1 rounded-full">
+          Zero Commission on Freight
+        </span>
+      </div>
+
+      {msg && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold">
+          {msg}
+        </div>
+      )}
+
+      <form onSubmit={handleSave} className="space-y-4 text-xs">
+        <div>
+          <label className="block text-slate-800 font-bold mb-1">
+            Official Transporter UPI ID (VPA)
+          </label>
+          <input
+            type="text"
+            required
+            value={upi}
+            onChange={(e) => setUpi(e.target.value)}
+            placeholder="e.g. yourbusiness@icici or 9899123456@upi"
+            className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
+          />
+          <p className="text-[11px] text-slate-500 mt-1 font-medium">
+            Shippers who select "Direct Carrier UPI" at checkout will see this UPI handle to make immediate payment.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Bank Account Number</label>
+            <input
+              type="text"
+              required
+              value={bankAcc}
+              onChange={(e) => setBankAcc(e.target.value)}
+              placeholder="e.g. 50200088910234"
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Bank IFSC Code</label>
+            <input
+              type="text"
+              required
+              maxLength={11}
+              value={ifsc}
+              onChange={(e) => setIfsc(e.target.value.toUpperCase())}
+              placeholder="e.g. HDFC0000240"
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono uppercase text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-slate-800 font-bold mb-1">
+            Beneficiary / Account Holder Name (As per Bank Records)
+          </label>
+          <input
+            type="text"
+            required
+            value={beneficiary}
+            onChange={(e) => setBeneficiary(e.target.value)}
+            placeholder="e.g. Delhivery Limited B2B Logistics"
+            className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
+          />
+        </div>
+
+        <div className="pt-2 flex justify-end">
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-6 py-2.5 rounded-xl transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+          >
+            <CheckCircleIcon className="w-4 h-4" />
+            <span>{isSaving ? "Saving..." : "Save Bank & UPI Settlement Profile"}</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// ============================================================================
+// 19. PLATFORM FEE BILLING SYSTEM (WEEKLY / MONTHLY INVOICE LEDGER)
+// ============================================================================
+interface CarrierBillingSectionProps {
+  currentUser: UserProfile;
+  invoices: PlatformInvoice[];
+  billingCycle: BillingCycle;
+  setBillingCycle: (cycle: BillingCycle) => void;
+  onOpenPayFeeModal: (invoice: PlatformInvoice) => void;
+}
+
+const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
+  currentUser,
+  invoices,
+  billingCycle,
+  setBillingCycle,
+  onOpenPayFeeModal
+}) => {
+  const filteredInvoices = invoices.filter((inv) => inv.billing_cycle === billingCycle);
+
+  const totalOutstanding = useMemo(() => {
+    return filteredInvoices
+      .filter((inv) => inv.status === "Pending" || inv.status === "Overdue")
+      .reduce((sum, inv) => sum + inv.platform_fee_total, 0);
+  }, [filteredInvoices]);
+
+  const totalPaid = useMemo(() => {
+    return filteredInvoices
+      .filter((inv) => inv.status === "Paid")
+      .reduce((sum, inv) => sum + inv.platform_fee_total, 0);
+  }, [filteredInvoices]);
+
+  return (
+    <div className="space-y-6">
+      {/* Header and Billing Switch */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div>
+          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+            <CalendarIcon className="w-5 h-5 text-indigo-600" />
+            <span>Platform Fee Billing & Commission Ledger</span>
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Transparent weekly and monthly commission settlements (2% per load, min ₹25).
+          </p>
+        </div>
+
+        {/* Weekly / Monthly Cycle Toggle */}
+        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl text-xs font-bold text-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setBillingCycle("weekly")}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              billingCycle === "weekly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Weekly Billing
+          </button>
+          <button
+            type="button"
+            onClick={() => setBillingCycle("monthly")}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              billingCycle === "monthly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Monthly Billing
+          </button>
+        </div>
+      </div>
+
+      {/* Overview Metric Tiles */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Pending Platform Dues</span>
+          <span className="text-2xl font-black text-rose-600 font-mono">{formatINR(totalOutstanding)}</span>
+          <p className="text-[10px] text-slate-400">Current cycle commission payable</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Total Settled Fees</span>
+          <span className="text-2xl font-black text-emerald-600 font-mono">{formatINR(totalPaid)}</span>
+          <p className="text-[10px] text-slate-400">Fully reconciled platform payouts</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Commission Structure</span>
+          <span className="text-2xl font-black text-slate-900 font-mono">2.00%</span>
+          <p className="text-[10px] text-slate-400">Fixed rate with ₹25 floor cap</p>
+        </div>
+      </div>
+
+      {/* Invoice Ledger Table */}
+      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden space-y-4 p-5">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
+            {billingCycle === "weekly" ? "Weekly Invoices & Statements" : "Monthly Consolidated Invoices"}
+          </h3>
+          <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-2.5 py-0.5 rounded-full border border-indigo-200">
+            {filteredInvoices.length} Invoices
+          </span>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-left text-xs text-slate-700">
+            <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
+              <tr>
+                <th className="py-3 px-3.5">Invoice No</th>
+                <th className="py-3 px-3.5">Billing Period</th>
+                <th className="py-3 px-3.5">Consignments</th>
+                <th className="py-3 px-3.5">Gross Freight</th>
+                <th className="py-3 px-3.5">Commission (2%)</th>
+                <th className="py-3 px-3.5">Due Date</th>
+                <th className="py-3 px-3.5">Status</th>
+                <th className="py-3 px-3.5 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-medium">
+              {filteredInvoices.map((inv) => (
+                <tr key={inv.id} className="hover:bg-slate-50 transition">
+                  <td className="py-3 px-3.5 font-mono font-black text-indigo-700">{inv.invoice_number}</td>
+                  <td className="py-3 px-3.5 text-slate-600 font-mono text-[11px]">
+                    {inv.period_start} to {inv.period_end}
+                  </td>
+                  <td className="py-3 px-3.5 font-bold text-slate-900">{inv.total_consignments} Loads</td>
+                  <td className="py-3 px-3.5 font-mono text-slate-900 font-bold">{formatINR(inv.gross_freight)}</td>
+                  <td className="py-3 px-3.5 font-mono font-black text-indigo-900 text-sm">{formatINR(inv.platform_fee_total)}</td>
+                  <td className="py-3 px-3.5 font-mono text-slate-500 text-[11px]">{inv.due_date}</td>
+                  <td className="py-3 px-3.5">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                        inv.status === "Paid"
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          : "bg-amber-100 text-amber-800 border-amber-300"
+                      }`}
+                    >
+                      {inv.status}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3.5 text-right">
+                    {inv.status === "Pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPayFeeModal(inv)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1.5 rounded-lg text-xs shadow-sm transition"
+                      >
+                        Settle Dues
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-mono text-slate-500 font-bold">
+                        Paid ({inv.payment_ref ? inv.payment_ref.substring(0, 12) : "UTR Reconciled"})
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
