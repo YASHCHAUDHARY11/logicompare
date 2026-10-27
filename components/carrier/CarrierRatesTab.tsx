@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useRef, useState } from "react";
@@ -70,7 +69,7 @@ export function CarrierRatesTab({
         const errors: string[] = [];
 
         for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(",").map((c) => c.trim());
+          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
           if (cols.length < 9) {
             errors.push(`Row ${i + 1}: Expected 9 columns, found ${cols.length}`);
             continue;
@@ -83,7 +82,7 @@ export function CarrierRatesTab({
           const dest_prefix = await resolveLocationToPrefix(destRaw);
 
           if (!["surface", "air", "ftl"].includes(modeClean)) {
-            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'.`);
+            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be surface, air, or ftl.`);
             continue;
           }
 
@@ -171,60 +170,66 @@ export function CarrierRatesTab({
 
   return (
     <div className="space-y-6">
+      {/* Action Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Commercial Rate Card Master</h2>
-          <p className="text-xs text-slate-500">Manage route tariffs individually or batch-publish via CSV</p>
+          <h2 className="text-lg font-black text-slate-900">Commercial Rate Card Master</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Manage route tariffs individually or batch-publish route matrices via CSV</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={handleDownloadSampleCsv}
-            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-xs transition"
+            className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
           >
             <DownloadIcon className="w-4 h-4 text-indigo-600" />
             <span>📥 Download Sample CSV</span>
           </button>
 
           <button
+            type="button"
             onClick={onOpenAddRateModal}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
           >
-            <PlusIcon className="w-3.5 h-3.5" />
+            <PlusIcon className="w-4 h-4" />
             <span>Add Route Manually</span>
           </button>
         </div>
       </div>
 
-      <div className="bg-white border-2 border-dashed border-indigo-200 rounded-2xl p-6 space-y-4 shadow-xs">
+      {/* CSV Dropzone & Batch Processor */}
+      <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-6 space-y-4 shadow-sm">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+            <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
               <UploadIcon className="w-4 h-4 text-indigo-600" />
               <span>Bulk Upload Rate Cards via CSV (City Names or Prefixes Supported)</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Upload standard CSV with 9 columns: <code className="font-mono text-indigo-700 font-semibold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
+              Standard 9 columns: <code className="font-mono text-indigo-700 font-bold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
             </p>
           </div>
 
           {parsedCsvRows.length > 0 && (
             <div className="flex items-center space-x-2">
               <button
+                type="button"
                 onClick={() => {
                   setParsedCsvRows([]);
                   setCsvFileName("");
                   setCsvErrors([]);
                   if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
-                className="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded"
+                className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg"
               >
                 Clear
               </button>
               <button
+                type="button"
                 disabled={isUploadingCsv}
                 onClick={handleBatchInsertRateCards}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-sm flex items-center space-x-1.5"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
               >
                 <CheckCircleIcon className="w-4 h-4" />
                 <span>{isUploadingCsv ? "Publishing Routes..." : `Publish All ${parsedCsvRows.length} Routes`}</span>
@@ -233,7 +238,7 @@ export function CarrierRatesTab({
           )}
         </div>
 
-        <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50/70 rounded-xl border border-slate-200 text-center space-y-2">
+        <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
           <input
             type="file"
             ref={fileInputRef}
@@ -244,22 +249,33 @@ export function CarrierRatesTab({
           />
           <label
             htmlFor="csv-rate-card-upload"
-            className="bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-2"
+            className="bg-white hover:bg-slate-100 text-indigo-700 border-2 border-indigo-200 px-5 py-2.5 rounded-xl text-xs font-black cursor-pointer transition shadow-xs flex items-center space-x-2"
           >
             <UploadIcon className="w-4 h-4 text-indigo-600" />
             <span>{csvFileName ? `Replace (${csvFileName})` : "Select Rate Card CSV File"}</span>
           </label>
-          <p className="text-[11px] text-slate-500">
-            {csvFileName ? `Selected: ${csvFileName}` : "Click to choose .csv file"}
+          <p className="text-[11px] text-slate-500 font-medium">
+            {csvFileName ? `Selected File: ${csvFileName}` : "Click to select .csv file from your computer"}
           </p>
         </div>
 
+        {csvErrors.length > 0 && (
+          <div className="p-3.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 text-xs font-medium space-y-1">
+            <strong>Formatting Errors Encountered:</strong>
+            <ul className="list-disc pl-5">
+              {csvErrors.slice(0, 5).map((err, eIdx) => (
+                <li key={eIdx}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {csvUploadStatus && (
           <div
-            className={`p-3 rounded-xl text-xs font-medium border ${
+            className={`p-3.5 rounded-xl text-xs font-bold border ${
               csvUploadStatus.type === "success"
-                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                : "bg-rose-50 text-rose-800 border-rose-200"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                : "bg-rose-50 text-rose-800 border-rose-300"
             }`}
           >
             {csvUploadStatus.message}
