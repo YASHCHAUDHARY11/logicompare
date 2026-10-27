@@ -438,7 +438,7 @@ function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber: string
   return `https://www.google.com/search?q=${encodeURIComponent(`${carrierName} consignment tracking ${cleanDocket}`)}`;
 }
 
-export function generateCarrierDocket(carrierName: string): string {
+function generateCarrierDocket(carrierName: string): string {
   const c = carrierName.toLowerCase();
   if (c.includes("delhivery")) return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
   if (c.includes("blue dart")) return `BLU${Math.floor(100000000 + Math.random() * 900000000)}`;
@@ -447,7 +447,7 @@ export function generateCarrierDocket(carrierName: string): string {
   return `SAF-${Math.floor(10000000 + Math.random() * 90000000)}`;
 }
 
-export function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
+function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
   if (!pin || pin.length < 3) return { city: "Detecting Location...", state: "India", hub: "HUB-GEN" };
   const p3 = pin.substring(0, 3);
   const p2 = pin.substring(0, 2);
