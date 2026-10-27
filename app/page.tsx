@@ -2867,7 +2867,8 @@ function useAppEngine() {
     limit: number,
     termsDays: number,
     file: File,
-    docName: string
+    docName: string,
+    storageUrl?: string
   ) => {
     const targetCarrier = vendors.find((v) => v.id === carrierId);
     const newAgreement: CreditAgreement = {
@@ -2876,7 +2877,7 @@ function useAppEngine() {
       shipper_name: currentUser.company_name || currentUser.full_name,
       carrier_id: carrierId,
       carrier_name: targetCarrier?.name || "National Transporter",
-      document_url: URL.createObjectURL(file),
+      document_url: storageUrl || URL.createObjectURL(file),
       document_name: docName,
       requested_limit: limit,
       approved_limit: 0,
@@ -2889,7 +2890,6 @@ function useAppEngine() {
 
     setCreditAgreements((prev) => [newAgreement, ...prev]);
   };
-
   // 16. Carrier Review & Verification of Credit Agreement
   const handleReviewCreditAgreement = (
     agreementId: string,
