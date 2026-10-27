@@ -262,12 +262,14 @@ interface PinLookupResult {
 // 3. CORE CONFIGURATIONS, MASTERS & REPOSITORIES
 // ============================================================================
 const MERCHANT_DETAILS = {
+  proprietor: "LogiCompare Escrow Services",
   beneficiaryName: "LogiCompare Escrow Services",
   vpa: "platform.billing@icici",
   accountNumber: "50200088910001",
   ifsc: "ICIC0000001",
   gstin: "07AAACA1234A1Z5",
 };
+
 const DEFAULT_FEE_CONFIG: FeeConfig = {
   percentage: 2,         // 2% Dynamic Platform Fee
   minFloorINR: 25,       // Minimum ₹25 floor cap
