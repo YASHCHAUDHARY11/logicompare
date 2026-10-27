@@ -426,7 +426,7 @@ export const formatINR = (val: number): string => {
   }).format(val || 0);
 };
 
-export function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber: string): string {
+function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber: string): string {
   if (!docketNumber) return "#";
   const name = carrierName.toLowerCase();
   const cleanDocket = docketNumber.trim();
