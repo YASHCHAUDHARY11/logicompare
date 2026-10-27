@@ -23,6 +23,7 @@ import {
   FALLBACK_DEFAULT_RATE_CARDS
 } from "@/lib/constants";
 import {
+  getLocalFallbackZone,
   generateCarrierDocket,
   getOfficialCarrierTrackingUrl,
   calculateQuotesForShipment,
