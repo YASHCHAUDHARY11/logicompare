@@ -58,6 +58,7 @@ export function Hero3DTruck() {
       ctx.fillStyle = gradContainer;
       ctx.strokeStyle = "#818cf8";
       ctx.lineWidth = 1.5;
+
       ctx.beginPath();
       ctx.roundRect(-80, -38, 95, 48, 4);
       ctx.fill();
@@ -107,7 +108,7 @@ export function Hero3DTruck() {
       const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
       lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
       lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
-      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0.0)");
+      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0)");
       ctx.fillStyle = lightBeam;
       ctx.beginPath();
       ctx.moveTo(54, -2);
