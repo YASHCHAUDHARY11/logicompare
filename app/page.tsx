@@ -237,7 +237,7 @@ const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
 const DEMO_SHIPPER: UserProfile = {
   id: "demo-shipper-uuid",
-  emagstin: \"06AAACD9876Q1ZB\",il: "dispatch@apexlogistics.in",
+  email: "dispatch@apexlogistics.in",
   full_name: "Vikram Malhotra",
   company_name: "Apex Retail Solutions Pvt Ltd",
   gstin: "07AAACA1234A1Z5",
