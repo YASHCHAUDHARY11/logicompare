@@ -261,14 +261,18 @@ interface PinLookupResult {
 // ============================================================================
 // 3. CORE CONFIGURATIONS, MASTERS & REPOSITORIES
 // ============================================================================
-const MERCHANT_DETAILS = {
+const MERCHANT_DETAILS: Record<string, any> = {
   proprietor: "LogiCompare Escrow Services",
   beneficiaryName: "LogiCompare Escrow Services",
+  phone: "9876543210",
+  email: "platform.billing@icici.com",
   vpa: "platform.billing@icici",
   accountNumber: "50200088910001",
   ifsc: "ICIC0000001",
   gstin: "07AAACA1234A1Z5",
+  address: "Plot 42, Logistics Park, New Delhi, Delhi 110037",
 };
+
 
 const DEFAULT_FEE_CONFIG: FeeConfig = {
   percentage: 2,         // 2% Dynamic Platform Fee
