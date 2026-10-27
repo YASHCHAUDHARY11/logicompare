@@ -1,7 +1,7 @@
 import { BoxItem, RateCard, Vendor, CalculatedQuote } from "@/types/freight";
 import { MERCHANT_DETAILS, clientLocationCache } from "./constants";
 
-export const formatINR = (val: number) => {
+export const formatINR = (val: number): string => {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -15,20 +15,38 @@ export function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber:
   const name = carrierName.toLowerCase();
   const cleanDocket = docketNumber.trim();
 
-  if (name.includes("delhivery")) return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("blue dart")) return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("safexpress")) return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("gati")) return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("tci")) return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("delhivery")) {
+    return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
+  }
+  if (name.includes("blue dart")) {
+    return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
+  }
+  if (name.includes("safexpress")) {
+    return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
+  }
+  if (name.includes("gati")) {
+    return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
+  }
+  if (name.includes("tci")) {
+    return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
+  }
   return `https://www.google.com/search?q=${encodeURIComponent(`${carrierName} consignment tracking ${cleanDocket}`)}`;
 }
 
 export function generateCarrierDocket(carrierName: string): string {
   const c = carrierName.toLowerCase();
-  if (c.includes("delhivery")) return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-  if (c.includes("blue dart")) return `BLU${Math.floor(100000000 + Math.random() * 900000000)}`;
-  if (c.includes("tci")) return `TCI-${Math.floor(1000000 + Math.random() * 9000000)}`;
-  if (c.includes("gati")) return `GTI-${Math.floor(10000000 + Math.random() * 90000000)}`;
+  if (c.includes("delhivery")) {
+    return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+  }
+  if (c.includes("blue dart")) {
+    return `BLU${Math.floor(100000000 + Math.random() * 900000000)}`;
+  }
+  if (c.includes("tci")) {
+    return `TCI-${Math.floor(1000000 + Math.random() * 9000000)}`;
+  }
+  if (c.includes("gati")) {
+    return `GTI-${Math.floor(10000000 + Math.random() * 90000000)}`;
+  }
   return `SAF-${Math.floor(10000000 + Math.random() * 90000000)}`;
 }
 
@@ -76,7 +94,7 @@ export async function resolveLocationToPrefix(rawInput: string): Promise<string>
       return prefix;
     }
   } catch (err) {
-    console.warn("Postal API lookup fallback:", clean, err);
+    console.warn("Postal API lookup fallback failed for:", clean, err);
   }
   return clean.substring(0, 3);
 }
@@ -157,7 +175,9 @@ export async function compressImageFile(file: File): Promise<File> {
   return new Promise((resolve) => {
     const img = new Image();
     const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target?.result as string; };
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
     img.onload = () => {
       const canvas = document.createElement("canvas");
       const MAX_WIDTH = 1200;
@@ -171,9 +191,17 @@ export async function compressImageFile(file: File): Promise<File> {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        resolve(blob ? new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }) : file);
-      }, "image/jpeg", 0.75);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }));
+          } else {
+            resolve(file);
+          }
+        },
+        "image/jpeg",
+        0.75
+      );
     };
     reader.readAsDataURL(file);
   });
