@@ -115,6 +115,7 @@ export default function LogiCompareApp() {
 
   // Global Search & Live Tracking
   const [globalSearchInput, setGlobalSearchInput] = useState("");
+  const [landingTrackingInput, setLandingTrackingInput] = useState<string>("");
   const [activeTrackingAwb, setActiveTrackingAwb] = useState(DEMO_INIT_ORDER_ID);
   const [trackingSearchInput, setTrackingSearchInput] = useState(DEMO_INIT_ORDER_ID);
 
@@ -558,9 +559,7 @@ export default function LogiCompareApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
-      {/* ============================================================== */}
-      {/* 1. TOP SAAS APP COMMAND HEADER */}
-      {/* ============================================================== */}
+      {/* 1. Global Navigation Command Bar */}
       <header className="sticky top-0 z-40 bg-slate-950 text-white border-b border-slate-800 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           {/* Logo & Platform Brand */}
@@ -677,9 +676,7 @@ export default function LogiCompareApp() {
         </div>
       </header>
 
-      {/* ============================================================== */}
-      {/* 2. ISOLATED WORKSPACE ROUTING (NO VERTICAL DUMPING) */}
-      {/* ============================================================== */}
+      {/* 2. Workspace View Routing */}
       <div className="flex-1">
         {/* VIEW A: LANDING PAGE */}
         {activeRole === "landing" && (
@@ -1050,9 +1047,7 @@ export default function LogiCompareApp() {
         )}
       </div>
 
-      {/* ============================================================== */}
-      {/* 3. MODALS (CONTROLLED VISIBILITY) */}
-      {/* ============================================================== */}
+      {/* 3. Global Modals */}
       {selectedQuoteForBooking && (
         <DirectBookingModal
           quote={selectedQuoteForBooking}
@@ -1121,7 +1116,7 @@ export default function LogiCompareApp() {
         />
       )}
 
-      {/* 4. Global Compliance Footer */}
+      {/* 4. Enterprise Compliance Footer */}
       <Footer
         openLegalModal={(tab) => {
           setLegalModalTab(tab);
