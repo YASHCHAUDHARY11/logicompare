@@ -211,7 +211,7 @@ export interface PinLookupResult {
 // ============================================================================
 // 3. CORE PLATFORM CONSTANTS & MONETIZATION SETTINGS
 // ============================================================================
-export const MERCHANT_DETAILS = {
+const MERCHANT_DETAILS = {
   proprietor: "Yash Chaudhary",
   platformName: "LogiCompare Pro",
   category: "B2B Freight Discovery & Consignment Marketplace",
@@ -224,7 +224,7 @@ export const MERCHANT_DETAILS = {
   operatingHours: "Monday to Saturday, 09:00 AM – 07:00 PM IST"
 };
 
-export const DEFAULT_FEE_CONFIG: FeeConfig = {
+const DEFAULT_FEE_CONFIG: FeeConfig = {
   percentage: 2,         // 2% Platform Convenience Fee
   minFloorINR: 25,       // Minimum ₹25 floor cap
   taxPercentage: 18,     // 18% GST statutory
@@ -232,12 +232,12 @@ export const DEFAULT_FEE_CONFIG: FeeConfig = {
   odaFlatCharge: 450     // ₹450 ODA rate
 };
 
-export const DEMO_INIT_ORDER_ID = "LC-894210";
-export const DEMO_INIT_CARRIER_DOCKET = "148920194821";
+const DEMO_INIT_ORDER_ID = "LC-894210";
+const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
-export const DEMO_SHIPPER: UserProfile = {
+const DEMO_SHIPPER: UserProfile = {
   id: "demo-shipper-uuid",
-  email: "dispatch@apexlogistics.in",
+  emagstin: \"06AAACD9876Q1ZB\",il: "dispatch@apexlogistics.in",
   full_name: "Vikram Malhotra",
   company_name: "Apex Retail Solutions Pvt Ltd",
   gstin: "07AAACA1234A1Z5",
@@ -246,7 +246,7 @@ export const DEMO_SHIPPER: UserProfile = {
   isRealUser: false
 };
 
-export const DEMO_VENDOR: UserProfile = {
+const DEMO_VENDOR: UserProfile = {
   id: "demo-vendor-uuid",
   email: "ops@delhiveryb2b.com",
   full_name: "Ramesh Sharma",
@@ -258,7 +258,7 @@ export const DEMO_VENDOR: UserProfile = {
   isRealUser: false
 };
 
-export const FALLBACK_VENDORS: Vendor[] = [
+const FALLBACK_VENDORS: Vendor[] = [
   {
     id: "11111111-1111-1111-1111-111111111111",
     name: "Delhivery B2B Express",
@@ -326,7 +326,7 @@ export const FALLBACK_VENDORS: Vendor[] = [
   }
 ];
 
-export const FALLBACK_DEFAULT_RATE_CARDS: RateCard[] = [
+const FALLBACK_DEFAULT_RATE_CARDS: RateCard[] = [
   {
     id: "rc-del-bom-surface",
     vendor_id: "11111111-1111-1111-1111-111111111111",
@@ -397,7 +397,7 @@ export const FALLBACK_DEFAULT_RATE_CARDS: RateCard[] = [
   }
 ];
 
-export const clientLocationCache: Record<string, string> = {
+const clientLocationCache: Record<string, string> = {
   delhi: "110",
   "new delhi": "110",
   mumbai: "400",
@@ -417,7 +417,7 @@ export const clientLocationCache: Record<string, string> = {
 // ============================================================================
 // 4. CALCULATION ENGINES, PIN ROUTERS & CLIENT-SIDE UTILITIES
 // ============================================================================
-export const formatINR = (val: number): string => {
+const formatINR = (val: number): string => {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -474,7 +474,7 @@ function getLocalFallbackZone(pin: string): { city: string; state: string; hub: 
   return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
 }
 
-export async function resolveLocationToPrefix(rawInput: string): Promise<string> {
+async function resolveLocationToPrefix(rawInput: string): Promise<string> {
   if (!rawInput) return "%";
   const clean = rawInput.trim().toLowerCase();
   if (clean === "%") return "%";
@@ -496,12 +496,12 @@ export async function resolveLocationToPrefix(rawInput: string): Promise<string>
   return clean.substring(0, 3);
 }
 
-export function calculatePlatformFee(freightTotal: number, feeConfig: FeeConfig = DEFAULT_FEE_CONFIG): number {
+function calculatePlatformFee(freightTotal: number, feeConfig: FeeConfig = DEFAULT_FEE_CONFIG): number {
   const dynamicFee = (freightTotal * feeConfig.percentage) / 100;
   return Math.max(feeConfig.minFloorINR, Math.round(dynamicFee));
 }
 
-export function calculateQuotesForShipment(
+function calculateQuotesForShipment(
   originPin: string,
   destPin: string,
   boxes: BoxItem[],
@@ -572,7 +572,7 @@ export function calculateQuotesForShipment(
   });
 }
 
-export async function compressImageFile(file: File): Promise<File> {
+async function compressImageFile(file: File): Promise<File> {
   if (!file.type.startsWith("image/")) return file;
   return new Promise((resolve) => {
     const img = new Image();
@@ -616,130 +616,130 @@ interface IconProps {
   className?: string;
 }
 
-export const TruckIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const TruckIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
   </svg>
 );
 
-export const PlaneIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const PlaneIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
   </svg>
 );
 
-export const BoxIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const BoxIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
   </svg>
 );
 
-export const PrinterIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const PrinterIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
   </svg>
 );
 
-export const SearchIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const SearchIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
   </svg>
 );
 
-export const PlusIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const PlusIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
   </svg>
 );
 
-export const TrashIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const TrashIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
 
-export const ArrowRightIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
+const ArrowRightIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
   </svg>
 );
 
-export const CheckCircleIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const CheckCircleIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
 
-export const XMarkIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const XMarkIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
 
-export const ShieldCheckIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const ShieldCheckIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
   </svg>
 );
 
-export const ChevronDownIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const ChevronDownIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
   </svg>
 );
 
-export const LayersIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const LayersIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
   </svg>
 );
 
-export const CurrencyRupeeIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const CurrencyRupeeIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 8h6m-5 0h.01M9 12h5m-5 0h.01M9 4v16m0-12a4 4 0 014 4 4 4 0 01-4 4l6 6" />
   </svg>
 );
 
-export const CreditCardIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const CreditCardIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <rect x="2" y="5" width="20" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M2 10h20M7 15h2m4 0h4" />
   </svg>
 );
 
-export const ExternalLinkIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
+const ExternalLinkIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
   </svg>
 );
 
-export const DownloadIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const DownloadIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
 );
 
-export const UploadIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
+const UploadIcon: React.FC<IconProps> = ({ className = "w-5 h-5" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
   </svg>
 );
 
-export const MapPinIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
+const MapPinIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
 
-export const DocumentIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
+const DocumentIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
   </svg>
 );
 
-export const BoltIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
+const BoltIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
   </svg>
@@ -748,7 +748,7 @@ export const BoltIcon: React.FC<IconProps> = ({ className = "w-4 h-4" }) => (
 // ============================================================================
 // 6. 3D ENGINES & HTML5 CANVAS VISUALIZERS
 // ============================================================================
-export function Interactive3DBox({ length, width, height }: { length: number; width: number; height: number }) {
+function Interactive3DBox({ length, width, height }: { length: number; width: number; height: number }) {
   const [rotX, setRotX] = useState(-20);
   const [rotY, setRotY] = useState(35);
   const [isDragging, setIsDragging] = useState(false);
@@ -909,7 +909,7 @@ export function Interactive3DBox({ length, width, height }: { length: number; wi
   );
 }
 
-export function Hero3DTruck() {
+function Hero3DTruck() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [speed, setSpeed] = useState<"normal" | "turbo">("normal");
 
@@ -1093,7 +1093,7 @@ export function Hero3DTruck() {
   );
 }
 
-export function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub: string }) {
+function RouteTrajectory3D({ originHub, destHub }: { originHub: string; destHub: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -1200,7 +1200,7 @@ export function RouteTrajectory3D({ originHub, destHub }: { originHub: string; d
 // ============================================================================
 // 7. MAIN LOGICOMPARE APPLICATION CONTROLLER & REAL-TIME STATE
 // ============================================================================
-export function LogiCompareProController() {
+function LogiCompareProController() {
   // Navigation & Role Hierarchy State
   const [activeRole, setActiveRole] = useState<RoleType | "landing">("shipper");
   const [modeEnv, setModeEnv] = useState<"demo" | "live">("demo");
@@ -1828,7 +1828,7 @@ export interface HeaderSectionProps {
   handleGlobalSearch: (e: React.FormEvent) => void;
 }
 
-export function HeaderSection({
+function HeaderSection({
   activeRole,
   setActiveRole,
   modeEnv,
@@ -1999,7 +1999,7 @@ export interface LandingViewSectionProps {
   onSwitchCarrierDemo: () => void;
 }
 
-export function LandingViewSection({
+function LandingViewSection({
   highVolumeMode,
   vendors,
   landingTrackingInput,
@@ -2460,7 +2460,7 @@ export interface ShipperBulkCsvSectionProps {
   bulkUploadError: string;
 }
 
-export function ShipperBulkCsvSection({
+function ShipperBulkCsvSection({
   bulkManifestList,
   onAutoSelectCheapest,
   onAutoSelectFastest,
@@ -2775,7 +2775,7 @@ export interface ShipperSingleCalculatorSectionProps {
   onSelectQuoteForBooking: (q: CalculatedQuote) => void;
 }
 
-export function ShipperSingleCalculatorSection({
+function ShipperSingleCalculatorSection({
   highVolumeMode,
   originPin,
   setOriginPin,
@@ -3201,7 +3201,7 @@ export interface ShipperShipmentsSectionProps {
   onBatchPrintLabels: () => void;
 }
 
-export function ShipperShipmentsSection({
+function ShipperShipmentsSection({
   bookings,
   onRefresh,
   onOpenLabelModal,
@@ -3384,7 +3384,7 @@ export interface ShipperTrackerSectionProps {
   setTrackingSearchInput: (val: string) => void;
 }
 
-export function ShipperTrackerSection({
+function ShipperTrackerSection({
   bookings,
   activeTrackingAwb,
   setActiveTrackingAwb,
@@ -3564,7 +3564,7 @@ export interface ShipperRfqSectionProps {
   setRfqList: React.Dispatch<React.SetStateAction<RfqBid[]>>;
 }
 
-export function ShipperRfqSection({ currentUser, rfqList, setRfqList }: ShipperRfqSectionProps) {
+function ShipperRfqSection({ currentUser, rfqList, setRfqList }: ShipperRfqSectionProps) {
   const [newRfqOrigin, setNewRfqOrigin] = useState("110001");
   const [newRfqDest, setNewRfqDest] = useState("560001");
   const [newRfqDesc, setNewRfqDesc] = useState("Industrial Gearboxes and Heavy Machinery Parts");
@@ -3792,7 +3792,7 @@ export interface CarrierBidsSectionProps {
   setRfqList: React.Dispatch<React.SetStateAction<RfqBid[]>>;
 }
 
-export function CarrierBidsSection({ currentUser, rfqList, setRfqList }: CarrierBidsSectionProps) {
+function CarrierBidsSection({ currentUser, rfqList, setRfqList }: CarrierBidsSectionProps) {
   const [bidFormMap, setBidFormMap] = useState<Record<string, { amount: number; days: number; notes: string }>>({});
 
   const handleSubmitVendorBid = async (rfqId: string) => {
@@ -3957,7 +3957,7 @@ export interface CarrierOrdersSectionProps {
   onUpdateShipmentStatus: (bookingId: string) => Promise<void>;
 }
 
-export function CarrierOrdersSection({
+function CarrierOrdersSection({
   currentUser,
   bookings,
   statusUpdateMap,
@@ -4150,7 +4150,7 @@ export interface CarrierRatesSectionProps {
   onOpenAddRateModal: () => void;
 }
 
-export function CarrierRatesSection({
+function CarrierRatesSection({
   currentUser,
   rateCards,
   setRateCards,
@@ -4431,7 +4431,7 @@ export interface CarrierBankSectionProps {
   setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
 }
 
-export function CarrierBankSection({ currentUser, vendors, setVendors }: CarrierBankSectionProps) {
+function CarrierBankSection({ currentUser, vendors, setVendors }: CarrierBankSectionProps) {
   const currentVendor =
     vendors.find((v) => v.id === (currentUser.vendor_id || "11111111-1111-1111-1111-111111111111")) || vendors[0];
 
@@ -4574,7 +4574,7 @@ export interface AdminOverviewSectionProps {
   rateCards: RateCard[];
 }
 
-export function AdminOverviewSection({ bookings, vendors }: AdminOverviewSectionProps) {
+function AdminOverviewSection({ bookings, vendors }: AdminOverviewSectionProps) {
   return (
     <div className="space-y-6">
       <div className="border-b border-slate-200 pb-4">
@@ -4662,7 +4662,7 @@ export interface DirectBookingModalProps {
   onSuccess: (b: Booking) => void;
 }
 
-export function DirectBookingModal({
+function DirectBookingModal({
   quote,
   currentUser,
   originPin,
@@ -4940,7 +4940,7 @@ export interface ThermalPrintModalProps {
   onClose: () => void;
 }
 
-export function ThermalPrintModal({
+function ThermalPrintModal({
   printableBooking,
   batchPrintBookings,
   onClose
@@ -5192,7 +5192,7 @@ export interface CitySearchModalProps {
   onClose: () => void;
 }
 
-export function CitySearchModal({ target, onSelectPin, onClose }: CitySearchModalProps) {
+function CitySearchModal({ target, onSelectPin, onClose }: CitySearchModalProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Array<{ name: string; district: string; state: string; pincode: string }>>([]);
   const [loading, setLoading] = useState(false);
@@ -5305,7 +5305,7 @@ export interface AddRateCardModalProps {
   onClose: () => void;
 }
 
-export function AddRateCardModal({ currentUser, vendors, onSuccess, onClose }: AddRateCardModalProps) {
+function AddRateCardModal({ currentUser, vendors, onSuccess, onClose }: AddRateCardModalProps) {
   const [card, setCard] = useState({
     origin_prefix: "110",
     dest_prefix: "400",
@@ -5484,7 +5484,7 @@ export interface LegalModalProps {
   onClose: () => void;
 }
 
-export function LegalModal({ tab, setTab, onClose }: LegalModalProps) {
+function LegalModal({ tab, setTab, onClose }: LegalModalProps) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
       <div className="bg-white border border-slate-300 rounded-3xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
@@ -5630,7 +5630,7 @@ export interface AuthModalProps {
   onClose: () => void;
 }
 
-export function AuthModal({ onSuccess, onClose }: AuthModalProps) {
+function AuthModal({ onSuccess, onClose }: AuthModalProps) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -5813,7 +5813,7 @@ export interface FooterSectionProps {
   openLegalModal: (tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => void;
 }
 
-export function FooterSection({ openLegalModal }: FooterSectionProps) {
+function FooterSection({ openLegalModal }: FooterSectionProps) {
   return (
     <footer className="mt-auto border-t border-slate-800 bg-slate-950 text-slate-300 text-xs no-print select-none">
       <div className="max-w-7xl mx-auto px-4 lg:px-8 py-10 space-y-8">
