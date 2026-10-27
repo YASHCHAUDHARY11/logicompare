@@ -938,7 +938,7 @@ async function compressAgreementFile(file: File): Promise<{
 
       // Save using object streams to compress cross-reference tables and unused object overhead
       const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
-      const blob = new Blob([compressedBytes], { type: "application/pdf" });
+      const blob = new Blob([compressedBytes.buffer as ArrayBuffer], { type: "application/pdf" });
       
       const compressedFile = new File([blob], file.name, {
         type: "application/pdf",
