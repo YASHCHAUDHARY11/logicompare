@@ -10,9 +10,10 @@ interface FooterProps {
 
 export function Footer({ openLegalModal }: FooterProps) {
   return (
-    <footer className="mt-auto border-t border-slate-800 bg-slate-950 text-slate-300 text-xs no-print">
+    <footer className="mt-auto border-t border-slate-800 bg-slate-950 text-slate-300 text-xs no-print select-none">
       <div className="max-w-7xl mx-auto px-4 lg:px-8 py-10 space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-slate-800/80 pb-8">
+          {/* Identity & Legal Entity */}
           <div className="space-y-3">
             <div className="flex items-center space-x-2.5">
               <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
@@ -29,8 +30,9 @@ export function Footer({ openLegalModal }: FooterProps) {
             </div>
           </div>
 
+          {/* Grievance & Operator Details */}
           <div className="space-y-2 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
-            <span className="text-xs font-black text-white uppercase tracking-wider block text-indigo-400">
+            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
               Merchant Contact & Grievance
             </span>
             <p className="text-[11px] text-slate-300"><strong>Proprietor:</strong> {MERCHANT_DETAILS.proprietor}</p>
@@ -45,25 +47,43 @@ export function Footer({ openLegalModal }: FooterProps) {
             </p>
           </div>
 
+          {/* Policies & Compliance Links */}
           <div className="space-y-3">
-            <span className="text-xs font-black text-white uppercase tracking-wider block text-indigo-400">
+            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
               Governance & Policies
             </span>
             <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-400">
-              <button onClick={() => openLegalModal("terms")} className="text-left hover:text-white transition">Terms of Service</button>
-              <button onClick={() => openLegalModal("privacy")} className="text-left hover:text-white transition">Privacy Policy</button>
-              <button onClick={() => openLegalModal("refund")} className="text-left hover:text-white transition">Refund & Cancellation</button>
-              <button onClick={() => openLegalModal("shipping")} className="text-left hover:text-white transition">Shipping Policy</button>
-              <button onClick={() => openLegalModal("prohibited")} className="text-left hover:text-white transition">Prohibited Cargo</button>
-              <button onClick={() => openLegalModal("contact")} className="text-left hover:text-white transition">Contact Us</button>
+              <button type="button" onClick={() => openLegalModal("terms")} className="text-left hover:text-white transition">
+                Terms of Service
+              </button>
+              <button type="button" onClick={() => openLegalModal("privacy")} className="text-left hover:text-white transition">
+                Privacy Policy
+              </button>
+              <button type="button" onClick={() => openLegalModal("refund")} className="text-left hover:text-white transition">
+                Refund & Cancellation
+              </button>
+              <button type="button" onClick={() => openLegalModal("shipping")} className="text-left hover:text-white transition">
+                Shipping Policy
+              </button>
+              <button type="button" onClick={() => openLegalModal("prohibited")} className="text-left hover:text-white transition">
+                Prohibited Cargo
+              </button>
+              <button type="button" onClick={() => openLegalModal("contact")} className="text-left hover:text-white transition">
+                Contact Us
+              </button>
             </div>
             <div className="pt-2 flex flex-wrap gap-2 text-[10px]">
-              <span className="bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 px-2 py-0.5 rounded font-mono font-bold">100% Direct Settlement</span>
-              <span className="bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded font-mono font-bold">GST 18% GTA</span>
+              <span className="bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 px-2 py-0.5 rounded font-mono font-bold">
+                100% Direct Settlement
+              </span>
+              <span className="bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded font-mono font-bold">
+                GST 18% GTA
+              </span>
             </div>
           </div>
         </div>
 
+        {/* Legal Sign-Off Strip */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-[11px]">
           <p>© 2026 {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.proprietor}). All rights reserved across India.</p>
           <div className="flex items-center space-x-3">
