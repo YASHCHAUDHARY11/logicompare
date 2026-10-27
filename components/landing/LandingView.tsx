@@ -46,7 +46,7 @@ export function LandingView({
   return (
     <div className="flex-1 flex flex-col space-y-16 pb-16">
       {/* ============================================================== */}
-      {/* SECTION 1: CINEMATIC 3D HERO SECTION */}
+      {/* SECTION 1: CINEMATIC HERO & UNIVERSAL TRACKER */}
       {/* ============================================================== */}
       <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
         <div
@@ -76,6 +76,7 @@ export function LandingView({
 
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
               <button
+                type="button"
                 onClick={onJumpToBulk}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
               >
@@ -83,6 +84,7 @@ export function LandingView({
                 <span>Launch 50/Day Bulk Shipper Console</span>
               </button>
               <button
+                type="button"
                 onClick={onJumpToCompare}
                 className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
               >
@@ -90,6 +92,7 @@ export function LandingView({
                 <span>Single Calculator</span>
               </button>
               <button
+                type="button"
                 onClick={onSwitchCarrierDemo}
                 className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
               >
@@ -101,9 +104,11 @@ export function LandingView({
 
           <div className="lg:col-span-5 flex justify-center">
             {!highVolumeMode ? (
-              <Hero3DTruck />
+              <div className="bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-4 shadow-2xl backdrop-blur-md">
+                <Hero3DTruck />
+              </div>
             ) : (
-              <div className="bg-slate-900/90 border border-indigo-500/30 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
+              <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
                 <span className="text-5xl">⚡</span>
                 <h3 className="text-white font-black text-lg">60FPS High-Volume Mode Active</h3>
                 <p className="text-xs text-slate-400 max-w-xs mx-auto">
@@ -114,7 +119,7 @@ export function LandingView({
           </div>
         </div>
 
-        {/* Quick Track Input with Universal Lookup Chips */}
+        {/* Universal Tracking Quick Lookups */}
         <div className="pt-10 max-w-xl mx-auto relative z-10">
           <div className="bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
             <div className="flex items-center space-x-2 px-3 py-1.5 text-slate-300 w-full sm:w-auto flex-1">
@@ -123,11 +128,12 @@ export function LandingView({
                 type="text"
                 value={landingTrackingInput}
                 onChange={(e) => setLandingTrackingInput(e.target.value)}
-                placeholder="e.g. LC-894210 or 148920194821"
+                placeholder="Enter Order Ref or Carrier Docket..."
                 className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
               />
             </div>
             <button
+              type="button"
               onClick={() => onQuickTrack()}
               className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-3 rounded-xl transition shadow-md shrink-0"
             >
@@ -137,6 +143,7 @@ export function LandingView({
           <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3 font-medium">
             <span>Universal Lookup Demos:</span>
             <button
+              type="button"
               onClick={() => onQuickTrack(DEMO_INIT_ORDER_ID)}
               className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
             >
@@ -144,6 +151,7 @@ export function LandingView({
             </button>
             <span>•</span>
             <button
+              type="button"
               onClick={() => onQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
               className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
             >
@@ -154,13 +162,13 @@ export function LandingView({
       </section>
 
       {/* ============================================================== */}
-      {/* SECTION 2: TRUST METRICS & CARRIER STRIP */}
+      {/* SECTION 2: TRUST METRICS & INTEGRATED TRANSPORTERS */}
       {/* ============================================================== */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-indigo-600">5+</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Carriers</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Fleets</p>
             <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
@@ -170,23 +178,23 @@ export function LandingView({
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-slate-900">100%</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Direct Shipper-to-Carrier</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Direct Carrier Settlement</p>
             <p className="text-[11px] text-slate-500">To-Pay / Direct UPI settlement</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-amber-500">2%</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Transparent Platform Fee</p>
+            <p className="text-xs font-bold text-slate-900 mt-1">Flat Verification Platform Fee</p>
             <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
           </div>
         </div>
 
         <div className="pt-8 text-center space-y-4">
           <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">
-            Official Multi-Carrier Logistics Integration & Tracking
+            Integrated National Transporters
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             {vendors.map((v) => (
-              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-xs hover:border-indigo-400 transition">
+              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-400 transition">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                 <span className="font-extrabold text-xs text-slate-900">{v.name}</span>
                 <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
@@ -211,6 +219,7 @@ export function LandingView({
 
           <div className="inline-flex p-1.5 bg-slate-200 rounded-2xl mt-4 shadow-inner">
             <button
+              type="button"
               onClick={() => setWorkflowTab("shipper")}
               className={`px-5 py-2 rounded-xl text-xs font-black transition ${
                 workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
@@ -219,6 +228,7 @@ export function LandingView({
               📦 For Shippers & Businesses
             </button>
             <button
+              type="button"
               onClick={() => setWorkflowTab("vendor")}
               className={`px-5 py-2 rounded-xl text-xs font-black transition ${
                 workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
@@ -231,7 +241,7 @@ export function LandingView({
 
         {workflowTab === "shipper" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">1</span>
               <h3 className="font-bold text-slate-900 text-sm">PIN & Multi-Box Input</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -239,7 +249,7 @@ export function LandingView({
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">2</span>
               <h3 className="font-bold text-slate-900 text-sm">Compare Carrier Rates</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -247,7 +257,7 @@ export function LandingView({
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">3</span>
               <h3 className="font-bold text-slate-900 text-sm">Dual-ID Generation</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -255,7 +265,7 @@ export function LandingView({
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">4</span>
               <h3 className="font-bold text-slate-900 text-sm">Universal Live Tracking</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -265,7 +275,7 @@ export function LandingView({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">1</span>
               <h3 className="font-bold text-slate-900 text-sm">Onboard Carrier & GSTIN</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -273,7 +283,7 @@ export function LandingView({
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">2</span>
               <h3 className="font-bold text-slate-900 text-sm">Publish Rates via Bulk CSV</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -281,7 +291,7 @@ export function LandingView({
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1 transition duration-200">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1 transition duration-200">
               <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">3</span>
               <h3 className="font-bold text-slate-900 text-sm">Update Official Bilty / Docket</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -307,7 +317,7 @@ export function LandingView({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <LayersIcon className="w-5 h-5" />
             </div>
@@ -317,7 +327,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-emerald-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <CurrencyRupeeIcon className="w-5 h-5" />
             </div>
@@ -327,7 +337,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10 hover:border-amber-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
               <ShieldCheckIcon className="w-5 h-5" />
             </div>
@@ -337,17 +347,17 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-blue-500/10 hover:border-blue-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <PrinterIcon className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-slate-900 text-base">Carrier-Certified Consignment Notes</h3>
+            <h3 className="font-bold text-slate-900 text-base">4x6 Thermal Label Printing</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Print official carrier labels showing the Transporter's official Waybill number, destination routing hub codes, package counts, and GSTINs.
+              Continuous print engine for multi-box labels with barcode and docket, ending with a driver handover sign-off manifest.
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-purple-500/10 hover:border-purple-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
               <TruckIcon className="w-5 h-5" />
             </div>
@@ -357,7 +367,7 @@ export function LandingView({
             </p>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-rose-500/10 hover:border-rose-400 transition-all duration-300">
             <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
               <CreditCardIcon className="w-5 h-5" />
             </div>
@@ -408,9 +418,10 @@ export function LandingView({
           ].map((faq, idx) => (
             <div
               key={idx}
-              className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs transition"
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition"
             >
               <button
+                type="button"
                 onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
                 className="w-full p-4 text-left font-black text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
               >
@@ -446,18 +457,21 @@ export function LandingView({
           </p>
           <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
+              type="button"
               onClick={onJumpToCompare}
               className="bg-white hover:bg-slate-100 text-slate-950 font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg hover:scale-105"
             >
               Open Freight Rate Matrix
             </button>
             <button
+              type="button"
               onClick={onSwitchShipperDemo}
               className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md shadow-md"
             >
               ⚡ Instant Demo as Shipper
             </button>
             <button
+              type="button"
               onClick={onJumpToBulk}
               className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md"
             >
