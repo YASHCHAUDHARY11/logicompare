@@ -20,7 +20,6 @@ export function getOfficialCarrierTrackingUrl(carrierName: string, docketNumber:
   if (name.includes("safexpress")) return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
   if (name.includes("gati")) return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
   if (name.includes("tci")) return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
-
   return `https://www.google.com/search?q=${encodeURIComponent(`${carrierName} consignment tracking ${cleanDocket}`)}`;
 }
 
@@ -96,7 +95,6 @@ export async function resolveLocationToPrefix(rawInput: string): Promise<string>
   } catch (err) {
     console.warn("API lookup fallback failed for:", clean, err);
   }
-
   return clean.substring(0, 3);
 }
 
@@ -186,17 +184,14 @@ export async function compressImageFile(file: File): Promise<File> {
       const MAX_WIDTH = 1200;
       let width = img.width;
       let height = img.height;
-
       if (width > MAX_WIDTH) {
         height = Math.round((height * MAX_WIDTH) / width);
         width = MAX_WIDTH;
       }
-
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(img, 0, 0, width, height);
-
       canvas.toBlob(
         (blob) => {
           if (blob) {
