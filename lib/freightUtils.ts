@@ -40,21 +40,14 @@ export function getLocalFallbackZone(pin: string): { city: string; state: string
   if (p3 === "110") return { city: "Delhi NCR", state: "Delhi", hub: "DEL-NORTH-01" };
   if (p3 === "121" || p3 === "122") return { city: "Gurugram / FBD", state: "Haryana", hub: "GGN-GATEWAY" };
   if (p3 === "131" || p3 === "132") return { city: "Sonipat / Panipat", state: "Haryana", hub: "HAR-CENTRAL" };
-  if (p3 === "133" || p3 === "134") return { city: "Ambala / Panchkula", state: "Haryana", hub: "AMB-HUB" };
   if (p3 === "141") return { city: "Ludhiana", state: "Punjab", hub: "LDH-IND-HUB" };
-  if (p3 === "143") return { city: "Amritsar", state: "Punjab", hub: "ASR-GATEWAY" };
-  if (p3 === "144") return { city: "Jalandhar", state: "Punjab", hub: "JAL-HUB" };
   if (p3 === "160") return { city: "Chandigarh (Tricity)", state: "Chandigarh", hub: "CHD-CENTRAL" };
   if (p3 === "201") return { city: "Noida / Ghaziabad", state: "Uttar Pradesh", hub: "UP-WEST-HUB" };
-  if (p3 === "250") return { city: "Meerut", state: "Uttar Pradesh", hub: "MRT-HUB-02" };
   if (p3 === "400" || p3 === "401") return { city: "Mumbai MMR", state: "Maharashtra", hub: "BOM-CENTRAL" };
-  if (p3 === "411") return { city: "Pune", state: "Maharashtra", hub: "PNQ-IND-01" };
   if (p3 === "560") return { city: "Bengaluru", state: "Karnataka", hub: "BLR-SOUTH-MAIN" };
   if (p3 === "500") return { city: "Hyderabad", state: "Telangana", hub: "HYD-HUB-01" };
   if (p3 === "600") return { city: "Chennai", state: "Tamil Nadu", hub: "MAA-AIR-SEA" };
   if (p3 === "700") return { city: "Kolkata", state: "West Bengal", hub: "CCU-EAST-PORT" };
-  if (p3 === "380") return { city: "Ahmedabad", state: "Gujarat", hub: "AMD-WEST-01" };
-  if (p3 === "302") return { city: "Jaipur", state: "Rajasthan", hub: "JAI-NORTH-WEST" };
 
   return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
 }
@@ -93,7 +86,7 @@ export async function resolveLocationToPrefix(rawInput: string): Promise<string>
       return prefix;
     }
   } catch (err) {
-    console.warn("API lookup fallback failed for:", clean, err);
+    console.warn("Postal API lookup fallback:", clean, err);
   }
   return clean.substring(0, 3);
 }
@@ -115,10 +108,8 @@ export function calculateQuotesForShipment(
   const matchedCards = rateCardsList.filter((card) => {
     if (!card.is_active) return false;
     if (mode !== "all" && card.mode !== mode) return false;
-
     const originMatches = card.origin_prefix === "%" || card.origin_prefix === oPrefix || originPin.startsWith(card.origin_prefix);
     const destMatches = card.dest_prefix === "%" || card.dest_prefix === dPrefix || destPin.startsWith(card.dest_prefix);
-
     return originMatches && destMatches;
   });
 
@@ -128,8 +119,7 @@ export function calculateQuotesForShipment(
     const divisor = card.mode === "air" ? 5000 : 4500;
     const volumetricWeight = boxes.reduce((acc, b) => {
       if (!b.length || !b.width || !b.height) return acc;
-      const volKg = ((Number(b.length) || 0) * (Number(b.width) || 0) * (Number(b.height) || 0)) / divisor;
-      return acc + volKg * (Number(b.qty) || 1);
+      return acc + ((b.length * b.width * b.height) / divisor) * (Number(b.qty) || 1);
     }, 0);
 
     const billableWeight = Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10, card.min_weight_kg);
@@ -146,8 +136,7 @@ export function calculateQuotesForShipment(
     const gst = subtotal * 0.18;
     const freightDirectTotal = subtotal + gst;
 
-    const rawPctFee = (freightDirectTotal * MERCHANT_DETAILS.platformFeePct) / 100;
-    const convenienceFee = Math.max(MERCHANT_DETAILS.minPlatformFeeINR, Math.round(rawPctFee));
+    const convenienceFee = Math.max(MERCHANT_DETAILS.minPlatformFeeINR, Math.round((freightDirectTotal * MERCHANT_DETAILS.platformFeePct) / 100));
 
     return {
       rateCard: card,
@@ -176,9 +165,7 @@ export async function compressImageFile(file: File): Promise<File> {
   return new Promise((resolve) => {
     const img = new Image();
     const reader = new FileReader();
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-    };
+    reader.onload = (e) => { img.src = e.target?.result as string; };
     img.onload = () => {
       const canvas = document.createElement("canvas");
       const MAX_WIDTH = 1200;
@@ -192,17 +179,9 @@ export async function compressImageFile(file: File): Promise<File> {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            resolve(new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }));
-          } else {
-            resolve(file);
-          }
-        },
-        "image/jpeg",
-        0.75
-      );
+      canvas.toBlob((blob) => {
+        resolve(blob ? new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }) : file);
+      }, "image/jpeg", 0.75);
     };
     reader.readAsDataURL(file);
   });
