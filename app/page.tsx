@@ -6452,16 +6452,89 @@ export default function Page() {
 
             {/* Tab 4: History & Live Tracker */}
             {state.shipperTab === "history" && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <ShipperTrackerSection
-                  bookings={state.bookings}
-                  activeTrackingAwb={state.activeTrackingAwb}
-                  setActiveTrackingAwb={state.setActiveTrackingAwb}
-                  trackingSearchInput={state.trackingSearchInput}
-                  setTrackingSearchInput={state.setTrackingSearchInput}
-                />
-              </div>
-            )}
+  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
+    <div className="border-b border-slate-100 pb-3">
+      <h3 className="text-base font-bold text-slate-800">Shipment Tracking & History</h3>
+      <p className="text-xs text-slate-500">Track current status or lookup by consignment AWB</p>
+    </div>
+
+    <div className="flex gap-2 max-w-md">
+      <input
+        type="text"
+        placeholder="Enter AWB or Docket Number..."
+        value={state.activeTrackingAwb || ""}
+        onChange={(e) => state.setActiveTrackingAwb(e.target.value)}
+        className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-800"
+      />
+      <button
+        onClick={() => {
+          if (!state.activeTrackingAwb) alert("Please enter an AWB number");
+        }}
+        className="px-4 py-2 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition"
+      >
+        Track
+      </button>
+    </div>
+
+    {(() => {
+      const activeShipment = state.bookings.find(
+        (b: any) =>
+          b.awb_number === state.activeTrackingAwb ||
+          b.order_id === state.activeTrackingAwb ||
+          b.carrier_docket_no === state.activeTrackingAwb
+      );
+
+      if (!state.activeTrackingAwb) {
+        return (
+          <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+            Enter an AWB / Docket number above to view timeline history.
+          </div>
+        );
+      }
+
+      if (!activeShipment) {
+        return (
+          <div className="text-center py-10 text-rose-500 bg-rose-50 rounded-xl border border-dashed border-rose-200 text-xs font-medium">
+            No active shipment found matching this number.
+          </div>
+        );
+      }
+
+      return (
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs font-mono font-bold text-slate-900">{activeShipment.awb_number}</span>
+              <p className="text-[11px] text-slate-500">Carrier: {activeShipment.vendors?.name || "Official Logistics"}</p>
+            </div>
+            <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+              {activeShipment.status}
+            </span>
+          </div>
+
+          <div className="border-t border-slate-200 pt-3">
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">Milestones</h4>
+            <div className="space-y-2">
+              {activeShipment.tracking_history && activeShipment.tracking_history.length > 0 ? (
+                activeShipment.tracking_history.map((step: any, idx: number) => (
+                  <div key={idx} className="flex items-start gap-3 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-slate-900 mt-1.5 shrink-0" />
+                    <div>
+                      <p className="font-semibold text-slate-800">{step.status} - <span className="font-normal text-slate-500">{step.location}</span></p>
+                      <p className="text-[10px] text-slate-400">{step.timestamp} {step.remarks && `• ${step.remarks}`}</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-400">Order confirmed. Handover pending to carrier hub.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+  </div>
+)}
 
             {/* Tab 5: Heavy Load Reverse Auction (RFQ) */}
             {state.shipperTab === "rfq" && (
