@@ -6538,14 +6538,59 @@ export default function Page() {
 
             {/* Tab 5: Heavy Load Reverse Auction (RFQ) */}
             {state.shipperTab === "rfq" && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <ShipperRfqSection
-                  currentUser={state.currentUser}
-                  rfqList={state.rfqList}
-                  setRfqList={state.setRfqList}
-                />
+  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      <div>
+        <h3 className="text-base font-bold text-slate-800">Reverse Auction / RFQs</h3>
+        <p className="text-xs text-slate-500">Post spot loads and receive bids from verified carriers</p>
+      </div>
+      <button
+        onClick={() => alert("To post a spot load RFQ, select FTL / Spot load mode in the booking form.")}
+        className="px-3 py-1.5 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition"
+      >
+        + Create Spot RFQ
+      </button>
+    </div>
+
+    {(!state.rfqList || state.rfqList.length === 0) ? (
+      <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+        No active RFQ bids found. Create an RFQ to invite carrier quotes.
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {state.rfqList.map((rfq: any) => (
+          <div key={rfq.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white transition space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-bold text-slate-900">
+                  {rfq.origin_pin} ➔ {rfq.dest_pin}
+                </span>
+                <p className="text-[11px] text-slate-500">{rfq.cargo_description || "Standard Cargo"} • {rfq.truck_type || "Open Body"}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-semibold text-slate-700">Target: {formatINR(rfq.target_price)}</span>
+                <div className="text-[10px] text-emerald-600 font-medium">Bids received: {rfq.bids?.length || 0}</div>
+              </div>
+            </div>
+
+            {rfq.bids && rfq.bids.length > 0 && (
+              <div className="border-t border-slate-200 pt-2 space-y-1.5">
+                <p className="text-[11px] font-semibold text-slate-700">Carrier Bids:</p>
+                {rfq.bids.map((b: any, bIdx: number) => (
+                  <div key={bIdx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-slate-100">
+                    <span className="font-medium text-slate-800">{b.vendor_name} ({b.transit_days} days)</span>
+                    <span className="font-bold text-slate-900">{formatINR(b.bid_amount)}</span>
+                  </div>
+                ))}
               </div>
             )}
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
+
 
             {/* Tab 6: Dynamic Origin Address Manager */}
             {state.shipperTab === "address" && (
