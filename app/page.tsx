@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, {
@@ -292,22 +293,6 @@ interface UserProfile {
   custom_tracking_url?: string;
 }
 
-interface ParsedCsvRateCard {
-  origin_prefix: string;
-  dest_prefix: string;
-  mode: "surface" | "air" | "ftl";
-  min_weight_kg: number;
-  base_rate: number;
-  per_kg_rate: number;
-  fuel_surcharge_pct: number;
-  docket_charge: number;
-  sla_days: number;
-  fov_pct?: number;
-  oda_charge?: number;
-  handling_per_kg?: number;
-  is_active?: boolean;
-}
-
 interface PinLookupResult {
   city: string;
   state: string;
@@ -452,7 +437,6 @@ function calculateQuotesForShipment(
   const oPrefix = originPin.substring(0, 3);
   const dPrefix = destPin.substring(0, 3);
 
-  // Check if dimensions are provided on at least one box
   const hasDimensions = boxes.some(
     (b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0
   );
@@ -470,7 +454,6 @@ function calculateQuotesForShipment(
   return activeCards.map((card) => {
     const divisor = card.mode === "air" ? 5000 : 4500;
     
-    // Strict optional dimensions handling: if dimensions are missing or 0, volumetric weight is 0
     let volumetricWeight = 0;
     if (hasDimensions) {
       volumetricWeight = boxes.reduce((acc, b) => {
@@ -614,6 +597,7 @@ async function compressAgreementFile(file: File): Promise<{
 
   return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
 }
+
 // ============================================================================
 // 4. MERCHANT CONFIGURATION & DEFAULT FALLBACK MASTERS
 // ============================================================================
@@ -648,7 +632,6 @@ const DEFAULT_FEE_CONFIG: FeeConfig = {
 const DEMO_INIT_ORDER_ID = "LC-894210";
 const DEMO_INIT_CARRIER_DOCKET = "148920194821";
 
-// Demo Sandbox Entities (Strictly isolated to Demo Mode only)
 const DEMO_SHIPPER_ADDRESS: AddressProfile = {
   id: "addr-demo-origin",
   label: "Demo Central Logistics Hub",
@@ -1104,7 +1087,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
           redirectTo: typeof window !== "undefined" ? window.location.origin : undefined
         });
         if (error) throw error;
-        setSuccessMsg("Password reset link has been dispatched to your business email. Please check your inbox/spam.");
+        setSuccessMsg("Password reset link has been dispatched to your business email.");
       } else if (viewMode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
@@ -1359,53 +1342,43 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
     </div>
   );
 };
-
 // ============================================================================
 // 7. PERSISTENT APPLICATION STATE ENGINE HOOK CONTROLLER
 // ============================================================================
 function useAppEngine() {
-  // Navigation & Role State
   const [activeRole, setActiveRole] = useState<RoleType | "landing">("landing");
   const [modeEnv, setModeEnv] = useState<ModeEnv>("demo");
   const [highVolumeMode, setHighVolumeMode] = useState<boolean>(true);
   const [isAuthRestoring, setIsAuthRestoring] = useState<boolean>(true);
 
-  // Sub-Navigation Tabs
   const [shipperTab, setShipperTab] = useState<ShipperTabType>("search");
   const [carrierTab, setCarrierTab] = useState<CarrierTabType>("tracking");
 
-  // Authentication & Users
   const [currentUser, setCurrentUser] = useState<UserProfile>(DEMO_SHIPPER);
   const [authSession, setAuthSession] = useState<Session | null>(null);
 
-  // Carrier Specific Public Tracking Portal URL State
   const [carrierCustomTrackingUrl, setCarrierCustomTrackingUrl] = useState<string>("https://www.delhivery.com/track/package/");
 
-  // Dynamic Address Profile State
   const [shipperAddresses, setShipperAddresses] = useState<AddressProfile[]>([DEMO_SHIPPER_ADDRESS]);
   const [activeOriginAddress, setActiveOriginAddress] = useState<AddressProfile | null>(DEMO_SHIPPER_ADDRESS);
   const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
   const [editingAddress, setEditingAddress] = useState<AddressProfile | null>(null);
 
-  // Credit Agreements & Ledger
   const [creditAgreements, setCreditAgreements] = useState<CreditAgreement[]>(INITIAL_MOCK_CREDIT_AGREEMENTS);
   const [creditLedger, setCreditLedger] = useState<CreditLedgerEntry[]>(INITIAL_MOCK_CREDIT_LEDGER);
   const [showCreditApplyModal, setShowCreditApplyModal] = useState<boolean>(false);
 
-  // Platform Fee Billing & Invoice Ledger
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("weekly");
   const [invoices, setInvoices] = useState<PlatformInvoice[]>(INITIAL_MOCK_INVOICES);
   const [showPayFeeModal, setShowPayFeeModal] = useState<boolean>(false);
   const [selectedInvoiceToPay, setSelectedInvoiceToPay] = useState<PlatformInvoice | null>(null);
   const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
-  // Master Tariffs and Vendors
   const [rateCards, setRateCards] = useState<RateCard[]>(DEMO_RATE_CARDS);
   const [vendors, setVendors] = useState<Vendor[]>(FALLBACK_VENDORS);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rfqList, setRfqList] = useState<RfqBid[]>([]);
 
-  // Modals Visibility State
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact">("terms");
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
@@ -1415,7 +1388,6 @@ function useAppEngine() {
   const [printableBooking, setPrintableBooking] = useState<Booking | null>(null);
   const [batchPrintBookings, setBatchPrintBookings] = useState<Booking[] | null>(null);
 
-  // Rate Calculator Parameters
   const [originPin, setOriginPin] = useState<string>("110020");
   const [destPin, setDestPin] = useState<string>("400001");
   const [isOda, setIsOda] = useState<boolean>(false);
@@ -1428,7 +1400,6 @@ function useAppEngine() {
   const [selectedBoxFor3D, setSelectedBoxFor3D] = useState<number>(0);
   const [pickupAddress, setPickupAddress] = useState<string>("Plot 42, Okhla Industrial Area Phase-III, South Delhi - 110020");
 
-  // Bulk CSV Dispatch Matrix State
   const [bulkManifestList, setBulkManifestList] = useState<BulkManifestRow[]>([]);
   const [bulkCsvFileName, setBulkCsvFileName] = useState<string>("");
   const [bulkUploadError, setBulkUploadError] = useState<string>("");
@@ -1436,13 +1407,11 @@ function useAppEngine() {
   const [bulkConsolidatedUtr, setBulkConsolidatedUtr] = useState<string>("");
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
 
-  // Tracking and Global Search
   const [globalSearchInput, setGlobalSearchInput] = useState<string>("");
   const [landingTrackingInput, setLandingTrackingInput] = useState<string>("");
   const [activeTrackingAwb, setActiveTrackingAwb] = useState<string>(DEMO_INIT_ORDER_ID);
   const [trackingSearchInput, setTrackingSearchInput] = useState<string>(DEMO_INIT_ORDER_ID);
 
-  // Zone Lookups
   const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
     city: "Delhi NCR",
     state: "Delhi",
@@ -1504,7 +1473,6 @@ function useAppEngine() {
     }
   };
 
-  // Sync Master Data from Supabase
   const fetchLiveDatabaseData = useCallback(async () => {
     try {
       const { data: vData } = await supabase.from("vendors").select("*");
@@ -1532,7 +1500,6 @@ function useAppEngine() {
     }
   }, []);
 
-  // 1. Persistent Auth Session Handler (Prevents logouts on page refresh)
   useEffect(() => {
     let isMounted = true;
 
@@ -1583,7 +1550,6 @@ function useAppEngine() {
           }
           await fetchLiveDatabaseData();
         } else if (isMounted) {
-          // No active live session: fallback safely to demo sandbox
           setCurrentUser(DEMO_SHIPPER);
           setModeEnv("demo");
           setActiveRole("landing");
@@ -1660,7 +1626,6 @@ function useAppEngine() {
     };
   }, [applyOriginAddress, fetchLiveDatabaseData]);
 
-  // Handle Explicit Logout
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -1675,7 +1640,6 @@ function useAppEngine() {
     applyOriginAddress(DEMO_SHIPPER_ADDRESS);
   };
 
-  // PIN Zone Lookup Resolvers
   useEffect(() => {
     if (originPin && originPin.trim().length === 6) {
       setOriginZoneData((prev) => ({ ...prev, loading: true }));
@@ -1720,7 +1684,6 @@ function useAppEngine() {
     }
   }, [destPin]);
 
-  // Global Tracking Search
   const handleGlobalSearch = (e: FormEvent) => {
     e.preventDefault();
     if (!globalSearchInput.trim()) return;
@@ -1731,7 +1694,6 @@ function useAppEngine() {
     setGlobalSearchInput("");
   };
 
-  // Role Navigation with Strict Live Auth Lock
   const handleRoleSwitch = (role: RoleType | "landing") => {
     if (modeEnv === "live" && currentUser.isRealUser) {
       if (role !== "landing" && role !== "admin" && role !== currentUser.role) {
@@ -1746,7 +1708,6 @@ function useAppEngine() {
     }
   };
 
-  // Live Rates Strict Filtering: NEVER leak demo cards in live mode
   const activeRateCards = useMemo(() => {
     if (modeEnv === "live") {
       return rateCards.filter((c) => !c.id.startsWith("rc-del-") && !c.id.startsWith("rc-bd-") && !c.id.startsWith("rc-safe-") && !c.id.startsWith("rc-gati-"));
@@ -1754,7 +1715,6 @@ function useAppEngine() {
     return rateCards;
   }, [rateCards, modeEnv]);
 
-  // Rate Quotes Calculation Memo
   const calculatedQuotes = useMemo(() => {
     if (!originPin || !destPin || activeRateCards.length === 0) return [];
     return calculateQuotesForShipment(
@@ -1838,8 +1798,9 @@ function useAppEngine() {
     }
   };
 }
+
 // ============================================================================
-// 8. 3D INTERACTIVE CARTOON & TRAJECTORY ENGINES (LOCAL COMPONENTS)
+// 8. 3D INTERACTIVE VISUALIZERS (LOCAL COMPONENTS)
 // ============================================================================
 interface Interactive3DBoxProps {
   length?: number | null;
@@ -1922,7 +1883,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             transform: `rotateX(${rotX}deg) rotateY(${rotY}deg)`
           }}
         >
-          {/* Front Face */}
           <div
             className="absolute inset-0 bg-gradient-to-br from-amber-700 via-amber-600 to-amber-800 border border-amber-900/60 shadow-inner flex flex-col justify-between p-2 text-white overflow-hidden rounded-sm"
             style={{ transform: `translateZ(${w / 2}px)` }}
@@ -1946,7 +1906,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             <div className="h-1.5 w-full bg-amber-950/60 rounded-sm"></div>
           </div>
 
-          {/* Back Face */}
           <div
             className="absolute inset-0 bg-gradient-to-br from-amber-800 to-amber-900 border border-amber-950 flex items-center justify-center text-amber-300 font-mono text-[8px] font-bold"
             style={{ transform: `rotateY(180deg) translateZ(${w / 2}px)` }}
@@ -1954,7 +1913,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             <span>LOGICOMPARE B2B</span>
           </div>
 
-          {/* Left Face */}
           <div
             className="absolute bg-gradient-to-br from-amber-800 via-amber-700 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
             style={{
@@ -1967,7 +1925,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             <span className="text-[7px] font-bold rotate-90 opacity-75">WIDTH: {safeW}cm</span>
           </div>
 
-          {/* Right Face */}
           <div
             className="absolute bg-gradient-to-br from-amber-700 via-amber-800 to-amber-900 border border-amber-950 flex flex-col justify-center items-center text-amber-200"
             style={{
@@ -1980,7 +1937,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             <span className="text-[7px] font-bold -rotate-90 opacity-75">HT: {safeH}cm</span>
           </div>
 
-          {/* Top Face */}
           <div
             className="absolute bg-gradient-to-br from-amber-600 via-amber-500 to-amber-700 border border-amber-900 flex items-center justify-center overflow-hidden"
             style={{
@@ -1995,7 +1951,6 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
             </div>
           </div>
 
-          {/* Bottom Face */}
           <div
             className="absolute bg-amber-950 shadow-2xl"
             style={{
@@ -2605,7 +2560,6 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
 
   return (
     <div className="space-y-6">
-      {/* 1. Dynamic Origin Warehouse Facility Banner */}
       {activeOriginAddress ? (
         <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
           <div className="space-y-1">
@@ -2645,9 +2599,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
         </div>
       )}
 
-      {/* 2. Route & Consignment Parameters Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Origin PIN */}
         <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200">
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-black text-indigo-950 uppercase tracking-wider">Origin PIN</label>
@@ -2673,7 +2625,6 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
           </div>
         </div>
 
-        {/* Destination PIN */}
         <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-black text-emerald-950 uppercase tracking-wider">Destination PIN</label>
@@ -2699,7 +2650,6 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
           </div>
         </div>
 
-        {/* Declared Value */}
         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
           <label className="block text-xs font-black text-slate-800 uppercase tracking-wider mb-1">
             Declared Value (₹) FOV
@@ -2713,7 +2663,6 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
           <p className="text-[11px] text-slate-500 mt-2 font-medium">0.20% FOV insurance risk coverage</p>
         </div>
 
-        {/* Transport Mode & ODA */}
         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between">
           <div>
             <label className="block text-xs font-black text-slate-800 uppercase tracking-wider mb-1">
@@ -2743,14 +2692,12 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
         </div>
       </div>
 
-      {/* 3. Parabolic Trajectory Canvas */}
       {!highVolumeMode && (
         <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
           <RouteTrajectory3D originHub={originZoneData.hub} destHub={destZoneData.hub} />
         </div>
       )}
 
-      {/* 4. Multi-Box Carton Specifications with Strictly Optional Dimensions */}
       <div className="border border-slate-200 rounded-2xl p-5 bg-slate-50/70 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -2873,7 +2820,6 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
           )}
         </div>
 
-        {/* Calculation Summary Ribbon */}
         <div className="flex flex-wrap items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-xs">
           <div className="flex flex-wrap gap-6 font-medium">
             <div>
@@ -2901,8 +2847,9 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
     </div>
   );
 };
+
 // ============================================================================
-// 12. SHIPPER LIVE RATE COMPARISON CARDS (STRICT ISOLATION & LINE ITEMS)
+// 12. SHIPPER LIVE RATE COMPARISON CARDS
 // ============================================================================
 interface ShipperRateComparisonCardsProps {
   quotes: CalculatedQuote[];
@@ -2984,7 +2931,6 @@ const ShipperRateComparisonCards: FC<ShipperRateComparisonCardsProps> = ({
                     <span className="font-mono text-emerald-800 font-bold">Carrier UPI: {quote.vendor.upi_id || "Available at Checkout"}</span>
                   </div>
 
-                  {/* Credit Facility Status Indicator */}
                   <div className="pt-1">
                     {quote.creditAvailable ? (
                       <span className="inline-flex items-center space-x-1.5 text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-lg font-bold">
@@ -3009,7 +2955,6 @@ const ShipperRateComparisonCards: FC<ShipperRateComparisonCardsProps> = ({
                   </div>
                 </div>
 
-                {/* Line Item Fee Breakdown Matrix */}
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-5 gap-3 text-center sm:text-left">
                   <div>
                     <span className="text-[10px] text-slate-500 font-bold block">Base Freight</span>
@@ -3033,7 +2978,6 @@ const ShipperRateComparisonCards: FC<ShipperRateComparisonCardsProps> = ({
                   </div>
                 </div>
 
-                {/* Direct Booking Action */}
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0">
                   <div className="text-left sm:text-right">
                     <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Total Consignment Cost</span>
@@ -3109,7 +3053,6 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
       let fileToUpload = selectedFile;
       let savingsInfo = "";
 
-      // 1. Minify PDF using pdf-lib if file size exceeds 1MB
       if (selectedFile.size > 1024 * 1024) {
         setStatusType("optimizing");
         setUploadStatusText("Optimizing PDF with object streams...");
@@ -3121,7 +3064,6 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
         }
       }
 
-      // 2. Upload to Supabase Storage 'agreements' bucket
       setStatusType("uploading");
       setUploadStatusText("Uploading to secure agreements storage...");
 
@@ -3138,11 +3080,9 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
         const { data: urlData } = supabase.storage.from("agreements").getPublicUrl(filePath);
         publicUrl = urlData.publicUrl;
       } else {
-        // Fallback to local Object URL if bucket upload is unprovisioned
         publicUrl = URL.createObjectURL(fileToUpload);
       }
 
-      // 3. Visual Confirmation
       setStatusType("success");
       setUploadStatusText(`Uploaded successfully${savingsInfo}`);
 
@@ -3230,7 +3170,6 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
             </div>
           </div>
 
-          {/* Compressed Agreement PDF Upload */}
           <div>
             <label className="block text-slate-700 font-bold mb-1">
               Upload Signed Agreement / GST KYC (PDF or Scan) *
@@ -3533,7 +3472,6 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({
                   </div>
                 </div>
 
-                {/* Submit Bid Form */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                   <span className="text-xs font-black text-slate-800 block uppercase tracking-wider">
                     Submit Competitive Carrier Quote
@@ -3648,7 +3586,7 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({
           <span>Carrier-Specific Public Tracking Portal URL</span>
         </h2>
         <p className="text-xs text-slate-500 mt-0.5">
-          Configure your official fleet tracking website. When shippers or consignees click &quot;Carrier Portal (↗)&quot;, they will be automatically redirected to your customized tracking URL with their AWB number appended.
+          Configure your official fleet tracking website. When shippers or consignees click &quot;Carrier Portal (↗)&quot;, they will be automatically redirected to your customized tracking URL.
         </p>
       </div>
 
@@ -3665,12 +3603,8 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({
             onChange={(e) => setUrlInput(e.target.value)}
             className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:border-indigo-600 focus:outline-none"
           />
-          <p className="text-[11px] text-slate-500 mt-1">
-            Ensure your URL ends with an equals sign (<code className="font-mono text-indigo-700 font-bold">?awb=</code>) or trailing slash (<code className="font-mono text-indigo-700 font-bold">/</code>) so the docket number appends accurately.
-          </p>
         </div>
 
-        {/* Live Simulator Preview */}
         <div className="bg-slate-900 text-white p-4 rounded-xl space-y-2 border border-slate-800">
           <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold block">
             Real-Time Redirection Simulator
@@ -3727,7 +3661,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
 }) => {
   return (
     <div className="space-y-4">
-      {/* Header Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-black text-slate-900">Fleet Tracking & Bilty Dispatch Console</h2>
@@ -3737,7 +3670,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
         </div>
       </div>
 
-      {/* Dispatches Data Cards */}
       {bookings.length === 0 ? (
         <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
           No active consignments booked with your fleet network yet.
@@ -3756,7 +3688,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
 
             return (
               <div key={booking.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                {/* Consignment Overview Strip */}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                   <div className="flex items-center space-x-3">
                     <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
@@ -3781,10 +3712,8 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                   </div>
                 </div>
 
-                {/* Bilty Entry & Photo Upload Form */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                    {/* Carrier Docket / LR Input */}
                     <div className="md:col-span-4">
                       <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
                         Carrier Docket / LR No.
@@ -3803,7 +3732,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                       />
                     </div>
 
-                    {/* Compressed File Upload */}
                     <div className="md:col-span-5">
                       <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
                         Physical Bilty / POD (Image / PDF)
@@ -3841,7 +3769,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                       </div>
                     </div>
 
-                    {/* Transit Milestone Status */}
                     <div className="md:col-span-3">
                       <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
                         Transit Milestone Status
@@ -3865,7 +3792,6 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                     </div>
                   </div>
 
-                  {/* Location & Save Action Bar */}
                   <div className="flex flex-col md:flex-row items-center gap-2.5 pt-2 border-t border-slate-200">
                     <input
                       type="text"
@@ -3898,646 +3824,169 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
     </div>
   );
 };
-// ============================================================================
-// 18. CARRIER CREDIT AGREEMENT REVIEW & APPROVAL CONSOLE
-// ============================================================================
-interface CarrierCreditApprovalSectionProps {
-  agreements: CreditAgreement[];
-  onReviewAgreement: (
-    agreementId: string,
-    status: "Approved" | "Rejected",
-    approvedLimit?: number,
-    reason?: string
-  ) => void;
-}
-
-const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({
-  agreements,
-  onReviewAgreement
-}) => {
-  const [filter, setFilter] = useState<"All" | "Pending_Review" | "Approved" | "Rejected">("Pending_Review");
-  const [approvalLimitInput, setApprovalLimitInput] = useState<Record<string, number>>({});
-  const [rejectionReasonInput, setRejectionReasonInput] = useState<Record<string, string>>({});
-
-  const filtered = useMemo(() => {
-    if (filter === "All") return agreements;
-    return agreements.filter((a) => a.status === filter);
-  }, [agreements, filter]);
-
-  const totalCreditExposure = useMemo(() => {
-    return agreements
-      .filter((a) => a.status === "Approved")
-      .reduce((sum, a) => sum + a.approved_limit, 0);
-  }, [agreements]);
-
-  const totalActiveExposureDues = useMemo(() => {
-    return agreements
-      .filter((a) => a.status === "Approved")
-      .reduce((sum, a) => sum + a.utilized_amount, 0);
-  }, [agreements]);
-
-  return (
-    <div className="space-y-6">
-      {/* Header and Risk Summary */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-        <div>
-          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
-            <DocumentCheckIcon className="w-5 h-5 text-emerald-600" />
-            <span>Shipper Credit Facility Underwriting & KYC Approval</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Review signed B2B credit agreements, authorize revolving billing limits, and manage counterparty risk.
-          </p>
-        </div>
-
-        {/* Filter Pills */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl text-xs font-bold text-white">
-          {(["Pending_Review", "Approved", "Rejected", "All"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setFilter(tab)}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                filter === tab ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {tab.replace("_", " ")}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Credit Risk Metric Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Authorized Credit Line</span>
-          <span className="text-2xl font-black text-slate-900 font-mono">{formatINR(totalCreditExposure)}</span>
-          <p className="text-[10px] text-slate-400">Total approved exposure across shippers</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Active Utilized Credit</span>
-          <span className="text-2xl font-black text-indigo-700 font-mono">{formatINR(totalActiveExposureDues)}</span>
-          <p className="text-[10px] text-slate-400">Outstanding freight unbilled or awaiting invoice terms</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Pending Requests</span>
-          <span className="text-2xl font-black text-amber-600 font-mono">
-            {agreements.filter((a) => a.status === "Pending_Review").length}
-          </span>
-          <p className="text-[10px] text-slate-400">Awaiting underwriting KYC verification</p>
-        </div>
-      </div>
-
-      {/* Agreements Cards Grid */}
-      <div className="space-y-4">
-        {filtered.length === 0 ? (
-          <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
-            No credit applications found matching this status filter.
-          </div>
-        ) : (
-          filtered.map((agreement) => {
-            const currentLimit = approvalLimitInput[agreement.id] !== undefined
-              ? approvalLimitInput[agreement.id]
-              : (agreement.approved_limit > 0 ? agreement.approved_limit : agreement.requested_limit);
-            const currentReason = rejectionReasonInput[agreement.id] || "";
-
-            return (
-              <div key={agreement.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-black text-sm text-slate-900">{agreement.shipper_name}</span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                          agreement.status === "Approved"
-                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                            : agreement.status === "Pending_Review"
-                            ? "bg-amber-100 text-amber-800 border-amber-300"
-                            : "bg-rose-100 text-rose-800 border-rose-300"
-                        }`}
-                      >
-                        {agreement.status.replace("_", " ")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      Application ID: <span className="font-mono font-bold text-slate-700">{agreement.id}</span> • Terms: <strong>{agreement.payment_terms_days} Days Net Credit</strong>
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Requested Facility Limit</span>
-                    <span className="text-xl font-black text-indigo-700 font-mono">{formatINR(agreement.requested_limit)}</span>
-                  </div>
-                </div>
-
-                {/* Uploaded Agreement PDF Link & Submission Details */}
-                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center space-x-2">
-                    <DocumentIcon className="w-4 h-4 text-indigo-600 shrink-0" />
-                    <div>
-                      <span className="font-bold text-slate-900 block">{agreement.document_name}</span>
-                      <span className="text-[10px] text-slate-500">Submitted on: {new Date(agreement.submitted_at).toLocaleDateString("en-IN")}</span>
-                    </div>
-                  </div>
-
-                  <a
-                    href={agreement.document_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl font-bold flex items-center space-x-1 shadow-xs transition"
-                  >
-                    <span>View Executed Agreement PDF</span>
-                    <ExternalLinkIcon className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-
-                {/* Approval & Rejection Actions for Pending Items */}
-                {agreement.status === "Pending_Review" && (
-                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200 space-y-3 text-xs">
-                    <span className="font-black text-indigo-950 uppercase tracking-wider block">
-                      Underwriting & KYC Verification Decision
-                    </span>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                      <div>
-                        <label className="block text-slate-700 font-bold mb-1">Approved Credit Limit (₹)</label>
-                        <input
-                          type="number"
-                          step={10000}
-                          value={currentLimit}
-                          onChange={(e) =>
-                            setApprovalLimitInput({
-                              ...approvalLimitInput,
-                              [agreement.id]: Number(e.target.value)
-                            })
-                          }
-                          className="w-full bg-white border-2 border-indigo-300 rounded-xl p-2 font-mono font-bold text-slate-900 focus:outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-700 font-bold mb-1">Rejection Reason (If rejecting)</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Incomplete GST filing history"
-                          value={currentReason}
-                          onChange={(e) =>
-                            setRejectionReasonInput({
-                              ...rejectionReasonInput,
-                              [agreement.id]: e.target.value
-                            })
-                          }
-                          className="w-full bg-white border border-slate-300 rounded-xl p-2 text-slate-900 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end space-x-2 pt-2 border-t border-indigo-100">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onReviewAgreement(
-                            agreement.id,
-                            "Rejected",
-                            0,
-                            currentReason || "Underwriting criteria not satisfied"
-                          )
-                        }
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 px-4 py-2 rounded-xl font-black transition"
-                      >
-                        Reject Application
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onReviewAgreement(
-                            agreement.id,
-                            "Approved",
-                            currentLimit
-                          )
-                        }
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl font-black shadow-sm transition"
-                      >
-                        Authorize & Approve Credit Facility
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
-// 19. COMBINED B2B CREDIT RISK & COUNTERPARTY LEDGER
+// 18. CARRIER RATES & BANK PROFILE SECTIONS
 // ============================================================================
-interface CombinedCreditLedgerSectionProps {
-  role: RoleType;
+interface CarrierRatesSectionProps {
   currentUser: UserProfile;
-  creditAgreements: CreditAgreement[];
-  creditLedger: CreditLedgerEntry[];
-  onSettleLedgerEntry?: (entryId: string, ref: string) => void;
+  rateCards: RateCard[];
+  setRateCards: React.Dispatch<React.SetStateAction<RateCard[]>>;
+  vendors: Vendor[];
+  onOpenAddRateModal: () => void;
 }
 
-const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
-  role,
+const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({
   currentUser,
-  creditAgreements,
-  creditLedger,
-  onSettleLedgerEntry
+  rateCards,
+  setRateCards,
+  onOpenAddRateModal
 }) => {
-  const [filter, setFilter] = useState<"All" | "Unpaid" | "Settled" | "Overdue">("Unpaid");
-  const [settleRefInput, setSettleRefInput] = useState<Record<string, string>>({});
-
-  const isShipper = role === "shipper";
-
-  // Filtered ledger entries based on role
-  const relevantLedger = useMemo(() => {
-    return creditLedger.filter((entry) => {
-      if (isShipper) {
-        return entry.shipper_id === currentUser.id;
-      }
-      return entry.carrier_id === (currentUser.vendor_id || "11111111-1111-1111-1111-111111111111");
-    });
-  }, [creditLedger, isShipper, currentUser]);
-
-  const filteredEntries = useMemo(() => {
-    if (filter === "All") return relevantLedger;
-    return relevantLedger.filter((e) => e.status === filter);
-  }, [relevantLedger, filter]);
-
-  // Aggregate Financial Metrics
-  const summary: CreditLedgerSummary = useMemo(() => {
-    const relevantAgreements = creditAgreements.filter((a) => {
-      if (isShipper) return a.shipper_id === currentUser.id;
-      return a.carrier_id === (currentUser.vendor_id || "11111111-1111-1111-1111-111111111111");
-    });
-
-    const totalLimit = relevantAgreements
-      .filter((a) => a.status === "Approved")
-      .reduce((sum, a) => sum + a.approved_limit, 0);
-
-    const totalUtilized = relevantAgreements
-      .filter((a) => a.status === "Approved")
-      .reduce((sum, a) => sum + a.utilized_amount, 0);
-
-    const outstanding = relevantLedger
-      .filter((e) => e.status === "Unpaid")
-      .reduce((sum, e) => sum + e.amount, 0);
-
-    const overdue = relevantLedger
-      .filter((e) => e.status === "Overdue")
-      .reduce((sum, e) => sum + e.amount, 0);
-
-    return {
-      total_credit_limit: totalLimit,
-      utilized_credit: totalUtilized,
-      available_credit: Math.max(0, totalLimit - totalUtilized),
-      outstanding_balance: outstanding,
-      overdue_amount: overdue,
-      active_agreements_count: relevantAgreements.filter((a) => a.status === "Approved").length
-    };
-  }, [creditAgreements, relevantLedger, isShipper, currentUser]);
-
-  const handleSettle = (entryId: string) => {
-    const ref = settleRefInput[entryId] || `UTR-RECON-${Date.now().toString().slice(-6)}`;
-    if (onSettleLedgerEntry) {
-      onSettleLedgerEntry(entryId, ref);
-      alert(`Ledger entry marked as Settled with reference: ${ref}`);
-    }
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200">
         <div>
-          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
-            <DocumentCheckIcon className="w-5 h-5 text-indigo-600" />
-            <span>
-              {isShipper
-                ? "B2B Credit Facility & Outstanding Balance Ledger"
-                : "Receivables & Shipper Counterparty Credit Risk Ledger"}
-            </span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isShipper
-              ? "Track your authorized corporate credit limits, unbilled dues, and carrier repayment schedules."
-              : "Monitor extended credit exposure, utilized limits by shippers, and outstanding receivables."}
-          </p>
+          <h2 className="text-lg font-black text-slate-900">Commercial Rate Tariffs</h2>
+          <p className="text-xs text-slate-500">Manage base rates, fuel surcharges, and per-kg linehaul freight</p>
         </div>
-
-        {/* Filter Controls */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl text-xs font-bold text-white shadow-sm">
-          {(["Unpaid", "Overdue", "Settled", "All"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setFilter(tab)}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                filter === tab ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={onOpenAddRateModal}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs"
+        >
+          + Add Rate Card
+        </button>
       </div>
 
-      {/* Financial Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-            {isShipper ? "Total Approved Limit" : "Total Extended Exposure"}
-          </span>
-          <span className="text-2xl font-black text-slate-900 font-mono">
-            {formatINR(summary.total_credit_limit)}
-          </span>
-          <p className="text-[10px] text-slate-400">
-            Across {summary.active_agreements_count} active counterparty facilities
-          </p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-            {isShipper ? "Utilized Balance (Dues)" : "Active Shipper Dues"}
-          </span>
-          <span className="text-2xl font-black text-indigo-700 font-mono">
-            {formatINR(summary.utilized_credit)}
-          </span>
-          <p className="text-[10px] text-slate-400">Consignments booked on credit terms</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-            {isShipper ? "Available Credit Buffer" : "Unutilized Buffer"}
-          </span>
-          <span className="text-2xl font-black text-emerald-600 font-mono">
-            {formatINR(summary.available_credit)}
-          </span>
-          <p className="text-[10px] text-slate-400">Ready for instant load dispatching</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-            Overdue / Critical Dues
-          </span>
-          <span className={`text-2xl font-black font-mono ${summary.overdue_amount > 0 ? "text-rose-600" : "text-slate-900"}`}>
-            {formatINR(summary.overdue_amount)}
-          </span>
-          <p className="text-[10px] text-slate-400">Past agreed net payment due dates</p>
-        </div>
-      </div>
-
-      {/* Detailed Credit Ledger Table */}
-      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden space-y-4 p-5">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
-            Consignment Credit Ledger ({filteredEntries.length} Records)
-          </h3>
-          <span className="text-xs bg-slate-100 text-slate-700 font-bold px-2.5 py-0.5 rounded-full border border-slate-200">
-            Carriage by Road Act Net Terms
-          </span>
-        </div>
-
-        {filteredEntries.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
-            No credit ledger entries match the selected status filter.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
-                <tr>
-                  <th className="py-3 px-3.5">Order Ref</th>
-                  <th className="py-3 px-3.5">Carrier Docket</th>
-                  <th className="py-3 px-3.5">{isShipper ? "Transporter" : "Shipper Entity"}</th>
-                  <th className="py-3 px-3.5">Amount (₹)</th>
-                  <th className="py-3 px-3.5">Due Date</th>
-                  <th className="py-3 px-3.5">Status</th>
-                  <th className="py-3 px-3.5 text-right">Reconciliation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-medium">
-                {filteredEntries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition">
-                    <td className="py-3 px-3.5 font-mono font-black text-indigo-700">{entry.order_ref}</td>
-                    <td className="py-3 px-3.5 font-mono text-slate-900 font-bold">{entry.carrier_docket_no}</td>
-                    <td className="py-3 px-3.5 font-bold text-slate-800">
-                      {isShipper ? entry.carrier_name : entry.shipper_name}
-                    </td>
-                    <td className="py-3 px-3.5 font-mono font-black text-slate-900 text-sm">
-                      {formatINR(entry.amount)}
-                    </td>
-                    <td className="py-3 px-3.5 font-mono text-slate-600 text-[11px]">{entry.due_date}</td>
-                    <td className="py-3 px-3.5">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                          entry.status === "Settled"
-                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                            : entry.status === "Overdue"
-                            ? "bg-rose-100 text-rose-800 border-rose-300"
-                            : "bg-amber-100 text-amber-800 border-amber-300"
-                        }`}
-                      >
-                        {entry.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3.5 text-right">
-                      {entry.status === "Unpaid" ? (
-                        <div className="inline-flex items-center space-x-1.5">
-                          <input
-                            type="text"
-                            placeholder="UTR Ref"
-                            value={settleRefInput[entry.id] || ""}
-                            onChange={(e) =>
-                              setSettleRefInput({ ...settleRefInput, [entry.id]: e.target.value })
-                            }
-                            className="bg-slate-50 border border-slate-300 rounded px-2 py-1 text-[11px] font-mono max-w-[100px]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleSettle(entry.id)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded text-[11px] transition"
-                          >
-                            Mark Settled
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] font-mono text-slate-400">
-                          {entry.payment_ref || "Settled via Term Payout"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 20. CARRIER PLATFORM FEE INVOICING ENGINE & COMMISSION LEDGER
-// ============================================================================
-interface CarrierBillingSectionProps {
-  currentUser: UserProfile;
-  invoices: PlatformInvoice[];
-  billingCycle: BillingCycle;
-  setBillingCycle: (cycle: BillingCycle) => void;
-  onOpenPayFeeModal: (invoice: PlatformInvoice) => void;
-}
-
-const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
-  currentUser,
-  invoices,
-  billingCycle,
-  setBillingCycle,
-  onOpenPayFeeModal
-}) => {
-  const filteredInvoices = invoices.filter((inv) => inv.billing_cycle === billingCycle);
-
-  const totalOutstanding = useMemo(() => {
-    return filteredInvoices
-      .filter((inv) => inv.status === "Pending" || inv.status === "Overdue")
-      .reduce((sum, inv) => sum + inv.platform_fee_total, 0);
-  }, [filteredInvoices]);
-
-  const totalPaid = useMemo(() => {
-    return filteredInvoices
-      .filter((inv) => inv.status === "Paid")
-      .reduce((sum, inv) => sum + inv.platform_fee_total, 0);
-  }, [filteredInvoices]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-        <div>
-          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
-            <CalendarIcon className="w-5 h-5 text-indigo-600" />
-            <span>Platform Fee Billing & Commission Ledger</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Transparent weekly and monthly commission settlements (2% per load, min ₹25 floor cap).
-          </p>
-        </div>
-
-        {/* Weekly / Monthly Cycle Toggle */}
-        <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl text-xs font-bold text-white shadow-sm">
-          <button
-            type="button"
-            onClick={() => setBillingCycle("weekly")}
-            className={`px-3 py-1.5 rounded-lg transition ${
-              billingCycle === "weekly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Weekly Billing
-          </button>
-          <button
-            type="button"
-            onClick={() => setBillingCycle("monthly")}
-            className={`px-3 py-1.5 rounded-lg transition ${
-              billingCycle === "monthly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Monthly Billing
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Pending Platform Dues</span>
-          <span className="text-2xl font-black text-rose-600 font-mono">{formatINR(totalOutstanding)}</span>
-          <p className="text-[10px] text-slate-400">Current cycle commission payable</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Total Settled Fees</span>
-          <span className="text-2xl font-black text-emerald-600 font-mono">{formatINR(totalPaid)}</span>
-          <p className="text-[10px] text-slate-400">Fully reconciled platform payouts</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Commission Structure</span>
-          <span className="text-2xl font-black text-slate-900 font-mono">2.00%</span>
-          <p className="text-[10px] text-slate-400">Fixed rate with ₹25 floor cap per consignment</p>
-        </div>
-      </div>
-
-      <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden space-y-4 p-5">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
-            {billingCycle === "weekly" ? "Weekly Invoices & Statements" : "Monthly Consolidated Invoices"}
-          </h3>
-          <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-2.5 py-0.5 rounded-full border border-indigo-200">
-            {filteredInvoices.length} Invoices
-          </span>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
-              <tr>
-                <th className="py-3 px-3.5">Invoice No</th>
-                <th className="py-3 px-3.5">Billing Period</th>
-                <th className="py-3 px-3.5">Consignments</th>
-                <th className="py-3 px-3.5">Gross Freight</th>
-                <th className="py-3 px-3.5">Commission (2%)</th>
-                <th className="py-3 px-3.5">Due Date</th>
-                <th className="py-3 px-3.5">Status</th>
-                <th className="py-3 px-3.5 text-right">Action</th>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs text-slate-700">
+          <thead className="bg-slate-50 text-slate-800 font-bold uppercase">
+            <tr>
+              <th className="p-3">Origin / Dest</th>
+              <th className="p-3">Mode</th>
+              <th className="p-3">Min Wt</th>
+              <th className="p-3">Base Rate</th>
+              <th className="p-3">Per Kg Rate</th>
+              <th className="p-3">Fuel Surcharge</th>
+              <th className="p-3">SLA Days</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 font-medium">
+            {rateCards.map((rc) => (
+              <tr key={rc.id} className="hover:bg-slate-50">
+                <td className="p-3 font-mono font-bold">{rc.origin_prefix} ➔ {rc.dest_prefix}</td>
+                <td className="p-3 uppercase font-bold text-indigo-600">{rc.mode}</td>
+                <td className="p-3">{rc.min_weight_kg} kg</td>
+                <td className="p-3 font-semibold">{formatINR(rc.base_rate)}</td>
+                <td className="p-3 font-semibold">{formatINR(rc.per_kg_rate)}/kg</td>
+                <td className="p-3">{rc.fuel_surcharge_pct}%</td>
+                <td className="p-3">{rc.sla_days} Days</td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 font-medium">
-              {filteredInvoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-slate-50 transition">
-                  <td className="py-3 px-3.5 font-mono font-black text-indigo-700">{inv.invoice_number}</td>
-                  <td className="py-3 px-3.5 text-slate-600 font-mono text-[11px]">
-                    {inv.period_start} to {inv.period_end}
-                  </td>
-                  <td className="py-3 px-3.5 font-bold text-slate-900">{inv.total_consignments} Loads</td>
-                  <td className="py-3 px-3.5 font-mono text-slate-900 font-bold">{formatINR(inv.gross_freight)}</td>
-                  <td className="py-3 px-3.5 font-mono font-black text-indigo-900 text-sm">{formatINR(inv.platform_fee_total)}</td>
-                  <td className="py-3 px-3.5 font-mono text-slate-500 text-[11px]">{inv.due_date}</td>
-                  <td className="py-3 px-3.5">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                        inv.status === "Paid"
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                          : "bg-amber-100 text-amber-800 border-amber-300"
-                      }`}
-                    >
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3.5 text-right">
-                    {inv.status === "Pending" ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenPayFeeModal(inv)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1.5 rounded-lg text-xs shadow-sm transition"
-                      >
-                        Settle Dues
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-mono text-slate-500 font-bold">
-                        Paid ({inv.payment_ref ? inv.payment_ref.substring(0, 12) : "UTR Reconciled"})
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+interface CarrierBankSectionProps {
+  currentUser: UserProfile;
+  vendors: Vendor[];
+  setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
+}
+
+const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, vendors, setVendors }) => {
+  const currentVendor = vendors.find((v) => v.id === currentUser.vendor_id) || vendors[0];
+  const [upi, setUpi] = useState(currentVendor?.upi_id || "");
+  const [bankAcc, setBankAcc] = useState(currentVendor?.bank_account || "");
+  const [ifsc, setIfsc] = useState(currentVendor?.ifsc_code || "");
+  const [beneficiary, setBeneficiary] = useState(currentVendor?.beneficiary_name || "");
+
+  const handleSave = () => {
+    alert("Bank details updated successfully!");
+  };
+
+  return (
+    <div className="space-y-4 max-w-xl">
+      <div>
+        <h2 className="text-lg font-black text-slate-900">Direct Carrier Settlement Bank Profile</h2>
+        <p className="text-xs text-slate-500">Shippers settle freight directly to these bank/UPI endpoints</p>
+      </div>
+
+      <div className="space-y-3 text-xs">
+        <div>
+          <label className="block font-bold text-slate-700 mb-1">Beneficiary Business Name</label>
+          <input
+            type="text"
+            value={beneficiary}
+            onChange={(e) => setBeneficiary(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2"
+          />
+        </div>
+        <div>
+          <label className="block font-bold text-slate-700 mb-1">Carrier UPI VPA</label>
+          <input
+            type="text"
+            value={upi}
+            onChange={(e) => setUpi(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono"
+          />
+        </div>
+        <div>
+          <label className="block font-bold text-slate-700 mb-1">Bank Account Number</label>
+          <input
+            type="text"
+            value={bankAcc}
+            onChange={(e) => setBankAcc(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono"
+          />
+        </div>
+        <div>
+          <label className="block font-bold text-slate-700 mb-1">IFSC Code</label>
+          <input
+            type="text"
+            value={ifsc}
+            onChange={(e) => setIfsc(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono"
+          />
+        </div>
+
+        <button
+          onClick={handleSave}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg"
+        >
+          Save Settlement Profile
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 19. ADMIN SUPERVISORY OVERVIEW SECTION
+// ============================================================================
+interface AdminOverviewSectionProps {
+  bookings: Booking[];
+  vendors: Vendor[];
+  rateCards: RateCard[];
+}
+
+const AdminOverviewSection: FC<AdminOverviewSectionProps> = ({ bookings, vendors, rateCards }) => {
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-black text-slate-900">Admin Supervisory Ledger</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-bold">Total Bookings</span>
+          <p className="text-2xl font-black text-slate-900">{bookings.length}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-bold">Verified Carriers</span>
+          <p className="text-2xl font-black text-emerald-600">{vendors.length}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200">
+          <span className="text-xs text-slate-500 font-bold">Published Rate Cards</span>
+          <p className="text-2xl font-black text-indigo-600">{rateCards.length}</p>
         </div>
       </div>
     </div>
@@ -4545,150 +3994,150 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
 };
 
 // ============================================================================
-// 21. PLATFORM FEE COMMISSION SETTLEMENT & INVOICE PAYMENT MODAL
+// 20. DIRECT BOOKING MODAL
 // ============================================================================
-interface PayPlatformFeeModalProps {
-  isOpen: boolean;
+interface DirectBookingModalProps {
+  quote: CalculatedQuote;
+  currentUser: UserProfile;
+  originPin: string;
+  destPin: string;
+  boxes: BoxItem[];
+  declaredValue: number;
+  pickupAddress: string;
   onClose: () => void;
-  invoice: PlatformInvoice | null;
-  onPaySuccess: (invoiceId: string, utr: string, method: string) => void;
+  onSuccess: (booking: Booking) => void;
+  onOpenCreditApplyModal: () => void;
 }
 
-const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({
-  isOpen,
+const DirectBookingModal: FC<DirectBookingModalProps> = ({
+  quote,
+  currentUser,
+  originPin,
+  destPin,
+  boxes,
+  declaredValue,
+  pickupAddress,
   onClose,
-  invoice,
-  onPaySuccess
+  onSuccess
 }) => {
-  const [method, setMethod] = useState<"upi" | "netbanking" | "card">("upi");
-  const [utrNumber, setUtrNumber] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [consigneeName, setConsigneeName] = useState("");
+  const [consigneePhone, setConsigneePhone] = useState("");
+  const [consigneeAddress, setConsigneeAddress] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">(
+    quote.creditAvailable ? "corporate_credit" : "direct_to_pay"
+  );
 
-  if (!isOpen || !invoice) return null;
-
-  const handlePay = (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!utrNumber.trim()) {
-      alert("Please enter a valid Transaction / UTR reference number.");
-      return;
-    }
-    setIsProcessing(true);
-    setTimeout(() => {
-      onPaySuccess(
-        invoice.id,
-        utrNumber.trim(),
-        method === "upi" ? "UPI VPA" : method === "netbanking" ? "Corporate NetBanking" : "Corporate Debit Card"
-      );
-      setIsProcessing(false);
-      onClose();
-      alert(`Platform Fee Payment of ${formatINR(invoice.platform_fee_total)} verified! Invoice marked as Paid.`);
-    }, 700);
+    const docket = generateCarrierDocket(quote.vendor.name);
+    const newBooking: Booking = {
+      id: `booking-${Date.now()}`,
+      order_id: `LC-${Math.floor(100000 + Math.random() * 900000)}`,
+      awb_number: docket,
+      carrier_docket_no: docket,
+      shipper_id: currentUser.id,
+      vendor_id: quote.vendor.id,
+      shipper_name: currentUser.company_name || currentUser.full_name,
+      shipper_phone: currentUser.phone,
+      shipper_email: currentUser.email,
+      shipper_gstin: currentUser.gstin,
+      pickup_address: pickupAddress,
+      pickup_pincode: originPin,
+      consignee_name: consigneeName,
+      consignee_phone: consigneePhone,
+      consignee_gstin: "27AAACP9988G1ZK",
+      delivery_address: consigneeAddress,
+      origin_pin: originPin,
+      dest_pin: destPin,
+      mode: quote.rateCard.mode,
+      boxes,
+      declared_value: declaredValue,
+      actual_weight: quote.actualWeight,
+      volumetric_weight: quote.volumetricWeight,
+      billable_weight: quote.billableWeight,
+      cost_breakdown: {
+        ...quote.breakdown,
+        settlement_type: paymentMethod,
+        payment_ref: paymentMethod === "corporate_credit" ? "CREDIT-AGREEMENT" : "DIRECT-PAY"
+      },
+      final_total: quote.breakdown.total,
+      status: "Booked",
+      tracking_history: [
+        {
+          status: "Booked",
+          location: `Hub (${originPin})`,
+          timestamp: new Date().toISOString(),
+          remarks: "Booking initialized"
+        }
+      ],
+      created_at: new Date().toISOString(),
+      vendors: quote.vendor
+    };
+
+    onSuccess(newBooking);
+    alert(`Shipment booked successfully! Docket: ${docket}`);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">Settle Platform Commission Fee</h3>
-            <p className="text-xs text-slate-500 font-medium">Invoice: <span className="font-mono font-bold text-indigo-700">{invoice.invoice_number}</span></p>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+        <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+          <h3 className="text-base font-black text-slate-900">Book Shipment with {quote.vendor.name}</h3>
+          <button onClick={onClose}><XMarkIcon className="w-5 h-5 text-slate-400" /></button>
         </div>
 
-        <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Billing Cycle:</span>
-            <span className="font-bold uppercase tracking-wider bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-              {invoice.billing_cycle} Period ({invoice.period_start} to {invoice.period_end})
-            </span>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Carrier Organization:</span>
-            <strong className="text-white">{invoice.carrier_name}</strong>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Dispatched Consignments:</span>
-            <strong className="text-white">{invoice.total_consignments} Loads</strong>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Gross Freight Handled:</span>
-            <strong className="font-mono text-white">{formatINR(invoice.gross_freight)}</strong>
-          </div>
-          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
-            <span>Platform Fee Payable (2%):</span>
-            <span className="text-base font-mono">{formatINR(invoice.platform_fee_total)}</span>
-          </div>
-        </div>
-
-        <form onSubmit={handlePay} className="space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
           <div>
-            <label className="block text-slate-800 font-bold mb-1">Select Payment Mode</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setMethod("upi")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "upi" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                📲 UPI Transfer
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod("netbanking")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "netbanking" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                🏦 NetBanking
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod("card")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "card" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                💳 Debit/Card
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px]">
-            <p className="text-slate-600"><strong>Aggregator Beneficiary:</strong> {MERCHANT_DETAILS.proprietor}</p>
-            <p className="text-slate-600"><strong>Platform VPA:</strong> {MERCHANT_DETAILS.vpa}</p>
-            <p className="text-slate-600"><strong>Bank Account:</strong> {MERCHANT_DETAILS.accountNumber} (IFSC: {MERCHANT_DETAILS.ifsc})</p>
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank Payment Reference / UTR Number *</label>
+            <label className="block text-slate-700 font-bold mb-1">Consignee Name</label>
             <input
               type="text"
               required
-              placeholder="e.g. UTR-998124018274 or CMS-Ref"
-              value={utrNumber}
-              onChange={(e) => setUtrNumber(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              value={consigneeName}
+              onChange={(e) => setConsigneeName(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Consignee Phone</label>
+            <input
+              type="text"
+              required
+              value={consigneePhone}
+              onChange={(e) => setConsigneePhone(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Consignee Delivery Address</label>
+            <input
+              type="text"
+              required
+              value={consigneeAddress}
+              onChange={(e) => setConsigneeAddress(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2"
             />
           </div>
 
-          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Settlement Method</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-bold"
             >
-              Cancel
-            </button>
+              <option value="direct_to_pay">To-Pay POD (Pay Carrier at Delivery)</option>
+              <option value="direct_upi">Direct Carrier UPI</option>
+              {quote.creditAvailable && <option value="corporate_credit">Corporate Net Credit</option>}
+            </select>
+          </div>
+
+          <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
+            <span className="font-bold text-slate-700">Total: {formatINR(quote.breakdown.total)}</span>
             <button
               type="submit"
-              disabled={isProcessing}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl"
             >
-              {isProcessing ? "Verifying..." : `Confirm Payment (${formatINR(invoice.platform_fee_total)})`}
+              Confirm Booking
             </button>
           </div>
         </form>
@@ -4696,574 +4145,171 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({
     </div>
   );
 };
+
 // ============================================================================
-// 22. SHIPPER BULK CSV DISPATCH MATRIX (50/DAY MULTI-LANE CAPACITY)
+// 21. CITY SEARCH MODAL
 // ============================================================================
-interface ShipperBulkCsvSectionProps {
-  highVolumeMode: boolean;
-  activeOriginAddress: AddressProfile | null;
-  bulkManifestList: BulkManifestRow[];
-  setBulkManifestList: React.Dispatch<React.SetStateAction<BulkManifestRow[]>>;
-  onAutoSelectCheapest: () => void;
-  onAutoSelectFastest: () => void;
-  onSelectCarrierForRow: (rowId: string, vendorId: string) => void;
-  bulkSettlementMethod: "direct_to_pay" | "direct_upi" | "corporate_credit";
-  setBulkSettlementMethod: (val: "direct_to_pay" | "direct_upi" | "corporate_credit") => void;
-  bulkConsolidatedUtr: string;
-  setBulkConsolidatedUtr: (val: string) => void;
-  onConfirmBatchBooking: () => Promise<void>;
-  isBatchProcessing: boolean;
-  handleBulkCsvUpload: (e: ChangeEvent<HTMLInputElement>) => void;
-  bulkCsvFileName: string;
-  bulkUploadError: string;
+interface CitySearchModalProps {
+  target: "origin" | "dest";
+  onSelectPin: (pin: string) => void;
+  onClose: () => void;
 }
 
-const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
-  activeOriginAddress,
-  bulkManifestList,
-  onAutoSelectCheapest,
-  onAutoSelectFastest,
-  onSelectCarrierForRow,
-  bulkSettlementMethod,
-  setBulkSettlementMethod,
-  bulkConsolidatedUtr,
-  setBulkConsolidatedUtr,
-  onConfirmBatchBooking,
-  isBatchProcessing,
-  handleBulkCsvUpload,
-  bulkCsvFileName,
-  bulkUploadError
-}) => {
-  const bulkFileInputRef = useRef<HTMLInputElement>(null);
+const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClose }) => {
+  const [cityInput, setCityInput] = useState("");
 
-  const handleDownloadBulkTemplate = () => {
-    const csvHeader = "dest_pin,consignee_name,consignee_phone,delivery_address,total_boxes,box_weights,box_dimensions,declared_value\n";
-    const sampleRows = [
-      "400001,Prime Retailers Mumbai,9820044556,Shop 4 Crawford Market Mumbai,2,18; 12,45x35x30; 30x25x20,45000",
-      "560001,Apex Tech Electronics,9845012345,7th Cross Electronic City Bengaluru,3,25; 10; 10,,65000",
-      "700001,East Coast Traders,9830098765,Strand Road Burrabazar Kolkata,1,30,50x50x40,30000",
-      "600001,South Goods Depot,9840011223,Parrys Corner George Town Chennai,2,15; 15,,25000",
-      "500001,Deccan Pharma Hub,9849033445,Abids Circle Hyderabad,4,10; 10; 10; 10,,95000"
-    ].join("\n");
-
-    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "logicompare_bulk_consignments_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleSelect = async (pin: string) => {
+    onSelectPin(pin);
+    onClose();
   };
 
   return (
-    <div className="space-y-6">
-      {/* Dynamic Origin Dispatch Banner */}
-      {activeOriginAddress ? (
-        <div className="bg-slate-950 text-white p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center space-x-2.5">
-              <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="font-black text-sm uppercase tracking-wide">Origin Dispatch Facility:</span>
-              <span className="font-mono bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2.5 py-0.5 rounded text-xs font-bold">
-                {activeOriginAddress.label} (PIN: {activeOriginAddress.pincode})
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 font-medium leading-relaxed">
-              {activeOriginAddress.address_line1}, {activeOriginAddress.city} - {activeOriginAddress.pincode}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleDownloadBulkTemplate}
-            className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-md shrink-0 transition"
-          >
-            <DownloadIcon className="w-4 h-4 text-indigo-600" />
-            <span>Download CSV Template</span>
-          </button>
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-sm w-full p-5 space-y-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-black text-slate-900">Select City for {target.toUpperCase()}</h3>
+          <button onClick={onClose}><XMarkIcon className="w-4 h-4 text-slate-400" /></button>
         </div>
-      ) : (
-        <div className="bg-amber-50 border-2 border-amber-300 text-amber-900 p-4 rounded-2xl text-xs font-bold">
-          Please select or register a pickup facility in the &quot;Dispatch Facilities&quot; tab before batch booking.
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          {Object.entries(clientLocationCache).map(([city, prefix]) => (
+            <button
+              key={city}
+              type="button"
+              onClick={() => handleSelect(`${prefix}001`)}
+              className="p-2 border border-slate-200 rounded-lg text-left capitalize hover:bg-indigo-50 hover:border-indigo-300"
+            >
+              {city} ({prefix}XXX)
+            </button>
+          ))}
         </div>
-      )}
-
-      {/* CSV Drag-and-Drop Area */}
-      <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-8 text-center space-y-4 shadow-sm hover:border-indigo-500 transition">
-        <input
-          type="file"
-          ref={bulkFileInputRef}
-          accept=".csv,text/csv"
-          onChange={handleBulkCsvUpload}
-          className="hidden"
-          id="bulk-csv-input"
-        />
-        <div className="max-w-lg mx-auto space-y-2.5">
-          <label
-            htmlFor="bulk-csv-input"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3 rounded-xl text-xs cursor-pointer inline-flex items-center space-x-2 shadow-md transition hover:scale-105"
-          >
-            <UploadIcon className="w-4 h-4" />
-            <span>{bulkCsvFileName ? `Replace Manifest File (${bulkCsvFileName})` : "Select Bulk Consignment CSV (40-50 Locations)"}</span>
-          </label>
-          <p className="text-xs text-slate-600 font-medium">
-            Box dimensions are optional. Semicolon-delimited carton weights are supported (e.g. <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>).
-          </p>
-        </div>
-
-        {bulkUploadError && (
-          <div className="text-xs text-rose-800 bg-rose-50 border border-rose-300 p-3 rounded-xl font-bold max-w-lg mx-auto">
-            {bulkUploadError}
-          </div>
-        )}
       </div>
-
-      {/* Manifest Preview Table */}
-      {bulkManifestList.length > 0 && (
-        <div className="bg-white border border-slate-300 rounded-2xl shadow-md overflow-hidden space-y-5 p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-            <div>
-              <h3 className="text-lg font-black text-slate-900 flex items-center space-x-2.5">
-                <span>Bulk Consignment Manifest</span>
-                <span className="bg-indigo-600 text-white text-xs px-3 py-0.5 rounded-full font-bold">
-                  {bulkManifestList.length} Destinations
-                </span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">Multi-carrier quotes calculated client-side with 0ms server latency.</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={onAutoSelectCheapest}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
-              >
-                <span>⚡ Auto-Select Lowest Price</span>
-              </button>
-              <button
-                type="button"
-                onClick={onAutoSelectFastest}
-                className="bg-sky-600 hover:bg-sky-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
-              >
-                <span>🚀 Auto-Select Fastest SLA</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-inner">
-            <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
-                <tr>
-                  <th className="py-3 px-3.5">#</th>
-                  <th className="py-3 px-3.5">Dest PIN / City</th>
-                  <th className="py-3 px-3.5">Consignee & Address</th>
-                  <th className="py-3 px-3.5">Packages</th>
-                  <th className="py-3 px-3.5">Billable Wt</th>
-                  <th className="py-3 px-3.5">Carrier Tariff</th>
-                  <th className="py-3 px-3.5">Freight</th>
-                  <th className="py-3 px-3.5">2% Fee</th>
-                  <th className="py-3 px-3.5 text-right">Total Outlay</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 font-medium">
-                {bulkManifestList.map((row, idx) => {
-                  const quote = row.selectedQuote || row.quotes[0];
-
-                  return (
-                    <tr
-                      key={row.rowId}
-                      className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/60 transition" : "bg-slate-50 hover:bg-indigo-50/60 transition"}
-                    >
-                      <td className="py-3 px-3.5 font-mono font-bold text-slate-500">{idx + 1}</td>
-                      <td className="py-3 px-3.5">
-                        <span className="font-mono font-black text-slate-900 block text-xs">{row.dest_pin}</span>
-                        <span className="text-[11px] text-slate-500 font-semibold">{getLocalFallbackZone(row.dest_pin).city}</span>
-                      </td>
-                      <td className="py-3 px-3.5">
-                        <span className="font-bold text-slate-900 block">{row.consignee_name}</span>
-                        <span className="text-[11px] text-slate-500 truncate max-w-[180px] block">{row.delivery_address}</span>
-                      </td>
-                      <td className="py-3 px-3.5">
-                        <span className="font-black text-indigo-700 block">{row.total_boxes} Box(es)</span>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          {row.boxes.map((b) => `${b.weight}kg`).join(", ")}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3.5">
-                        <span className="font-black font-mono text-slate-900 block text-xs">{row.billableWeight} kg</span>
-                        {row.hasOmittedDimensions && (
-                          <span
-                            className="text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded font-black block mt-0.5"
-                            title="Dead weight applied since box dimensions were omitted."
-                          >
-                            Dead Wt Applied
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3.5">
-                        <select
-                          value={quote?.vendor?.id || ""}
-                          onChange={(e) => onSelectCarrierForRow(row.rowId, e.target.value)}
-                          className="bg-white border-2 border-indigo-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-                        >
-                          {row.quotes.map((q) => (
-                            <option key={q.vendor.id} value={q.vendor.id}>
-                              {q.vendor.name} ({q.rateCard.sla_days}d - {formatINR(q.breakdown.total)})
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="py-3 px-3.5 font-mono font-bold text-slate-800">
-                        {formatINR(quote?.breakdown?.freightSubtotal || 0)}
-                      </td>
-                      <td className="py-3 px-3.5 font-mono text-indigo-700 font-bold">
-                        ₹{quote?.breakdown?.platformConvenienceFee || 25}
-                      </td>
-                      <td className="py-3 px-3.5 font-mono font-black text-right text-emerald-800 text-sm">
-                        {formatINR(quote?.breakdown?.total || 0)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Consolidated Settlement Form */}
-          <div className="bg-slate-950 text-white p-6 rounded-2xl shadow-md space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-              <div>
-                <span className="text-sm font-black uppercase text-indigo-400 block tracking-wide">
-                  Consolidated Settlement Method ({bulkManifestList.length} Shipments)
-                </span>
-                <p className="text-xs text-slate-400 mt-0.5">100% of freight is settled directly with transporters. Platform fee is 2% (min ₹25/consignment).</p>
-              </div>
-
-              <div className="flex flex-wrap gap-2 text-xs">
-                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "direct_to_pay" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
-                  <input
-                    type="radio"
-                    name="bulk_settlement"
-                    checked={bulkSettlementMethod === "direct_to_pay"}
-                    onChange={() => setBulkSettlementMethod("direct_to_pay")}
-                    className="hidden"
-                  />
-                  💵 To-Pay POD
-                </label>
-                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "direct_upi" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
-                  <input
-                    type="radio"
-                    name="bulk_settlement"
-                    checked={bulkSettlementMethod === "direct_upi"}
-                    onChange={() => setBulkSettlementMethod("direct_upi")}
-                    className="hidden"
-                  />
-                  📲 Direct Carrier UPI
-                </label>
-                <label className={`px-4 py-2 rounded-xl border cursor-pointer font-bold transition ${bulkSettlementMethod === "corporate_credit" ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-slate-900 text-slate-300 border-slate-700"}`}>
-                  <input
-                    type="radio"
-                    name="bulk_settlement"
-                    checked={bulkSettlementMethod === "corporate_credit"}
-                    onChange={() => setBulkSettlementMethod("corporate_credit")}
-                    className="hidden"
-                  />
-                  🏢 Monthly Corporate Credit
-                </label>
-              </div>
-            </div>
-
-            {bulkSettlementMethod === "direct_upi" && (
-              <div className="flex items-center space-x-3 text-xs bg-slate-900 p-3.5 rounded-xl border border-slate-800">
-                <label className="font-bold text-slate-300 shrink-0">Consolidated UTR Reference:</label>
-                <input
-                  type="text"
-                  value={bulkConsolidatedUtr}
-                  onChange={(e) => setBulkConsolidatedUtr(e.target.value)}
-                  placeholder="e.g. 409827104928"
-                  className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 font-mono text-white flex-1 max-w-sm focus:border-indigo-500 focus:outline-none"
-                />
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-              <div className="text-xs">
-                <span className="text-slate-400">Total Manifest Outlay: </span>
-                <strong className="text-xl text-emerald-400 font-mono font-black ml-2">
-                  {formatINR(bulkManifestList.reduce((acc, r) => acc + (r.selectedQuote?.breakdown?.total || 0), 0))}
-                </strong>
-                <span className="text-[11px] text-slate-400 block mt-0.5">
-                  Includes Platform Fee: {formatINR(bulkManifestList.reduce((acc, r) => acc + (r.selectedQuote?.breakdown?.platformConvenienceFee || 25), 0))}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                disabled={isBatchProcessing || !activeOriginAddress}
-                onClick={onConfirmBatchBooking}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-7 py-3.5 rounded-xl text-xs transition shadow-lg flex items-center space-x-2 disabled:opacity-50"
-              >
-                <CheckCircleIcon className="w-5 h-5 text-slate-950" />
-                <span>{isBatchProcessing ? "Assigning Carrier Dockets..." : `Confirm & Book All ${bulkManifestList.length} Shipments`}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 // ============================================================================
-// 23. CONTINUOUS 4x6 THERMAL MULTI-BOX LABEL & HANDOVER MANIFEST MODAL
+// 22. ADD RATE CARD MODAL
 // ============================================================================
-interface ThermalPrintModalProps {
-  printableBooking: Booking | null;
-  batchPrintBookings: Booking[] | null;
+interface AddRateCardModalProps {
+  currentUser: UserProfile;
+  vendors: Vendor[];
+  onSuccess: (card: RateCard) => void;
   onClose: () => void;
 }
 
-const ThermalPrintModal: FC<ThermalPrintModalProps> = ({
-  printableBooking,
-  batchPrintBookings,
-  onClose
-}) => {
-  const allBookings = batchPrintBookings || (printableBooking ? [printableBooking] : []);
+const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, vendors, onSuccess, onClose }) => {
+  const [origin, setOrigin] = useState("110");
+  const [dest, setDest] = useState("400");
+  const [mode, setMode] = useState<"surface" | "air" | "ftl">("surface");
+  const [baseRate, setBaseRate] = useState(350);
+  const [perKg, setPerKg] = useState(14);
+  const [sla, setSla] = useState(3);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const newCard: RateCard = {
+      id: `rc-${Date.now()}`,
+      vendor_id: currentUser.vendor_id || vendors[0]?.id || "11111111-1111-1111-1111-111111111111",
+      origin_prefix: origin,
+      dest_prefix: dest,
+      mode,
+      min_weight_kg: 20,
+      base_rate: baseRate,
+      per_kg_rate: perKg,
+      fuel_surcharge_pct: 12,
+      docket_charge: 100,
+      fov_pct: 0.2,
+      oda_charge: 450,
+      handling_per_kg: 1.5,
+      sla_days: sla,
+      is_active: true
+    };
+    onSuccess(newCard);
+    alert("New rate card published!");
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white select-none">
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          body {
-            background: white !important;
-            color: black !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          header, footer, nav, button, .no-print {
-            display: none !important;
-          }
-          .thermal-page-break {
-            page-break-after: always !important;
-            break-after: page !important;
-          }
-          .thermal-label-container {
-            width: 4in !important;
-            height: 6in !important;
-            max-height: 6in !important;
-            overflow: hidden !important;
-            padding: 0.2in !important;
-            box-sizing: border-box !important;
-            border: 3px solid black !important;
-            margin: 0 auto !important;
-          }
-          .manifest-sheet {
-            width: 100% !important;
-            page-break-before: always !important;
-            break-before: page !important;
-          }
-        }
-      `}} />
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-sm w-full p-5 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-black text-slate-900">Publish New Lane Tariff</h3>
+          <button onClick={onClose}><XMarkIcon className="w-4 h-4 text-slate-400" /></button>
+        </div>
 
-      <div className="bg-white text-black rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-6 my-8 print:m-0 print:p-0 print:shadow-none print:w-full border border-slate-300">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3 no-print">
+        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
           <div>
-            <h3 className="text-base font-black text-slate-900">
-              {batchPrintBookings
-                ? `Batch 4x6 Thermal Labels (${batchPrintBookings.length} Consignments) + Handover Manifest`
-                : "4x6 Thermal Multi-Box Shipping Labels"}
-            </h3>
-            <p className="text-[11px] text-slate-500 font-medium">
-              Continuous thermal page layout calibrated for standard 4x6 label printers with simulated barcodes.
-            </p>
+            <label className="block font-bold text-slate-700">Origin Prefix (3 Digits)</label>
+            <input type="text" maxLength={3} value={origin} onChange={(e) => setOrigin(e.target.value)} className="w-full border rounded p-1.5" />
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition"
-            >
-              <PrinterIcon className="w-4 h-4" />
-              <span>Print All Labels (4x6)</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
-            >
-              <XMarkIcon className="w-5 h-5" />
-            </button>
+          <div>
+            <label className="block font-bold text-slate-700">Destination Prefix (3 Digits)</label>
+            <input type="text" maxLength={3} value={dest} onChange={(e) => setDest(e.target.value)} className="w-full border rounded p-1.5" />
           </div>
-        </div>
-
-        <div className="space-y-6 print:space-y-0">
-          {allBookings.map((booking) => {
-            const boxCount = booking.boxes?.length || 1;
-
-            return (
-              <React.Fragment key={booking.id}>
-                {Array.from({ length: boxCount }).map((_, boxIdx) => {
-                  const box = booking.boxes?.[boxIdx] || {
-                    weight: booking.actual_weight,
-                    length: null,
-                    width: null,
-                    height: null
-                  };
-
-                  return (
-                    <div
-                      key={`${booking.id}-box-${boxIdx}`}
-                      className="thermal-label-container thermal-page-break font-sans bg-white text-black border-4 border-black p-3 space-y-2.5 rounded-sm"
-                    >
-                      <div className="flex justify-between items-start border-b-2 border-black pb-1.5">
-                        <div>
-                          <h2 className="text-lg font-black leading-tight tracking-tight uppercase">
-                            {booking.vendors?.name || "DELHIVERY B2B EXPRESS"}
-                          </h2>
-                          <span className="text-[8px] font-black uppercase tracking-widest block text-slate-700">
-                            OFFICIAL CARRIER CONSIGNMENT NOTE
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-base font-black font-mono">
-                            HUB-{booking.origin_pin.slice(0, 3)} / HUB-{booking.dest_pin.slice(0, 3)}
-                          </span>
-                          <span className="text-[9px] font-black uppercase bg-black text-white px-1.5 py-0.5 rounded-sm block mt-0.5">
-                            BOX {boxIdx + 1} OF {boxCount}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-center py-1.5 border-b-2 border-black space-y-1">
-                        <div className="flex justify-center items-center space-x-0.5 h-10">
-                          {[2, 1, 3, 1, 4, 2, 1, 3, 2, 4, 1, 2, 3, 1, 2, 4, 1, 3, 2, 1, 3, 4, 1, 2, 3, 2, 4, 1, 2, 1, 3, 1, 4].map((w, i) => (
-                            <div key={i} className="bg-black h-full" style={{ width: `${w * 2.2}px` }} />
-                          ))}
-                        </div>
-                        <div className="flex items-center justify-center space-x-2 font-mono">
-                          <span className="text-sm font-black tracking-widest">
-                            DOCKET: {booking.carrier_docket_no || booking.awb_number}
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-700">
-                            [{booking.order_id}]
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 border-b-2 border-black pb-1.5 text-[10px] leading-tight">
-                        <div>
-                          <span className="text-[8px] font-black uppercase block text-slate-700">SHIPPER (CONSIGNOR):</span>
-                          <strong className="block truncate font-black text-xs">{booking.shipper_name}</strong>
-                          <p className="truncate text-slate-800">{booking.pickup_address}</p>
-                          <p className="font-mono font-bold mt-0.5">PIN: {booking.origin_pin}</p>
-                          <p className="font-mono text-[9px]">GSTIN: {booking.shipper_gstin}</p>
-                        </div>
-                        <div>
-                          <span className="text-[8px] font-black uppercase block text-slate-700">DELIVER TO (CONSIGNEE):</span>
-                          <strong className="block truncate font-black text-xs">{booking.consignee_name}</strong>
-                          <p className="truncate text-slate-800">{booking.delivery_address}</p>
-                          <p className="font-mono font-bold mt-0.5">PIN: {booking.dest_pin} • Ph: {booking.consignee_phone}</p>
-                          <p className="font-mono text-[9px]">GSTIN: {booking.consignee_gstin}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-4 gap-1 text-center border-b-2 border-black pb-1.5 text-[10px]">
-                        <div>
-                          <span className="text-[7px] font-bold block uppercase text-slate-700">THIS BOX WT</span>
-                          <strong className="text-xs font-mono font-black">{box.weight} KG</strong>
-                        </div>
-                        <div>
-                          <span className="text-[7px] font-bold block uppercase text-slate-700">TOTAL BILLABLE</span>
-                          <strong className="text-xs font-mono font-black">{booking.billable_weight} KG</strong>
-                        </div>
-                        <div>
-                          <span className="text-[7px] font-bold block uppercase text-slate-700">BOX DIMS</span>
-                          <strong className="text-[9px] font-mono font-bold">
-                            {box.length && box.width && box.height ? `${box.length}x${box.width}x${box.height}` : "DEAD WT"}
-                          </strong>
-                        </div>
-                        <div>
-                          <span className="text-[7px] font-bold block uppercase text-slate-700">TERMS</span>
-                          <strong className="text-[9px] font-mono font-black uppercase truncate block">
-                            {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
-                          </strong>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center text-[8px] text-slate-700 pt-0.5 font-mono">
-                        <span>Carriage by Road Act 2007 Verified Consignment</span>
-                        <span>{new Date(booking.created_at).toLocaleDateString("en-IN")}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </React.Fragment>
-            );
-          })}
-
-          {/* Master Pickup Handover Manifest Sheet */}
-          {batchPrintBookings && (
-            <div className="manifest-sheet bg-white text-black p-6 border-4 border-black font-sans space-y-5 rounded-sm">
-              <div className="flex justify-between border-b-2 border-black pb-3">
-                <div>
-                  <h2 className="text-lg font-black tracking-tight">MASTER PICKUP HANDOVER MANIFEST</h2>
-                  <p className="text-xs text-slate-700 font-medium">Shipper Dispatch Facility: {MERCHANT_DETAILS.defaultWarehouseAddress}</p>
-                  <p className="text-xs text-slate-700 font-mono">Origin Pincode: {MERCHANT_DETAILS.defaultOriginPin}</p>
-                </div>
-                <div className="text-right font-mono font-bold text-xs space-y-0.5">
-                  <p>DISPATCH DATE: {new Date().toLocaleDateString("en-IN")}</p>
-                  <p className="text-sm font-black text-black">TOTAL CONSIGNMENTS: {batchPrintBookings.length}</p>
-                  <p>
-                    TOTAL WEIGHT:{" "}
-                    {batchPrintBookings.reduce((acc, b) => acc + (b.billable_weight || 0), 0).toFixed(1)} KG
-                  </p>
-                </div>
-              </div>
-
-              <table className="w-full text-left text-[10px] border border-black">
-                <thead className="bg-slate-200 border-b-2 border-black font-black uppercase">
-                  <tr>
-                    <th className="p-1.5 border-r border-black">#</th>
-                    <th className="p-1.5 border-r border-black">Order Ref</th>
-                    <th className="p-1.5 border-r border-black">Carrier Docket</th>
-                    <th className="p-1.5 border-r border-black">Consignee</th>
-                    <th className="p-1.5 border-r border-black">Dest PIN</th>
-                    <th className="p-1.5 border-r border-black">Boxes</th>
-                    <th className="p-1.5 border-r border-black">Billable (kg)</th>
-                    <th className="p-1.5">Driver Sign</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-medium">
-                  {batchPrintBookings.map((b, i) => (
-                    <tr key={b.id}>
-                      <td className="p-1.5 border-r border-black font-mono font-bold">{i + 1}</td>
-                      <td className="p-1.5 border-r border-black font-mono font-black">{b.order_id}</td>
-                      <td className="p-1.5 border-r border-black font-mono">{b.carrier_docket_no}</td>
-                      <td className="p-1.5 border-r border-black truncate max-w-[130px] font-bold">{b.consignee_name}</td>
-                      <td className="p-1.5 border-r border-black font-mono font-bold">{b.dest_pin}</td>
-                      <td className="p-1.5 border-r border-black font-mono">{b.boxes?.length || 1}</td>
-                      <td className="p-1.5 border-r border-black font-mono font-bold">{b.billable_weight}</td>
-                      <td className="p-1.5"></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div className="grid grid-cols-2 gap-8 pt-6 border-t-2 border-black text-xs font-bold">
-                <div className="space-y-1">
-                  <p>Shipper Dispatch Signature: _______________________</p>
-                  <p className="text-[10px] text-slate-600 font-normal">I certify that all cargo packages are sealed and handed over intact.</p>
-                </div>
-                <div className="space-y-1">
-                  <p>Carrier Driver Handover Signature: ___________________</p>
-                  <p className="text-[10px] text-slate-600 font-normal">Vehicle / Route No. & Official Linehaul Handover Timestamp</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          <div>
+            <label className="block font-bold text-slate-700">Mode</label>
+            <select value={mode} onChange={(e) => setMode(e.target.value as any)} className="w-full border rounded p-1.5">
+              <option value="surface">Surface</option>
+              <option value="air">Air</option>
+              <option value="ftl">FTL</option>
+            </select>
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700">Base Rate (₹)</label>
+            <input type="number" value={baseRate} onChange={(e) => setBaseRate(Number(e.target.value))} className="w-full border rounded p-1.5" />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700">Per Kg Rate (₹)</label>
+            <input type="number" value={perKg} onChange={(e) => setPerKg(Number(e.target.value))} className="w-full border rounded p-1.5" />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700">SLA Days</label>
+            <input type="number" value={sla} onChange={(e) => setSla(Number(e.target.value))} className="w-full border rounded p-1.5" />
+          </div>
+          <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded-lg">Publish Tariff</button>
+        </form>
       </div>
     </div>
+  );
+};
+
+// ============================================================================
+// 23. FOOTER & LEGAL MODAL
+// ============================================================================
+interface LegalModalProps {
+  tab: string;
+  setTab: (tab: any) => void;
+  onClose: () => void;
+}
+
+const LegalModal: FC<LegalModalProps> = ({ tab, onClose }) => {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-base font-black capitalize">{tab} Guidelines</h3>
+          <button onClick={onClose}><XMarkIcon className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          LogiCompare Pro is governed under the Carriage by Road Act 2007. Direct carrier settlements are executed between Shippers and Logistics Fleet Operators.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const FooterSection: FC<{ openLegalModal: (tab: any) => void }> = ({ openLegalModal }) => {
+  return (
+    <footer className="bg-slate-950 text-slate-400 text-xs py-8 border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <p>© 2026 LogiCompare Pro. All rights reserved. Registered under Carriage by Road Act 2007.</p>
+        <div className="flex space-x-4">
+          <button onClick={() => openLegalModal("terms")} className="hover:text-white">Terms of Use</button>
+          <button onClick={() => openLegalModal("privacy")} className="hover:text-white">Privacy Policy</button>
+          <button onClick={() => openLegalModal("contact")} className="hover:text-white">Contact Desk</button>
+        </div>
+      </div>
+    </footer>
   );
 };
 
