@@ -6378,20 +6378,77 @@ export default function Page() {
 
             {/* Tab 3: Active Shipments */}
             {state.shipperTab === "shipments" && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <ShipperShipmentsSection
-                  bookings={state.bookings}
-                  onRefresh={handlers.fetchLiveDatabaseData}
-                  onOpenLabelModal={(b) => state.setPrintableBooking(b)}
-                  onOpenTrackerTab={(orderRef) => {
-                    state.setActiveTrackingAwb(orderRef);
-                    state.setTrackingSearchInput(orderRef);
-                    state.setShipperTab("history");
-                  }}
-                  onBatchPrintLabels={() => state.setBatchPrintBookings(state.bookings.slice(0, 50))}
-                />
-              </div>
-            )}
+  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      <div>
+        <h3 className="text-base font-bold text-slate-800">My Shipments</h3>
+        <p className="text-xs text-slate-500">Live booking records and dockets</p>
+      </div>
+      <button
+        onClick={handlers.fetchLiveDatabaseData}
+        className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition"
+      >
+        Refresh
+      </button>
+    </div>
+
+    {state.bookings.length === 0 ? (
+      <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+        No shipments booked yet.
+      </div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs text-slate-600">
+          <thead className="bg-slate-50 text-slate-700 font-semibold uppercase">
+            <tr>
+              <th className="p-3">Order / AWB</th>
+              <th className="p-3">Destination</th>
+              <th className="p-3">Carrier / Docket</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Amount</th>
+              <th className="p-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {state.bookings.map((b: any) => (
+              <tr key={b.id} className="hover:bg-slate-50">
+                <td className="p-3 font-medium text-slate-900">
+                  <div>{b.order_id || b.id}</div>
+                  <div className="text-[10px] text-slate-400">{b.awb_number}</div>
+                </td>
+                <td className="p-3">
+                  <div>{b.consignee_name}</div>
+                  <div className="text-[10px] text-slate-400">{b.dest_pin}</div>
+                </td>
+                <td className="p-3">
+                  <div>{b.vendors?.name || "Carrier"}</div>
+                  <div className="text-[10px] text-blue-600 font-mono">{b.carrier_docket_no || "Pending"}</div>
+                </td>
+                <td className="p-3">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    {b.status}
+                  </span>
+                </td>
+                <td className="p-3 font-semibold text-slate-800">
+                  {formatINR(b.final_total)}
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => state.setPrintableBooking(b)}
+                    className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 text-white rounded hover:bg-slate-700 transition"
+                  >
+                    Print Label
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
+
 
             {/* Tab 4: History & Live Tracker */}
             {state.shipperTab === "history" && (
