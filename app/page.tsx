@@ -12,12 +12,13 @@ import React, {
   type ReactNode
 } from "react";
 import { createClient, type Session, type User as SupabaseUser } from "@supabase/supabase-js";
+import { PDFDocument } from "pdf-lib";
 
 // ============================================================================
 // 1. SUPABASE CLIENT SETUP (LOCAL INSTANCE)
 // ============================================================================
-const supabaseUrl: string = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl: string = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-url.supabase.co";
+const supabaseAnonKey: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================================================
@@ -316,7 +317,305 @@ interface PinLookupResult {
 }
 
 // ============================================================================
-// 3. COMPLETE MERCHANT CONFIGURATION & DEFAULT MASTERS
+// 3. MATHEMATICAL ENGINE, LOCAL RESOLVERS & UTILITIES
+// ============================================================================
+const formatINR = (val: number): string => {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0
+  }).format(val || 0);
+};
+
+function getOfficialCarrierTrackingUrl(carrier: Vendor | string, docketNumber: string): string {
+  if (!docketNumber) return "#";
+  const cleanDocket = docketNumber.trim();
+
+  if (typeof carrier === "object" && carrier !== null) {
+    if (carrier.custom_tracking_url && carrier.custom_tracking_url.trim()) {
+      const base = carrier.custom_tracking_url.trim();
+      return base.includes("=") || base.endsWith("/")
+        ? `${base}${encodeURIComponent(cleanDocket)}`
+        : `${base}/${encodeURIComponent(cleanDocket)}`;
+    }
+    if (carrier.tracking_base_url && carrier.tracking_base_url.trim()) {
+      const base = carrier.tracking_base_url.trim();
+      return base.includes("=") || base.endsWith("/")
+        ? `${base}${encodeURIComponent(cleanDocket)}`
+        : `${base}/${encodeURIComponent(cleanDocket)}`;
+    }
+  }
+
+  const name = (typeof carrier === "string" ? carrier : carrier?.name || "").toLowerCase();
+  if (name.includes("delhivery")) return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("blue dart")) return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("safexpress")) return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("gati")) return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
+  if (name.includes("tci")) return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(`${name} consignment tracking ${cleanDocket}`)}`;
+}
+
+function generateCarrierDocket(carrierName: string): string {
+  const c = carrierName.toLowerCase();
+  if (c.includes("delhivery")) return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+  if (c.includes("blue dart")) return `BLU${Math.floor(100000000 + Math.random() * 900000000)}`;
+  if (c.includes("tci")) return `TCI-${Math.floor(1000000 + Math.random() * 9000000)}`;
+  if (c.includes("gati")) return `GTI-${Math.floor(10000000 + Math.random() * 90000000)}`;
+  return `SAF-${Math.floor(10000000 + Math.random() * 90000000)}`;
+}
+
+function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
+  if (!pin || pin.length < 3) return { city: "Detecting Location...", state: "India", hub: "HUB-GEN" };
+  const p3 = pin.substring(0, 3);
+  const p2 = pin.substring(0, 2);
+
+  if (p3 === "110") return { city: "Delhi NCR", state: "Delhi", hub: "DEL-NORTH-01" };
+  if (p3 === "121" || p3 === "122") return { city: "Gurugram / FBD", state: "Haryana", hub: "GGN-GATEWAY" };
+  if (p3 === "131" || p3 === "132") return { city: "Sonipat / Panipat", state: "Haryana", hub: "HAR-CENTRAL" };
+  if (p3 === "133" || p3 === "134") return { city: "Ambala / Panchkula", state: "Haryana", hub: "AMB-HUB" };
+  if (p3 === "141") return { city: "Ludhiana", state: "Punjab", hub: "LDH-IND-HUB" };
+  if (p3 === "143") return { city: "Amritsar", state: "Punjab", hub: "ASR-GATEWAY" };
+  if (p3 === "144") return { city: "Jalandhar", state: "Punjab", hub: "JAL-HUB" };
+  if (p3 === "160") return { city: "Chandigarh", state: "Chandigarh", hub: "CHD-CENTRAL" };
+  if (p3 === "201") return { city: "Noida / Ghaziabad", state: "Uttar Pradesh", hub: "UP-WEST-HUB" };
+  if (p3 === "250") return { city: "Meerut", state: "Uttar Pradesh", hub: "MRT-HUB-02" };
+  if (p3 === "400" || p3 === "401") return { city: "Mumbai MMR", state: "Maharashtra", hub: "BOM-CENTRAL" };
+  if (p3 === "411") return { city: "Pune", state: "Maharashtra", hub: "PNQ-IND-01" };
+  if (p3 === "560") return { city: "Bengaluru", state: "Karnataka", hub: "BLR-SOUTH-MAIN" };
+  if (p3 === "500") return { city: "Hyderabad", state: "Telangana", hub: "HYD-HUB-01" };
+  if (p3 === "600") return { city: "Chennai", state: "Tamil Nadu", hub: "MAA-AIR-SEA" };
+  if (p3 === "700") return { city: "Kolkata", state: "West Bengal", hub: "CCU-EAST-PORT" };
+  if (p3 === "380") return { city: "Ahmedabad", state: "Gujarat", hub: "AMD-WEST-01" };
+  if (p3 === "302") return { city: "Jaipur", state: "Rajasthan", hub: "JAI-NORTH-WEST" };
+
+  return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
+}
+
+const clientLocationCache: Record<string, string> = {
+  delhi: "110",
+  "new delhi": "110",
+  mumbai: "400",
+  bengaluru: "560",
+  bangalore: "560",
+  chandigarh: "160",
+  ludhiana: "141",
+  meerut: "250",
+  kolkata: "700",
+  chennai: "600",
+  hyderabad: "500",
+  ahmedabad: "380",
+  pune: "411",
+  jaipur: "302"
+};
+
+async function resolveLocationToPrefix(rawInput: string): Promise<string> {
+  if (!rawInput) return "%";
+  const clean = rawInput.trim().toLowerCase();
+  if (clean === "%") return "%";
+  if (/^\d{3,6}$/.test(clean)) return clean.substring(0, 3);
+  if (clientLocationCache[clean]) return clientLocationCache[clean];
+
+  try {
+    const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(clean)}`);
+    const data = await res.json();
+    if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+      const pin = data[0].PostOffice[0].Pincode;
+      const prefix = pin.substring(0, 3);
+      clientLocationCache[clean] = prefix;
+      return prefix;
+    }
+  } catch (err) {
+    console.warn("Postal API lookup fallback:", clean, err);
+  }
+  return clean.substring(0, 3);
+}
+
+function calculatePlatformFee(freightTotal: number, feePercentage: number = 2, minFloorINR: number = 25): number {
+  const dynamicFee = (freightTotal * feePercentage) / 100;
+  return Math.max(minFloorINR, Math.round(dynamicFee));
+}
+
+function calculateQuotesForShipment(
+  originPin: string,
+  destPin: string,
+  boxes: BoxItem[],
+  declaredValue: number,
+  mode: "all" | "surface" | "air" | "ftl",
+  isOda: boolean,
+  rateCardsList: RateCard[],
+  vendorsList: Vendor[],
+  feeConfig: FeeConfig,
+  agreementsList: CreditAgreement[] = []
+): CalculatedQuote[] {
+  const actualWeight = boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0);
+  const oPrefix = originPin.substring(0, 3);
+  const dPrefix = destPin.substring(0, 3);
+
+  // Check if dimensions are provided on at least one box
+  const hasDimensions = boxes.some(
+    (b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0
+  );
+
+  const matchedCards = rateCardsList.filter((card) => {
+    if (!card.is_active) return false;
+    if (mode !== "all" && card.mode !== mode) return false;
+    const originMatches = card.origin_prefix === "%" || card.origin_prefix === oPrefix || originPin.startsWith(card.origin_prefix);
+    const destMatches = card.dest_prefix === "%" || card.dest_prefix === dPrefix || destPin.startsWith(card.dest_prefix);
+    return originMatches && destMatches;
+  });
+
+  const activeCards = matchedCards.length > 0 ? matchedCards : rateCardsList;
+
+  return activeCards.map((card) => {
+    const divisor = card.mode === "air" ? 5000 : 4500;
+    
+    // Strict optional dimensions handling: if dimensions are missing or 0, volumetric weight is 0
+    let volumetricWeight = 0;
+    if (hasDimensions) {
+      volumetricWeight = boxes.reduce((acc, b) => {
+        if (!b.length || !b.width || !b.height || Number(b.length) <= 0 || Number(b.width) <= 0 || Number(b.height) <= 0) {
+          return acc;
+        }
+        const volKg = (Number(b.length) * Number(b.width) * Number(b.height)) / divisor;
+        return acc + volKg * (Number(b.qty) || 1);
+      }, 0);
+    }
+
+    const billableWeight = hasDimensions
+      ? Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10, card.min_weight_kg)
+      : Math.max(actualWeight, card.min_weight_kg);
+
+    const v = card.vendors || vendorsList.find((vend) => vend.id === card.vendor_id) || vendorsList[0] || {
+      id: card.vendor_id,
+      name: "Carrier Logistics",
+      badge: "Verified Carrier",
+      rating: 4.5,
+      gstin: "07AAACB0000A1Z1",
+      fleet_types: ["Surface Express"]
+    };
+
+    const baseFreight = Number(card.base_rate) + billableWeight * Number(card.per_kg_rate);
+    const fuelSurcharge = (baseFreight * Number(card.fuel_surcharge_pct)) / 100;
+    const docket = Number(card.docket_charge);
+    const fov = Math.max(50, (Number(declaredValue) * Number(card.fov_pct || feeConfig.fovPercentage)) / 100);
+    const handling = billableWeight * Number(card.handling_per_kg || 0);
+    const oda = isOda ? Number(card.oda_charge || feeConfig.odaFlatCharge) : 0;
+
+    const subtotal = baseFreight + fuelSurcharge + docket + fov + handling + oda;
+    const gst = subtotal * (feeConfig.taxPercentage / 100);
+    const freightDirectTotal = subtotal + gst;
+
+    const convenienceFee = calculatePlatformFee(freightDirectTotal, feeConfig.percentage, feeConfig.minFloorINR);
+
+    const matchingAgreement = agreementsList.find(
+      (a) => a.carrier_id === v.id && a.status === "Approved"
+    );
+    const creditAvailable = Boolean(
+      matchingAgreement && (matchingAgreement.approved_limit - matchingAgreement.utilized_amount) >= (freightDirectTotal + convenienceFee)
+    );
+
+    return {
+      rateCard: card,
+      vendor: v,
+      actualWeight: Math.round(actualWeight * 10) / 10,
+      volumetricWeight: Math.round(volumetricWeight * 10) / 10,
+      billableWeight: Math.round(billableWeight * 10) / 10,
+      isDeadWeightCalculated: !hasDimensions,
+      creditAvailable,
+      creditAgreement: matchingAgreement,
+      breakdown: {
+        base: Math.round(baseFreight * 100) / 100,
+        fuel: Math.round(fuelSurcharge * 100) / 100,
+        docket: Math.round(docket * 100) / 100,
+        fov: Math.round(fov * 100) / 100,
+        handling: Math.round(handling * 100) / 100,
+        oda: Math.round(oda * 100) / 100,
+        gst: Math.round(gst * 100) / 100,
+        freightSubtotal: Math.round(freightDirectTotal * 100) / 100,
+        platformConvenienceFee: convenienceFee,
+        total: Math.round((freightDirectTotal + convenienceFee) * 100) / 100
+      }
+    };
+  });
+}
+
+async function compressImageFile(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e) => { img.src = e.target?.result as string; };
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX_WIDTH = 1200;
+      let width = img.width;
+      let height = img.height;
+      if (width > MAX_WIDTH) {
+        height = Math.round((height * MAX_WIDTH) / width);
+        width = MAX_WIDTH;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        resolve(blob ? new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }) : file);
+      }, "image/jpeg", 0.75);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressAgreementFile(file: File): Promise<{
+  file: File;
+  originalSizeKB: number;
+  compressedSizeKB: number;
+  savedKB: number;
+}> {
+  const originalSizeKB = Math.round(file.size / 1024);
+
+  if (file.type.startsWith("image/")) {
+    const compressedImage = await compressImageFile(file);
+    const compressedSizeKB = Math.round(compressedImage.size / 1024);
+    return {
+      file: compressedImage,
+      originalSizeKB,
+      compressedSizeKB,
+      savedKB: Math.max(0, originalSizeKB - compressedSizeKB)
+    };
+  }
+
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
+      const blob = new Blob([compressedBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      
+      const compressedFile = new File([blob], file.name, {
+        type: "application/pdf",
+        lastModified: Date.now()
+      });
+
+      const compressedSizeKB = Math.round(compressedFile.size / 1024);
+      const isSmaller = compressedFile.size < file.size;
+
+      return {
+        file: isSmaller ? compressedFile : file,
+        originalSizeKB,
+        compressedSizeKB: isSmaller ? compressedSizeKB : originalSizeKB,
+        savedKB: isSmaller ? Math.max(0, originalSizeKB - compressedSizeKB) : 0
+      };
+    } catch (err) {
+      console.warn("Client-side PDF minification fallback:", err);
+    }
+  }
+
+  return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
+}
+// ============================================================================
+// 4. MERCHANT CONFIGURATION & DEFAULT FALLBACK MASTERS
 // ============================================================================
 const MERCHANT_DETAILS: Record<string, any> = {
   proprietor: "Yash Chaudhary",
@@ -346,9 +645,13 @@ const DEFAULT_FEE_CONFIG: FeeConfig = {
   odaFlatCharge: 450
 };
 
-const DEFAULT_SHIPPER_ADDRESS: AddressProfile = {
-  id: "addr-default-origin",
-  label: "Primary Central Hub",
+const DEMO_INIT_ORDER_ID = "LC-894210";
+const DEMO_INIT_CARRIER_DOCKET = "148920194821";
+
+// Demo Sandbox Entities (Strictly isolated to Demo Mode only)
+const DEMO_SHIPPER_ADDRESS: AddressProfile = {
+  id: "addr-demo-origin",
+  label: "Demo Central Logistics Hub",
   company_name: "Apex Retail Solutions Pvt Ltd",
   contact_name: "Vikram Malhotra (Dispatch Lead)",
   phone: "+91 98110 23456",
@@ -362,10 +665,6 @@ const DEFAULT_SHIPPER_ADDRESS: AddressProfile = {
   is_default: true
 };
 
-const DEMO_INIT_ORDER_ID = "LC-894210";
-const DEMO_INIT_CARRIER_DOCKET = "148920194821";
-
-// Clean mock entities without escaped unicode characters
 const DEMO_SHIPPER: UserProfile = {
   id: "demo-shipper-uuid",
   email: "dispatch@apexlogistics.in",
@@ -375,7 +674,7 @@ const DEMO_SHIPPER: UserProfile = {
   phone: "+91 98110 23456",
   role: "shipper",
   isRealUser: false,
-  saved_addresses: [DEFAULT_SHIPPER_ADDRESS]
+  saved_addresses: [DEMO_SHIPPER_ADDRESS]
 };
 
 const DEMO_CARRIER: UserProfile = {
@@ -464,7 +763,7 @@ const FALLBACK_VENDORS: Vendor[] = [
   }
 ];
 
-const FALLBACK_DEFAULT_RATE_CARDS: RateCard[] = [
+const DEMO_RATE_CARDS: RateCard[] = [
   {
     id: "rc-del-bom-surface",
     vendor_id: "11111111-1111-1111-1111-111111111111",
@@ -568,24 +867,6 @@ const INITIAL_MOCK_INVOICES: PlatformInvoice[] = [
     status: "Pending",
     due_date: "2026-10-29",
     is_demo: true
-  },
-  {
-    id: "inv-2026-m09",
-    invoice_number: "INV-LC-2026-M09",
-    carrier_id: "11111111-1111-1111-1111-111111111111",
-    carrier_name: "Delhivery B2B Express",
-    billing_cycle: "monthly",
-    period_start: "2026-09-01",
-    period_end: "2026-09-30",
-    total_consignments: 142,
-    gross_freight: 749000,
-    platform_fee_total: 14980,
-    status: "Paid",
-    due_date: "2026-10-07",
-    payment_date: "2026-10-05",
-    payment_ref: "UTR-ICICI-001284719",
-    payment_method: "Corporate NEFT",
-    is_demo: true
   }
 ];
 
@@ -606,22 +887,6 @@ const INITIAL_MOCK_CREDIT_AGREEMENTS: CreditAgreement[] = [
     submitted_at: "2026-09-15T10:30:00Z",
     reviewed_at: "2026-09-17T14:20:00Z",
     is_demo: true
-  },
-  {
-    id: "ca-apex-bluedart-02",
-    shipper_id: "demo-shipper-uuid",
-    shipper_name: "Apex Retail Solutions Pvt Ltd",
-    carrier_id: "22222222-2222-2222-2222-222222222222",
-    carrier_name: "Blue Dart Aviation",
-    document_url: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-    document_name: "Apex_BlueDart_Air_Credit_Facility.pdf",
-    requested_limit: 250000,
-    approved_limit: 0,
-    utilized_amount: 0,
-    status: "Pending_Review",
-    payment_terms_days: 30,
-    submitted_at: "2026-10-20T09:15:00Z",
-    is_demo: true
   }
 ];
 
@@ -640,329 +905,11 @@ const INITIAL_MOCK_CREDIT_LEDGER: CreditLedgerEntry[] = [
     status: "Unpaid",
     created_at: "2026-10-21T11:00:00Z",
     is_demo: true
-  },
-  {
-    id: "c-led-02",
-    booking_id: "book-demo-02",
-    order_ref: "LC-772194",
-    carrier_docket_no: "148920188432",
-    shipper_id: "demo-shipper-uuid",
-    shipper_name: "Apex Retail Solutions Pvt Ltd",
-    carrier_id: "11111111-1111-1111-1111-111111111111",
-    carrier_name: "Delhivery B2B Express",
-    amount: 104400,
-    due_date: "2026-11-08",
-    status: "Unpaid",
-    created_at: "2026-10-24T14:30:00Z",
-    is_demo: true
   }
 ];
 
-const clientLocationCache: Record<string, string> = {
-  delhi: "110",
-  "new delhi": "110",
-  mumbai: "400",
-  bengaluru: "560",
-  bangalore: "560",
-  chandigarh: "160",
-  ludhiana: "141",
-  meerut: "250",
-  kolkata: "700",
-  chennai: "600",
-  hyderabad: "500",
-  ahmedabad: "380",
-  pune: "411",
-  jaipur: "302"
-};
-
 // ============================================================================
-// 4. MATHEMATICAL ENGINE, DYNAMIC CARRIER PORTAL RESOLVER & UTILITIES
-// ============================================================================
-const formatINR = (val: number): string => {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0
-  }).format(val || 0);
-};
-
-// Carrier-Specific Dynamic Tracking URL Generator
-function getOfficialCarrierTrackingUrl(carrier: Vendor | string, docketNumber: string): string {
-  if (!docketNumber) return "#";
-  const cleanDocket = docketNumber.trim();
-
-  // If vendor object provided with configured public tracking portal URL
-  if (typeof carrier === "object" && carrier !== null) {
-    if (carrier.custom_tracking_url && carrier.custom_tracking_url.trim()) {
-      const base = carrier.custom_tracking_url.trim();
-      return base.includes("=") || base.endsWith("/")
-        ? `${base}${encodeURIComponent(cleanDocket)}`
-        : `${base}/${encodeURIComponent(cleanDocket)}`;
-    }
-    if (carrier.tracking_base_url && carrier.tracking_base_url.trim()) {
-      const base = carrier.tracking_base_url.trim();
-      return base.includes("=") || base.endsWith("/")
-        ? `${base}${encodeURIComponent(cleanDocket)}`
-        : `${base}/${encodeURIComponent(cleanDocket)}`;
-    }
-  }
-
-  const name = (typeof carrier === "string" ? carrier : carrier?.name || "").toLowerCase();
-  if (name.includes("delhivery")) return `https://www.delhivery.com/track/package/${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("blue dart")) return `https://www.bluedart.com/tracking?trackNo=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("safexpress")) return `http://www.safexpress.com/track-waybill?waybill=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("gati")) return `https://www.gati.com/track-shipment/?docket=${encodeURIComponent(cleanDocket)}`;
-  if (name.includes("tci")) return `https://www.tcifreight.com/tracking/${encodeURIComponent(cleanDocket)}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(`${name} consignment tracking ${cleanDocket}`)}`;
-}
-
-function generateCarrierDocket(carrierName: string): string {
-  const c = carrierName.toLowerCase();
-  if (c.includes("delhivery")) return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-  if (c.includes("blue dart")) return `BLU${Math.floor(100000000 + Math.random() * 900000000)}`;
-  if (c.includes("tci")) return `TCI-${Math.floor(1000000 + Math.random() * 9000000)}`;
-  if (c.includes("gati")) return `GTI-${Math.floor(10000000 + Math.random() * 90000000)}`;
-  return `SAF-${Math.floor(10000000 + Math.random() * 90000000)}`;
-}
-
-function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
-  if (!pin || pin.length < 3) return { city: "Detecting Location...", state: "India", hub: "HUB-GEN" };
-  const p3 = pin.substring(0, 3);
-  const p2 = pin.substring(0, 2);
-
-  if (p3 === "110") return { city: "Delhi NCR", state: "Delhi", hub: "DEL-NORTH-01" };
-  if (p3 === "121" || p3 === "122") return { city: "Gurugram / FBD", state: "Haryana", hub: "GGN-GATEWAY" };
-  if (p3 === "131" || p3 === "132") return { city: "Sonipat / Panipat", state: "Haryana", hub: "HAR-CENTRAL" };
-  if (p3 === "133" || p3 === "134") return { city: "Ambala / Panchkula", state: "Haryana", hub: "AMB-HUB" };
-  if (p3 === "141") return { city: "Ludhiana", state: "Punjab", hub: "LDH-IND-HUB" };
-  if (p3 === "143") return { city: "Amritsar", state: "Punjab", hub: "ASR-GATEWAY" };
-  if (p3 === "144") return { city: "Jalandhar", state: "Punjab", hub: "JAL-HUB" };
-  if (p3 === "160") return { city: "Chandigarh", state: "Chandigarh", hub: "CHD-CENTRAL" };
-  if (p3 === "201") return { city: "Noida / Ghaziabad", state: "Uttar Pradesh", hub: "UP-WEST-HUB" };
-  if (p3 === "250") return { city: "Meerut", state: "Uttar Pradesh", hub: "MRT-HUB-02" };
-  if (p3 === "400" || p3 === "401") return { city: "Mumbai MMR", state: "Maharashtra", hub: "BOM-CENTRAL" };
-  if (p3 === "411") return { city: "Pune", state: "Maharashtra", hub: "PNQ-IND-01" };
-  if (p3 === "560") return { city: "Bengaluru", state: "Karnataka", hub: "BLR-SOUTH-MAIN" };
-  if (p3 === "500") return { city: "Hyderabad", state: "Telangana", hub: "HYD-HUB-01" };
-  if (p3 === "600") return { city: "Chennai", state: "Tamil Nadu", hub: "MAA-AIR-SEA" };
-  if (p3 === "700") return { city: "Kolkata", state: "West Bengal", hub: "CCU-EAST-PORT" };
-  if (p3 === "380") return { city: "Ahmedabad", state: "Gujarat", hub: "AMD-WEST-01" };
-  if (p3 === "302") return { city: "Jaipur", state: "Rajasthan", hub: "JAI-NORTH-WEST" };
-
-  return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
-}
-
-async function resolveLocationToPrefix(rawInput: string): Promise<string> {
-  if (!rawInput) return "%";
-  const clean = rawInput.trim().toLowerCase();
-  if (clean === "%") return "%";
-  if (/^\d{3,6}$/.test(clean)) return clean.substring(0, 3);
-  if (clientLocationCache[clean]) return clientLocationCache[clean];
-
-  try {
-    const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(clean)}`);
-    const data = await res.json();
-    if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
-      const pin = data[0].PostOffice[0].Pincode;
-      const prefix = pin.substring(0, 3);
-      clientLocationCache[clean] = prefix;
-      return prefix;
-    }
-  } catch (err) {
-    console.warn("Postal API lookup fallback:", clean, err);
-  }
-  return clean.substring(0, 3);
-}
-
-function calculatePlatformFee(freightTotal: number, feeConfig: FeeConfig = DEFAULT_FEE_CONFIG): number {
-  const dynamicFee = (freightTotal * feeConfig.percentage) / 100;
-  return Math.max(feeConfig.minFloorINR, Math.round(dynamicFee));
-}
-
-function calculateQuotesForShipment(
-  originPin: string,
-  destPin: string,
-  boxes: BoxItem[],
-  declaredValue: number,
-  mode: "all" | "surface" | "air" | "ftl",
-  isOda: boolean,
-  rateCardsList: RateCard[],
-  vendorsList: Vendor[],
-  feeConfig: FeeConfig = DEFAULT_FEE_CONFIG,
-  agreementsList: CreditAgreement[] = []
-): CalculatedQuote[] {
-  const actualWeight = boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0);
-  const oPrefix = originPin.substring(0, 3);
-  const dPrefix = destPin.substring(0, 3);
-
-  // Check if dimensions are provided on at least one box
-  const hasDimensions = boxes.some(
-    (b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0
-  );
-
-  const matchedCards = rateCardsList.filter((card) => {
-    if (!card.is_active) return false;
-    if (mode !== "all" && card.mode !== mode) return false;
-    const originMatches = card.origin_prefix === "%" || card.origin_prefix === oPrefix || originPin.startsWith(card.origin_prefix);
-    const destMatches = card.dest_prefix === "%" || card.dest_prefix === dPrefix || destPin.startsWith(card.dest_prefix);
-    return originMatches && destMatches;
-  });
-
-  const activeCards = matchedCards.length > 0 ? matchedCards : rateCardsList.slice(0, 5);
-
-  return activeCards.map((card) => {
-    const divisor = card.mode === "air" ? 5000 : 4500;
-    
-    // Strict optional dimensions handling: if dimensions are missing or 0, volumetric weight is 0
-    let volumetricWeight = 0;
-    if (hasDimensions) {
-      volumetricWeight = boxes.reduce((acc, b) => {
-        if (!b.length || !b.width || !b.height || Number(b.length) <= 0 || Number(b.width) <= 0 || Number(b.height) <= 0) {
-          return acc;
-        }
-        const volKg = ((Number(b.length)) * (Number(b.width)) * (Number(b.height))) / divisor;
-        return acc + volKg * (Number(b.qty) || 1);
-      }, 0);
-    }
-
-    const billableWeight = hasDimensions
-      ? Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10, card.min_weight_kg)
-      : Math.max(actualWeight, card.min_weight_kg);
-
-    const v = card.vendors || vendorsList.find((vend) => vend.id === card.vendor_id) || vendorsList[0];
-
-    const baseFreight = Number(card.base_rate) + billableWeight * Number(card.per_kg_rate);
-    const fuelSurcharge = (baseFreight * Number(card.fuel_surcharge_pct)) / 100;
-    const docket = Number(card.docket_charge);
-    const fov = Math.max(50, (Number(declaredValue) * Number(card.fov_pct || feeConfig.fovPercentage)) / 100);
-    const handling = billableWeight * Number(card.handling_per_kg);
-    const oda = isOda ? Number(card.oda_charge || feeConfig.odaFlatCharge) : 0;
-
-    const subtotal = baseFreight + fuelSurcharge + docket + fov + handling + oda;
-    const gst = subtotal * (feeConfig.taxPercentage / 100);
-    const freightDirectTotal = subtotal + gst;
-
-    const convenienceFee = calculatePlatformFee(freightDirectTotal, feeConfig);
-
-    // Check if formal credit agreement is approved with this specific carrier
-    const matchingAgreement = agreementsList.find(
-      (a) => a.carrier_id === v.id && a.status === "Approved"
-    );
-    const creditAvailable = Boolean(matchingAgreement && (matchingAgreement.approved_limit - matchingAgreement.utilized_amount) >= (freightDirectTotal + convenienceFee));
-
-    return {
-      rateCard: card,
-      vendor: v,
-      actualWeight: Math.round(actualWeight * 10) / 10,
-      volumetricWeight: Math.round(volumetricWeight * 10) / 10,
-      billableWeight: Math.round(billableWeight * 10) / 10,
-      isDeadWeightCalculated: !hasDimensions,
-      creditAvailable,
-      creditAgreement: matchingAgreement,
-      breakdown: {
-        base: Math.round(baseFreight * 100) / 100,
-        fuel: Math.round(fuelSurcharge * 100) / 100,
-        docket: Math.round(docket * 100) / 100,
-        fov: Math.round(fov * 100) / 100,
-        handling: Math.round(handling * 100) / 100,
-        oda: Math.round(oda * 100) / 100,
-        gst: Math.round(gst * 100) / 100,
-        freightSubtotal: Math.round(freightDirectTotal * 100) / 100,
-        platformConvenienceFee: convenienceFee,
-        total: Math.round((freightDirectTotal + convenienceFee) * 100) / 100
-      }
-    };
-  });
-}
-
-async function compressImageFile(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  return new Promise((resolve) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target?.result as string; };
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const MAX_WIDTH = 1200;
-      let width = img.width;
-      let height = img.height;
-      if (width > MAX_WIDTH) {
-        height = Math.round((height * MAX_WIDTH) / width);
-        width = MAX_WIDTH;
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        resolve(blob ? new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), { type: "image/jpeg" }) : file);
-      }, "image/jpeg", 0.75);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-async function compressAgreementFile(file: File): Promise<{
-  file: File;
-  originalSizeKB: number;
-  compressedSizeKB: number;
-  savedKB: number;
-}> {
-  const originalSizeKB = Math.round(file.size / 1024);
-
-  // Skip if file is 1MB or smaller
-  if (file.size <= 1024 * 1024) {
-    return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
-  }
-
-  // Handle image files (scanned agreement JPG/PNG)
-  if (file.type.startsWith("image/")) {
-    const compressedImage = await compressImageFile(file);
-    const compressedSizeKB = Math.round(compressedImage.size / 1024);
-    return {
-      file: compressedImage,
-      originalSizeKB,
-      compressedSizeKB,
-      savedKB: Math.max(0, originalSizeKB - compressedSizeKB)
-    };
-  }
-
-  // Handle PDF files using pdf-lib with object streams minification
-  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-    try {
-      const { PDFDocument } = await import("pdf-lib");
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Load document ignoring encryption artifacts
-      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-
-      // Save using object streams to compress cross-reference tables and unused object overhead
-      const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
-      const blob = new Blob([compressedBytes.buffer as ArrayBuffer], { type: "application/pdf" });
-      
-      const compressedFile = new File([blob], file.name, {
-        type: "application/pdf",
-        lastModified: Date.now()
-      });
-
-      const compressedSizeKB = Math.round(compressedFile.size / 1024);
-      const isSmaller = compressedFile.size < file.size;
-
-      return {
-        file: isSmaller ? compressedFile : file,
-        originalSizeKB,
-        compressedSizeKB: isSmaller ? compressedSizeKB : originalSizeKB,
-        savedKB: isSmaller ? Math.max(0, originalSizeKB - compressedSizeKB) : 0
-      };
-    } catch (err) {
-      console.warn("Client-side PDF minification fallback:", err);
-    }
-  }
-
-  return { file, originalSizeKB, compressedSizeKB: originalSizeKB, savedKB: 0 };
-}
-// ============================================================================
-// 5. INLINE VECTOR SYSTEM (STANDARD SVG ICONS WITHOUT EXPORT)
+// 5. INLINE VECTOR ICONS SYSTEM
 // ============================================================================
 interface IconProps {
   className?: string;
@@ -1120,690 +1067,9 @@ const DocumentCheckIcon: FC<IconProps> = ({ className = "w-5 h-5" }) => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M10.125 2.25h-4.5c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125v-12m-9.375-6.375L19.5 7.5m-9.375-5.25v5.25h5.25m-6.75 6.75l2.25 2.25 4.5-4.5" />
   </svg>
 );
-// ============================================================================
-// 6. DYNAMIC ADDRESS MANAGEMENT MODAL (SHIPPER ORIGIN WAREHOUSE)
-// ============================================================================
-interface AddressModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (address: AddressProfile) => void;
-  initialAddress?: AddressProfile | null;
-}
-
-const AddressModal: FC<AddressModalProps> = ({
-  isOpen,
-  onClose,
-  onSave,
-  initialAddress
-}) => {
-  const [label, setLabel] = useState(initialAddress?.label || "Primary Warehouse");
-  const [companyName, setCompanyName] = useState(initialAddress?.company_name || "");
-  const [contactName, setContactName] = useState(initialAddress?.contact_name || "");
-  const [phone, setPhone] = useState(initialAddress?.phone || "");
-  const [email, setEmail] = useState(initialAddress?.email || "");
-  const [gstin, setGstin] = useState(initialAddress?.gstin || "");
-  const [line1, setLine1] = useState(initialAddress?.address_line1 || "");
-  const [line2, setLine2] = useState(initialAddress?.address_line2 || "");
-  const [city, setCity] = useState(initialAddress?.city || "");
-  const [stateName, setStateName] = useState(initialAddress?.state || "");
-  const [pincode, setPincode] = useState(initialAddress?.pincode || "110020");
-  const [isDefault, setIsDefault] = useState(initialAddress?.is_default ?? true);
-  const [isLookingUpPin, setIsLookingUpPin] = useState(false);
-
-  useEffect(() => {
-    if (initialAddress) {
-      setLabel(initialAddress.label);
-      setCompanyName(initialAddress.company_name);
-      setContactName(initialAddress.contact_name);
-      setPhone(initialAddress.phone);
-      setEmail(initialAddress.email);
-      setGstin(initialAddress.gstin);
-      setLine1(initialAddress.address_line1);
-      setLine2(initialAddress.address_line2 || "");
-      setCity(initialAddress.city);
-      setStateName(initialAddress.state);
-      setPincode(initialAddress.pincode);
-      setIsDefault(initialAddress.is_default);
-    }
-  }, [initialAddress]);
-
-  const handlePincodeBlur = async () => {
-    const cleanPin = pincode.trim();
-    if (cleanPin.length === 6) {
-      setIsLookingUpPin(true);
-      try {
-        const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`);
-        const data = await res.json();
-        if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
-          const po = data[0].PostOffice[0];
-          setCity(po.District || po.Block || po.Name);
-          setStateName(po.State);
-        } else {
-          const fb = getLocalFallbackZone(cleanPin);
-          setCity(fb.city);
-          setStateName(fb.state);
-        }
-      } catch {
-        const fb = getLocalFallbackZone(cleanPin);
-        setCity(fb.city);
-        setStateName(fb.state);
-      } finally {
-        setIsLookingUpPin(false);
-      }
-    }
-  };
-
-  if (!isOpen) return null;
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!pincode || pincode.trim().length !== 6) {
-      alert("Please provide a valid 6-digit Indian PIN code.");
-      return;
-    }
-    const updated: AddressProfile = {
-      id: initialAddress?.id || `addr-${Date.now()}`,
-      label: label.trim(),
-      company_name: companyName.trim() || "Apex Retail Solutions Pvt Ltd",
-      contact_name: contactName.trim() || "Dispatch Manager",
-      phone: phone.trim() || "+91 98110 23456",
-      email: email.trim(),
-      gstin: gstin.trim().toUpperCase(),
-      address_line1: line1.trim(),
-      address_line2: line2.trim(),
-      city: city.trim() || "New Delhi",
-      state: stateName.trim() || "Delhi",
-      pincode: pincode.trim(),
-      is_default: isDefault
-    };
-    onSave(updated);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">
-              {initialAddress ? "Edit Dispatch Warehouse Facility" : "Add Warehouse Origin Facility"}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium">
-              Configure dynamic dispatch locations across India with automated PIN zoning.
-            </p>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Facility Label</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Primary Hub, Okhla Warehouse"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Company / Facility Name</label>
-              <input
-                type="text"
-                placeholder="Apex Retail Solutions Pvt Ltd"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Dispatch Lead Name</label>
-              <input
-                type="text"
-                required
-                placeholder="Manager Name"
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Phone Helpline</label>
-              <input
-                type="text"
-                required
-                placeholder="+91 98110 23456"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">GSTIN</label>
-              <input
-                type="text"
-                maxLength={15}
-                placeholder="07AAACA1234A1Z5"
-                value={gstin}
-                onChange={(e) => setGstin(e.target.value.toUpperCase())}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Address Line 1 (Street / Plot No.)</label>
-            <input
-              type="text"
-              required
-              placeholder="Plot 42, Okhla Industrial Area Phase-III"
-              value={line1}
-              onChange={(e) => setLine1(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Address Line 2 (Landmark / Gate / Yard)</label>
-            <input
-              type="text"
-              placeholder="Near Gate No. 2, Behind Container Staging Area"
-              value={line2}
-              onChange={(e) => setLine2(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">
-                PIN Code {isLookingUpPin && <span className="text-indigo-600 text-[10px] animate-pulse">(Lookup...)</span>}
-              </label>
-              <input
-                type="text"
-                required
-                maxLength={6}
-                placeholder="110020"
-                value={pincode}
-                onChange={(e) => setPincode(e.target.value)}
-                onBlur={handlePincodeBlur}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">City / District</label>
-              <input
-                type="text"
-                required
-                placeholder="South Delhi"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">State</label>
-              <input
-                type="text"
-                required
-                placeholder="Delhi"
-                value={stateName}
-                onChange={(e) => setStateName(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 pt-1">
-            <input
-              type="checkbox"
-              id="is_default_addr"
-              checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
-              className="w-4 h-4 text-indigo-600 rounded border-slate-300"
-            />
-            <label htmlFor="is_default_addr" className="text-xs font-bold text-slate-700 cursor-pointer">
-              Set as Primary Origin Facility (Auto-loads into single calculator and bulk 50/day matrix)
-            </label>
-          </div>
-
-          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition"
-            >
-              Save Address Profile
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
-// 7. FORMAL CREDIT APPLICATION & KYC AGREEMENT MODAL (SHIPPER MODULE)
-// ============================================================================
-interface CreditApplyModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  carriers: Vendor[];
-  currentShipper: UserProfile;
-  onSubmitApplication: (
-    carrierId: string,
-    limit: number,
-    termsDays: number,
-    file: File,
-    docName: string,
-    storageUrl?: string
-  ) => void;
-}
-
-const CreditApplyModal: FC<CreditApplyModalProps> = ({
-  isOpen,
-  onClose,
-  carriers,
-  currentShipper,
-  onSubmitApplication
-}) => {
-  const [selectedCarrierId, setSelectedCarrierId] = useState<string>(carriers[0]?.id || "");
-  const [requestedLimit, setRequestedLimit] = useState<number>(300000);
-  const [termsDays, setTermsDays] = useState<number>(15);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadStatusText, setUploadStatusText] = useState<string>("");
-  const [statusType, setStatusType] = useState<"idle" | "optimizing" | "uploading" | "success" | "error">("idle");
-
-  if (!isOpen) return null;
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!selectedFile) {
-      alert("Please upload an executed B2B Credit Agreement or KYC document (PDF).");
-      return;
-    }
-    if (requestedLimit <= 0) {
-      alert("Please provide a valid requested credit limit.");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      let fileToUpload = selectedFile;
-      let savingsInfo = "";
-
-      // 1. Minify PDF if size exceeds 1MB
-      if (selectedFile.size > 1024 * 1024) {
-        setStatusType("optimizing");
-        setUploadStatusText("Optimizing PDF...");
-        
-        const result = await compressAgreementFile(selectedFile);
-        fileToUpload = result.file;
-        if (result.savedKB > 0) {
-          savingsInfo = ` (Saved ${result.savedKB} KB)`;
-        }
-      }
-
-      // 2. Upload to Supabase Storage 'agreements' bucket
-      setStatusType("uploading");
-      setUploadStatusText("Uploading to storage...");
-
-      const safeFileName = `${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const filePath = `credit-agreements/${currentShipper.id}/${safeFileName}`;
-
-      let publicUrl = "";
-      const { data, error } = await supabase.storage.from("agreements").upload(filePath, fileToUpload, {
-        cacheControl: "3600",
-        upsert: true
-      });
-
-      if (!error && data) {
-        const { data: urlData } = supabase.storage.from("agreements").getPublicUrl(filePath);
-        publicUrl = urlData.publicUrl;
-      } else {
-        // Fallback to local Blob URL if bucket upload is restricted or unprovisioned
-        publicUrl = URL.createObjectURL(fileToUpload);
-      }
-
-      // 3. Success visual feedback
-      setStatusType("success");
-      setUploadStatusText(`Uploaded successfully${savingsInfo}`);
-
-      onSubmitApplication(
-        selectedCarrierId,
-        requestedLimit,
-        termsDays,
-        fileToUpload,
-        fileToUpload.name,
-        publicUrl
-      );
-
-      // Auto-close modal after brief confirmation display
-      setTimeout(() => {
-        setIsSubmitting(false);
-        setUploadStatusText("");
-        setStatusType("idle");
-        onClose();
-      }, 1400);
-
-    } catch (err) {
-      console.error("Submission failed:", err);
-      setStatusType("error");
-      setUploadStatusText("Failed to process document. Please try again.");
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">Apply for Carrier Credit Facility</h3>
-            <p className="text-xs text-slate-500 font-medium">
-              Submit signed credit agreement / KYC documents for carrier underwriting approval.
-            </p>
-          </div>
-          <button type="button" onClick={onClose} disabled={isSubmitting} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Select Target Transporter</label>
-            <select
-              disabled={isSubmitting}
-              value={selectedCarrierId}
-              onChange={(e) => setSelectedCarrierId(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            >
-              {carriers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} (GSTIN: {c.gstin})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Requested Credit Ceiling (₹)</label>
-              <input
-                type="number"
-                step={10000}
-                required
-                disabled={isSubmitting}
-                value={requestedLimit}
-                onChange={(e) => setRequestedLimit(Number(e.target.value))}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Requested Billing Terms</label>
-              <select
-                disabled={isSubmitting}
-                value={termsDays}
-                onChange={(e) => setTermsDays(Number(e.target.value))}
-                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              >
-                <option value={7}>7-Day Rolling Payout</option>
-                <option value={15}>15-Day Net Bi-Monthly</option>
-                <option value={30}>30-Day Monthly Net Credit</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Agreement PDF Upload & Live Status Feedback */}
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">
-              Upload Signed Agreement / GST KYC (PDF or Scan) *
-            </label>
-            <div className="border-2 border-dashed border-indigo-300 rounded-2xl p-4 bg-indigo-50/40 text-center space-y-2">
-              <input
-                type="file"
-                id="credit_agreement_doc"
-                accept=".pdf,image/*"
-                disabled={isSubmitting}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) setSelectedFile(file);
-                }}
-                className="hidden"
-              />
-              <label
-                htmlFor="credit_agreement_doc"
-                className={`bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 shadow-xs ${
-                  isSubmitting ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-                }`}
-              >
-                <UploadIcon className="w-4 h-4" />
-                <span>
-                  {selectedFile
-                    ? `${selectedFile.name} (${Math.round(selectedFile.size / 1024)} KB)`
-                    : "Select Agreement Document"}
-                </span>
-              </label>
-
-              {/* In-Browser Processing Indicator */}
-              {uploadStatusText && (
-                <div className="pt-1.5">
-                  <span
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-[11px] font-black ${
-                      statusType === "optimizing"
-                        ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse"
-                        : statusType === "uploading"
-                        ? "bg-indigo-100 text-indigo-900 border border-indigo-300 animate-pulse"
-                        : statusType === "success"
-                        ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
-                        : "bg-rose-100 text-rose-900 border border-rose-300"
-                    }`}
-                  >
-                    {statusType === "success" ? "✓ " : "⏳ "}
-                    {uploadStatusText}
-                  </span>
-                </div>
-              )}
-
-              <p className="text-[10px] text-slate-500">
-                PDFs over 1MB are automatically compressed in-browser before upload.
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 text-[11px] text-slate-600">
-            <p><strong>Applying Entity:</strong> {currentShipper.company_name} ({currentShipper.gstin})</p>
-            <p><strong>Authorized Signatory:</strong> {currentShipper.full_name} ({currentShipper.phone})</p>
-          </div>
-
-          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !selectedFile}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
-            >
-              {isSubmitting ? "Processing..." : "Submit Credit Application"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-// ============================================================================
-// 8. PLATFORM FEE SETTLEMENT & INVOICE PAYMENT MODAL
-// ============================================================================
-interface PayPlatformFeeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  invoice: PlatformInvoice | null;
-  onPaySuccess: (invoiceId: string, utr: string, method: string) => void;
-}
-
-const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({
-  isOpen,
-  onClose,
-  invoice,
-  onPaySuccess
-}) => {
-  const [method, setMethod] = useState<"upi" | "netbanking" | "card">("upi");
-  const [utrNumber, setUtrNumber] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  if (!isOpen || !invoice) return null;
-
-  const handlePay = (e: FormEvent) => {
-    e.preventDefault();
-    if (!utrNumber.trim()) {
-      alert("Please enter a valid Transaction / UTR reference number.");
-      return;
-    }
-    setIsProcessing(true);
-    setTimeout(() => {
-      onPaySuccess(invoice.id, utrNumber.trim(), method === "upi" ? "UPI VPA" : method === "netbanking" ? "Corporate NetBanking" : "Corporate Debit Card");
-      setIsProcessing(false);
-      onClose();
-      alert(`Platform Fee Payment of ${formatINR(invoice.platform_fee_total)} successfully verified! Invoice marked as Paid.`);
-    }, 700);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">Settle Platform Commission Fee</h3>
-            <p className="text-xs text-slate-500 font-medium">Invoice: <span className="font-mono font-bold text-indigo-700">{invoice.invoice_number}</span></p>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Billing Cycle:</span>
-            <span className="font-bold uppercase tracking-wider bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-              {invoice.billing_cycle} Period ({invoice.period_start} to {invoice.period_end})
-            </span>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Carrier Organization:</span>
-            <strong className="text-white">{invoice.carrier_name}</strong>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Dispatched Consignments:</span>
-            <strong className="text-white">{invoice.total_consignments} Loads</strong>
-          </div>
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Gross Freight Handled:</span>
-            <strong className="font-mono text-white">{formatINR(invoice.gross_freight)}</strong>
-          </div>
-          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
-            <span>Platform Fee Payable (2%):</span>
-            <span className="text-base font-mono">{formatINR(invoice.platform_fee_total)}</span>
-          </div>
-        </div>
-
-        <form onSubmit={handlePay} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Select Payment Mode</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setMethod("upi")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "upi" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                📲 UPI Transfer
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod("netbanking")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "netbanking" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                🏦 NetBanking
-              </button>
-              <button
-                type="button"
-                onClick={() => setMethod("card")}
-                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
-                  method === "card" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
-                }`}
-              >
-                💳 Debit/Card
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px]">
-            <p className="text-slate-600"><strong>Aggregator Beneficiary:</strong> {MERCHANT_DETAILS.proprietor}</p>
-            <p className="text-slate-600"><strong>Platform VPA:</strong> {MERCHANT_DETAILS.vpa}</p>
-            <p className="text-slate-600"><strong>Bank Account:</strong> {MERCHANT_DETAILS.accountNumber} (IFSC: {MERCHANT_DETAILS.ifsc})</p>
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank Payment Reference / UTR Number</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. UTR-998124018274 or CMS-Ref"
-              value={utrNumber}
-              onChange={(e) => setUtrNumber(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isProcessing}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
-            >
-              {isProcessing ? "Verifying..." : `Confirm Payment (${formatINR(invoice.platform_fee_total)})`}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 9. REAL SUPABASE AUTHENTICATION MODAL (STRICTLY ISOLATED)
+// 6. REAL AUTHENTICATION & FORGOT PASSWORD MODAL (ISOLATED WORKFLOW)
 // ============================================================================
 interface AuthModalProps {
   isOpen: boolean;
@@ -1812,7 +1078,7 @@ interface AuthModalProps {
 }
 
 const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [viewMode, setViewMode] = useState<"login" | "signup" | "forgot">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -1821,23 +1087,34 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<"shipper" | "carrier">("shipper");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setMsg("");
+    setErrorMsg("");
+    setSuccessMsg("");
 
     try {
-      if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+      if (viewMode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined
+        });
+        if (error) throw error;
+        setSuccessMsg("Password reset link has been dispatched to your business email. Please check your inbox/spam.");
+      } else if (viewMode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password
+        });
         if (error) throw error;
         if (data.user) {
           const profile: UserProfile = {
             id: data.user.id,
-            email,
+            email: email.trim(),
             full_name: fullName.trim() || "Enterprise Admin",
             company_name: companyName.trim() || "Logistics Commercial Corp",
             gstin: gstin.trim().toUpperCase() || "07AAACA1234A1Z5",
@@ -1845,14 +1122,17 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
             role: role,
             vendor_id: role === "carrier" ? data.user.id : undefined,
             isRealUser: true,
-            saved_addresses: [DEFAULT_SHIPPER_ADDRESS]
+            saved_addresses: []
           };
           await supabase.from("profiles").upsert([profile]);
           onSuccess(profile);
           onClose();
         }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
         if (error) throw error;
         if (data.user) {
           const { data: pData } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
@@ -1862,26 +1142,26 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
               ...(pData as UserProfile),
               role: resolvedRole,
               isRealUser: true,
-              saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS]
+              saved_addresses: pData.saved_addresses || []
             });
           } else {
             onSuccess({
               id: data.user.id,
-              email: data.user.email || email,
+              email: data.user.email || email.trim(),
               full_name: "Verified Business User",
-              company_name: "Apex Retail Solutions",
+              company_name: "Verified Freight Corp",
               gstin: "07AAACA1234A1Z5",
               phone: "+91 98110 23456",
               role: "shipper",
               isRealUser: true,
-              saved_addresses: [DEFAULT_SHIPPER_ADDRESS]
+              saved_addresses: []
             });
           }
           onClose();
         }
       }
     } catch (err: any) {
-      setMsg(err.message || "Authentication error occurred.");
+      setErrorMsg(err.message || "An authentication error occurred.");
     } finally {
       setLoading(false);
     }
@@ -1893,16 +1173,19 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
         <div className="flex justify-between items-center border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-base font-black text-slate-900">
-              {mode === "login" ? "Live Account Sign In" : "Register Logistics Enterprise"}
+              {viewMode === "login" && "Live Account Sign In"}
+              {viewMode === "signup" && "Register Logistics Enterprise"}
+              {viewMode === "forgot" && "Recover Account Password"}
             </h3>
-            <p className="text-xs text-slate-500 font-medium">Production Supabase Authentication Guard</p>
+            <p className="text-xs text-slate-500 font-medium">Production Supabase Identity Guard</p>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
             <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
 
-        {msg && <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 p-2.5 rounded-xl font-bold">{msg}</p>}
+        {errorMsg && <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 p-2.5 rounded-xl font-bold">{errorMsg}</p>}
+        {successMsg && <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-300 p-2.5 rounded-xl font-bold">{successMsg}</p>}
 
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
           <div>
@@ -1912,21 +1195,41 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Password</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder="admin@enterprise.in"
               className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
             />
           </div>
 
-          {mode === "signup" && (
+          {viewMode !== "forgot" && (
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-slate-700 font-bold">Password</label>
+                {viewMode === "login" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg("");
+                      setSuccessMsg("");
+                      setViewMode("forgot");
+                    }}
+                    className="text-[11px] text-indigo-600 hover:underline font-bold"
+                  >
+                    Forgot Password?
+                  </button>
+                )}
+              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          )}
+
+          {viewMode === "signup" && (
             <>
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Full Name</label>
@@ -1935,6 +1238,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Vikram Malhotra"
                   className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
                 />
               </div>
@@ -1945,6 +1249,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
                   required
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Apex Retail Solutions Pvt Ltd"
                   className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
                 />
               </div>
@@ -1957,6 +1262,16 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
                   onChange={(e) => setGstin(e.target.value.toUpperCase())}
                   placeholder="07AAACA1234A1Z5"
                   className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91 98110 23456"
+                  className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
                 />
               </div>
               <div>
@@ -1978,19 +1293,66 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
             disabled={loading}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl text-xs transition shadow-md disabled:opacity-50"
           >
-            {loading ? "Authenticating..." : mode === "login" ? "Sign In To Live Platform" : "Create Enterprise Account"}
+            {loading
+              ? "Processing Request..."
+              : viewMode === "login"
+              ? "Sign In To Live Platform"
+              : viewMode === "signup"
+              ? "Create Enterprise Account"
+              : "Send Password Recovery Link"}
           </button>
         </form>
 
-        <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-100">
-          {mode === "login" ? (
-            <button type="button" onClick={() => setMode("signup")} className="text-indigo-600 font-bold hover:underline">
-              Need a live enterprise account? Register here
-            </button>
-          ) : (
-            <button type="button" onClick={() => setMode("login")} className="text-indigo-600 font-bold hover:underline">
-              Already have an enterprise account? Sign in
-            </button>
+        <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-100 space-y-1.5">
+          {viewMode === "login" && (
+            <p>
+              Don&apos;t have a live enterprise account?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMsg("");
+                  setSuccessMsg("");
+                  setViewMode("signup");
+                }}
+                className="text-indigo-600 font-bold hover:underline"
+              >
+                Register here
+              </button>
+            </p>
+          )}
+
+          {viewMode === "signup" && (
+            <p>
+              Already registered with LogiCompare?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMsg("");
+                  setSuccessMsg("");
+                  setViewMode("login");
+                }}
+                className="text-indigo-600 font-bold hover:underline"
+              >
+                Sign in
+              </button>
+            </p>
+          )}
+
+          {viewMode === "forgot" && (
+            <p>
+              Remembered your credentials?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMsg("");
+                  setSuccessMsg("");
+                  setViewMode("login");
+                }}
+                className="text-indigo-600 font-bold hover:underline"
+              >
+                Back to Sign in
+              </button>
+            </p>
           )}
         </div>
       </div>
@@ -1999,15 +1361,16 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onSuccess, onClose }) => {
 };
 
 // ============================================================================
-// 10. COMPLETE APPLICATION STATE ENGINE & HOOK CONTROLLER
+// 7. PERSISTENT APPLICATION STATE ENGINE HOOK CONTROLLER
 // ============================================================================
 function useAppEngine() {
   // Navigation & Role State
-  const [activeRole, setActiveRole] = useState<RoleType | "landing">("shipper");
+  const [activeRole, setActiveRole] = useState<RoleType | "landing">("landing");
   const [modeEnv, setModeEnv] = useState<ModeEnv>("demo");
   const [highVolumeMode, setHighVolumeMode] = useState<boolean>(true);
+  const [isAuthRestoring, setIsAuthRestoring] = useState<boolean>(true);
 
-  // Sub-Navigation Tabs (Type safe including 'earnings')
+  // Sub-Navigation Tabs
   const [shipperTab, setShipperTab] = useState<ShipperTabType>("search");
   const [carrierTab, setCarrierTab] = useState<CarrierTabType>("tracking");
 
@@ -2018,26 +1381,26 @@ function useAppEngine() {
   // Carrier Specific Public Tracking Portal URL State
   const [carrierCustomTrackingUrl, setCarrierCustomTrackingUrl] = useState<string>("https://www.delhivery.com/track/package/");
 
-  // Address Profile State (Shipper Dynamic Pickup Warehouse)
-  const [shipperAddresses, setShipperAddresses] = useState<AddressProfile[]>([DEFAULT_SHIPPER_ADDRESS]);
-  const [activeOriginAddress, setActiveOriginAddress] = useState<AddressProfile>(DEFAULT_SHIPPER_ADDRESS);
+  // Dynamic Address Profile State
+  const [shipperAddresses, setShipperAddresses] = useState<AddressProfile[]>([DEMO_SHIPPER_ADDRESS]);
+  const [activeOriginAddress, setActiveOriginAddress] = useState<AddressProfile | null>(DEMO_SHIPPER_ADDRESS);
   const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
   const [editingAddress, setEditingAddress] = useState<AddressProfile | null>(null);
 
-  // Formal B2B Credit Agreement Workflow & Ledger State
+  // Credit Agreements & Ledger
   const [creditAgreements, setCreditAgreements] = useState<CreditAgreement[]>(INITIAL_MOCK_CREDIT_AGREEMENTS);
   const [creditLedger, setCreditLedger] = useState<CreditLedgerEntry[]>(INITIAL_MOCK_CREDIT_LEDGER);
   const [showCreditApplyModal, setShowCreditApplyModal] = useState<boolean>(false);
 
-  // Platform Fee Billing & Invoice Ledger State
+  // Platform Fee Billing & Invoice Ledger
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("weekly");
   const [invoices, setInvoices] = useState<PlatformInvoice[]>(INITIAL_MOCK_INVOICES);
   const [showPayFeeModal, setShowPayFeeModal] = useState<boolean>(false);
   const [selectedInvoiceToPay, setSelectedInvoiceToPay] = useState<PlatformInvoice | null>(null);
   const [feeConfig, setFeeConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG);
 
-  // Core Domain Masters
-  const [rateCards, setRateCards] = useState<RateCard[]>(FALLBACK_DEFAULT_RATE_CARDS);
+  // Master Tariffs and Vendors
+  const [rateCards, setRateCards] = useState<RateCard[]>(DEMO_RATE_CARDS);
   const [vendors, setVendors] = useState<Vendor[]>(FALLBACK_VENDORS);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rfqList, setRfqList] = useState<RfqBid[]>([]);
@@ -2052,8 +1415,8 @@ function useAppEngine() {
   const [printableBooking, setPrintableBooking] = useState<Booking | null>(null);
   const [batchPrintBookings, setBatchPrintBookings] = useState<Booking[] | null>(null);
 
-  // Single Rate Calculator Parameters (Optional Dimensions Supported)
-  const [originPin, setOriginPin] = useState<string>(DEFAULT_SHIPPER_ADDRESS.pincode);
+  // Rate Calculator Parameters
+  const [originPin, setOriginPin] = useState<string>("110020");
   const [destPin, setDestPin] = useState<string>("400001");
   const [isOda, setIsOda] = useState<boolean>(false);
   const [declaredValue, setDeclaredValue] = useState<number>(75000);
@@ -2063,20 +1426,17 @@ function useAppEngine() {
     { id: "box-2", qty: 1, weight: 15, length: null, width: null, height: null }
   ]);
   const [selectedBoxFor3D, setSelectedBoxFor3D] = useState<number>(0);
-  const [pickupAddress, setPickupAddress] = useState<string>(
-    `${DEFAULT_SHIPPER_ADDRESS.address_line1}, ${DEFAULT_SHIPPER_ADDRESS.city} - ${DEFAULT_SHIPPER_ADDRESS.pincode}`
-  );
+  const [pickupAddress, setPickupAddress] = useState<string>("Plot 42, Okhla Industrial Area Phase-III, South Delhi - 110020");
 
-  // Bulk CSV (50/Day Dispatch Matrix)
+  // Bulk CSV Dispatch Matrix State
   const [bulkManifestList, setBulkManifestList] = useState<BulkManifestRow[]>([]);
   const [bulkCsvFileName, setBulkCsvFileName] = useState<string>("");
   const [bulkUploadError, setBulkUploadError] = useState<string>("");
   const [bulkSettlementMethod, setBulkSettlementMethod] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">("direct_to_pay");
   const [bulkConsolidatedUtr, setBulkConsolidatedUtr] = useState<string>("");
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
-  const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Tracking & Global Search
+  // Tracking and Global Search
   const [globalSearchInput, setGlobalSearchInput] = useState<string>("");
   const [landingTrackingInput, setLandingTrackingInput] = useState<string>("");
   const [activeTrackingAwb, setActiveTrackingAwb] = useState<string>(DEMO_INIT_ORDER_ID);
@@ -2084,9 +1444,9 @@ function useAppEngine() {
 
   // Zone Lookups
   const [originZoneData, setOriginZoneData] = useState<PinLookupResult>({
-    city: DEFAULT_SHIPPER_ADDRESS.city,
-    state: DEFAULT_SHIPPER_ADDRESS.state,
-    hub: `HUB-${DEFAULT_SHIPPER_ADDRESS.city.substring(0, 3).toUpperCase()}-01`,
+    city: "Delhi NCR",
+    state: "Delhi",
+    hub: "DEL-NORTH-01",
     loading: false
   });
   const [destZoneData, setDestZoneData] = useState<PinLookupResult>({
@@ -2096,13 +1456,18 @@ function useAppEngine() {
     loading: false
   });
 
-  // Carrier Updates State
   const [statusUpdateMap, setStatusUpdateMap] = useState<
     Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>
   >({});
 
-  // 1. Sync Active Origin Address to Form and Pin
-  const applyOriginAddress = useCallback((addr: AddressProfile) => {
+  const applyOriginAddress = useCallback((addr: AddressProfile | null) => {
+    if (!addr) {
+      setActiveOriginAddress(null);
+      setOriginPin("");
+      setPickupAddress("");
+      setOriginZoneData({ city: "No address selected", state: "", hub: "NONE", loading: false });
+      return;
+    }
     setActiveOriginAddress(addr);
     setOriginPin(addr.pincode);
     setPickupAddress(`${addr.address_line1}, ${addr.city} - ${addr.pincode}`);
@@ -2114,7 +1479,7 @@ function useAppEngine() {
     });
   }, []);
 
-  const handleSaveAddress = (address: AddressProfile) => {
+  const handleSaveAddress = async (address: AddressProfile) => {
     let updatedList = [...shipperAddresses];
     const existingIndex = updatedList.findIndex((a) => a.id === address.id);
     if (address.is_default) {
@@ -2126,122 +1491,193 @@ function useAppEngine() {
       updatedList.push(address);
     }
     setShipperAddresses(updatedList);
-    if (address.is_default || activeOriginAddress.id === address.id) {
+    if (address.is_default || !activeOriginAddress || activeOriginAddress.id === address.id) {
       applyOriginAddress(address);
+    }
+
+    if (currentUser.isRealUser) {
+      try {
+        await supabase.from("profiles").update({ saved_addresses: updatedList }).eq("id", currentUser.id);
+      } catch (err) {
+        console.warn("Failed to persist address profile to Supabase:", err);
+      }
     }
   };
 
-  // 2. Real Supabase Authentication Listener with Strict Role Lock & ZERO DATA LEAK
-  useEffect(() => {
-    const initSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setAuthSession(session);
-        if (session && session.user) {
-          const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-          if (pData) {
-            const rawRole: string = pData.role || "shipper";
-            const isCarrier = rawRole === "carrier" || rawRole === "vendor";
-            const resolvedRole: RoleType = isCarrier ? "carrier" : "shipper";
-            const profile: UserProfile = {
-              id: session.user.id,
-              email: session.user.email || pData.email || "",
-              full_name: pData.full_name || "Verified Enterprise User",
-              company_name: pData.company_name || (isCarrier ? "Express Cargo Linehaul" : "Commercial Dispatch Corp"),
-              gstin: pData.gstin || "07AAACA1234A1Z5",
-              phone: pData.phone || "+91 98110 23456",
-              role: resolvedRole,
-              vendor_id: isCarrier ? session.user.id : undefined,
-              isRealUser: true,
-              saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS],
-              custom_tracking_url: pData.custom_tracking_url || ""
-            };
-            setCurrentUser(profile);
-            setModeEnv("live");
-            // Strict role lock enforcement:
-            setActiveRole(resolvedRole);
-            if (pData.saved_addresses && pData.saved_addresses.length > 0) {
-              setShipperAddresses(pData.saved_addresses);
-              const def = pData.saved_addresses.find((a: AddressProfile) => a.is_default) || pData.saved_addresses[0];
-              applyOriginAddress(def);
-            }
-            if (pData.custom_tracking_url) {
-              setCarrierCustomTrackingUrl(pData.custom_tracking_url);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Session check fallback:", err);
-      }
-    };
-
-    initSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setAuthSession(session);
-      if (session && session.user) {
-        const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-        if (pData) {
-          const rawRole: string = pData.role || "shipper";
-          const isCarrier = rawRole === "carrier" || rawRole === "vendor";
-          const resolvedRole: RoleType = isCarrier ? "carrier" : "shipper";
-          const profile: UserProfile = {
-            id: session.user.id,
-            email: session.user.email || pData.email || "",
-            full_name: pData.full_name || "Verified Enterprise User",
-            company_name: pData.company_name || (isCarrier ? "Express Cargo Linehaul" : "Commercial Dispatch Corp"),
-            gstin: pData.gstin || "07AAACA1234A1Z5",
-            phone: pData.phone || "+91 98110 23456",
-            role: resolvedRole,
-            vendor_id: isCarrier ? session.user.id : undefined,
-            isRealUser: true,
-            saved_addresses: pData.saved_addresses || [DEFAULT_SHIPPER_ADDRESS],
-            custom_tracking_url: pData.custom_tracking_url || ""
-          };
-          setCurrentUser(profile);
-          setModeEnv("live");
-          setActiveRole(resolvedRole);
-        }
-      } else {
-        if (modeEnv === "live") {
-          setCurrentUser(DEMO_SHIPPER);
-          setModeEnv("demo");
-          setActiveRole("landing");
-        }
-      }
-    });
-
-    return () => {
-      authListener?.subscription?.unsubscribe();
-    };
-  }, [modeEnv, applyOriginAddress]);
-
-  // 3. Database Fetch Master Data with Data Isolation
-  const fetchAllData = async () => {
+  // Sync Master Data from Supabase
+  const fetchLiveDatabaseData = useCallback(async () => {
     try {
       const { data: vData } = await supabase.from("vendors").select("*");
       if (vData && vData.length > 0) setVendors(vData);
 
-      const { data: rData } = await supabase.from("rate_cards").select("*, vendors(*)");
-      if (rData && rData.length > 0) setRateCards(rData as RateCard[]);
+      const { data: rData } = await supabase.from("rate_cards").select("*, vendors(*)").eq("is_active", true);
+      if (rData) setRateCards(rData as RateCard[]);
 
       const { data: bData } = await supabase.from("bookings").select("*, vendors(*)").order("created_at", { ascending: false });
-      if (bData && bData.length > 0) setBookings(bData as Booking[]);
+      if (bData) setBookings(bData as Booking[]);
 
       const { data: qData } = await supabase.from("rfq_bids").select("*").order("created_at", { ascending: false });
-      if (qData && qData.length > 0) setRfqList(qData as RfqBid[]);
-    } catch (err) {
-      console.warn("Supabase data synchronization warning:", err);
-    }
-  };
+      if (qData) setRfqList(qData as RfqBid[]);
 
-  useEffect(() => {
-    fetchAllData();
+      const { data: agData } = await supabase.from("credit_agreements").select("*").order("submitted_at", { ascending: false });
+      if (agData) setCreditAgreements(agData as CreditAgreement[]);
+
+      const { data: clData } = await supabase.from("credit_ledger").select("*").order("created_at", { ascending: false });
+      if (clData) setCreditLedger(clData as CreditLedgerEntry[]);
+
+      const { data: invData } = await supabase.from("invoices").select("*").order("created_at", { ascending: false });
+      if (invData) setInvoices(invData as PlatformInvoice[]);
+    } catch (err) {
+      console.warn("Database sync notice:", err);
+    }
   }, []);
 
-  // 4. PIN Zone Automatic Resolvers
+  // 1. Persistent Auth Session Handler (Prevents logouts on page refresh)
   useEffect(() => {
-    if (originPin.trim().length === 6) {
+    let isMounted = true;
+
+    const restoreUserSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (session && session.user && isMounted) {
+          setAuthSession(session);
+          const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+
+          if (pData) {
+            const rawRole: string = pData.role || "shipper";
+            const isCarrierRole = rawRole === "carrier" || rawRole === "vendor";
+            const resolvedRole: RoleType = isCarrierRole ? "carrier" : "shipper";
+
+            const userProfile: UserProfile = {
+              id: session.user.id,
+              email: session.user.email || pData.email || "",
+              full_name: pData.full_name || "Enterprise Admin",
+              company_name: pData.company_name || "Registered Enterprise",
+              gstin: pData.gstin || "07AAACA1234A1Z5",
+              phone: pData.phone || "+91 98110 23456",
+              role: resolvedRole,
+              vendor_id: isCarrierRole ? session.user.id : undefined,
+              isRealUser: true,
+              saved_addresses: pData.saved_addresses || [],
+              custom_tracking_url: pData.custom_tracking_url || ""
+            };
+
+            setCurrentUser(userProfile);
+            setModeEnv("live");
+            setActiveRole(resolvedRole);
+
+            if (userProfile.saved_addresses && userProfile.saved_addresses.length > 0) {
+              setShipperAddresses(userProfile.saved_addresses);
+              const defaultAddr = userProfile.saved_addresses.find((a) => a.is_default) || userProfile.saved_addresses[0];
+              applyOriginAddress(defaultAddr);
+            } else {
+              setShipperAddresses([]);
+              applyOriginAddress(null);
+            }
+
+            if (pData.custom_tracking_url) {
+              setCarrierCustomTrackingUrl(pData.custom_tracking_url);
+            }
+          }
+          await fetchLiveDatabaseData();
+        } else if (isMounted) {
+          // No active live session: fallback safely to demo sandbox
+          setCurrentUser(DEMO_SHIPPER);
+          setModeEnv("demo");
+          setActiveRole("landing");
+          setShipperAddresses([DEMO_SHIPPER_ADDRESS]);
+          applyOriginAddress(DEMO_SHIPPER_ADDRESS);
+          setRateCards(DEMO_RATE_CARDS);
+        }
+      } catch (err) {
+        console.warn("Persistent session restore notice:", err);
+      } finally {
+        if (isMounted) setIsAuthRestoring(false);
+      }
+    };
+
+    restoreUserSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+      setAuthSession(session);
+
+      if (event === "SIGNED_IN" && session?.user) {
+        setIsAuthRestoring(true);
+        const { data: pData } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+        const rawRole: string = pData?.role || "shipper";
+        const isCarrierRole = rawRole === "carrier" || rawRole === "vendor";
+        const resolvedRole: RoleType = isCarrierRole ? "carrier" : "shipper";
+
+        const profile: UserProfile = {
+          id: session.user.id,
+          email: session.user.email || pData?.email || "",
+          full_name: pData?.full_name || "Enterprise Admin",
+          company_name: pData?.company_name || "Registered Enterprise",
+          gstin: pData?.gstin || "07AAACA1234A1Z5",
+          phone: pData?.phone || "+91 98110 23456",
+          role: resolvedRole,
+          vendor_id: isCarrierRole ? session.user.id : undefined,
+          isRealUser: true,
+          saved_addresses: pData?.saved_addresses || [],
+          custom_tracking_url: pData?.custom_tracking_url || ""
+        };
+
+        setCurrentUser(profile);
+        setModeEnv("live");
+        setActiveRole(resolvedRole);
+
+        if (profile.saved_addresses && profile.saved_addresses.length > 0) {
+          setShipperAddresses(profile.saved_addresses);
+          const defaultAddr = profile.saved_addresses.find((a) => a.is_default) || profile.saved_addresses[0];
+          applyOriginAddress(defaultAddr);
+        } else {
+          setShipperAddresses([]);
+          applyOriginAddress(null);
+        }
+
+        await fetchLiveDatabaseData();
+        setIsAuthRestoring(false);
+      } else if (event === "SIGNED_OUT") {
+        setCurrentUser(DEMO_SHIPPER);
+        setModeEnv("demo");
+        setActiveRole("landing");
+        setShipperAddresses([DEMO_SHIPPER_ADDRESS]);
+        applyOriginAddress(DEMO_SHIPPER_ADDRESS);
+        setRateCards(DEMO_RATE_CARDS);
+        setInvoices(INITIAL_MOCK_INVOICES);
+        setCreditAgreements(INITIAL_MOCK_CREDIT_AGREEMENTS);
+        setCreditLedger(INITIAL_MOCK_CREDIT_LEDGER);
+        setIsAuthRestoring(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [applyOriginAddress, fetchLiveDatabaseData]);
+
+  // Handle Explicit Logout
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("Logout error:", err);
+    }
+    setAuthSession(null);
+    setCurrentUser(DEMO_SHIPPER);
+    setModeEnv("demo");
+    setActiveRole("landing");
+    setShipperAddresses([DEMO_SHIPPER_ADDRESS]);
+    applyOriginAddress(DEMO_SHIPPER_ADDRESS);
+  };
+
+  // PIN Zone Lookup Resolvers
+  useEffect(() => {
+    if (originPin && originPin.trim().length === 6) {
       setOriginZoneData((prev) => ({ ...prev, loading: true }));
       fetch(`https://api.postalpincode.in/pincode/${originPin.trim()}`)
         .then((res) => res.json())
@@ -2263,7 +1699,7 @@ function useAppEngine() {
   }, [originPin]);
 
   useEffect(() => {
-    if (destPin.trim().length === 6) {
+    if (destPin && destPin.trim().length === 6) {
       setDestZoneData((prev) => ({ ...prev, loading: true }));
       fetch(`https://api.postalpincode.in/pincode/${destPin.trim()}`)
         .then((res) => res.json())
@@ -2284,7 +1720,7 @@ function useAppEngine() {
     }
   }, [destPin]);
 
-  // 5. Global Search Handler
+  // Global Tracking Search
   const handleGlobalSearch = (e: FormEvent) => {
     e.preventDefault();
     if (!globalSearchInput.trim()) return;
@@ -2295,11 +1731,11 @@ function useAppEngine() {
     setGlobalSearchInput("");
   };
 
-  // 6. Role Switch Guard: strictly locks roles when in Live Mode
+  // Role Navigation with Strict Live Auth Lock
   const handleRoleSwitch = (role: RoleType | "landing") => {
     if (modeEnv === "live" && currentUser.isRealUser) {
       if (role !== "landing" && role !== "admin" && role !== currentUser.role) {
-        alert(`Access Restricted: Your verified account is locked to the ${currentUser.role.toUpperCase()} workspace.`);
+        alert(`Access Restricted: Your verified account is locked to the ${currentUser.role.toUpperCase()} console.`);
         return;
       }
     }
@@ -2310,31 +1746,17 @@ function useAppEngine() {
     }
   };
 
-  // 7. Mode Switcher Guard
-  const handleModeToggle = () => {
-    if (modeEnv === "demo") {
-      if (!currentUser.isRealUser && !authSession) {
-        setShowAuthModal(true);
-      } else {
-        setModeEnv("live");
-      }
-    } else {
-      setModeEnv("demo");
-      setCurrentUser(activeRole === "carrier" || activeRole === "vendor" ? DEMO_CARRIER : DEMO_SHIPPER);
+  // Live Rates Strict Filtering: NEVER leak demo cards in live mode
+  const activeRateCards = useMemo(() => {
+    if (modeEnv === "live") {
+      return rateCards.filter((c) => !c.id.startsWith("rc-del-") && !c.id.startsWith("rc-bd-") && !c.id.startsWith("rc-safe-") && !c.id.startsWith("rc-gati-"));
     }
-  };
+    return rateCards;
+  }, [rateCards, modeEnv]);
 
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch {}
-    setCurrentUser(DEMO_SHIPPER);
-    setModeEnv("demo");
-    setActiveRole("landing");
-  };
-
-  // 8. Calculations (Single rate quotes supporting optional dimensions & formal credit validation)
+  // Rate Quotes Calculation Memo
   const calculatedQuotes = useMemo(() => {
+    if (!originPin || !destPin || activeRateCards.length === 0) return [];
     return calculateQuotesForShipment(
       originPin,
       destPin,
@@ -2342,462 +1764,19 @@ function useAppEngine() {
       declaredValue,
       selectedMode,
       isOda,
-      rateCards,
+      activeRateCards,
       vendors,
       feeConfig,
       creditAgreements
     );
-  }, [originPin, destPin, boxes, declaredValue, selectedMode, isOda, rateCards, vendors, feeConfig, creditAgreements]);
-
-  // 9. Bulk CSV Upload with Semicolon Parsing & Optional Dimensions
-  const handleBulkCsvUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setBulkCsvFileName(file.name);
-    setBulkUploadError("");
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-        if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
-
-        const parsedRows: BulkManifestRow[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
-          if (cols.length < 5) continue;
-
-          const dest_pin = cols[0];
-          const consignee_name = cols[1];
-          const consignee_phone = cols[2];
-          const delivery_address = cols[3];
-          const total_boxes_str = cols[4];
-          const box_weights_str = cols[5] || "";
-          const box_dimensions_str = cols[6] || "";
-          const declared_value_str = cols[7] || "50000";
-
-          const total_boxes = Math.max(1, parseInt(total_boxes_str, 10) || 1);
-          const declared_val = parseFloat(declared_value_str) || 50000;
-
-          // Semicolon weight parsing (e.g. 25; 10; 10)
-          const parsedWeights = box_weights_str
-            ? box_weights_str.split(";").map((w) => parseFloat(w.trim())).filter((n) => !isNaN(n) && n > 0)
-            : [];
-
-          // Optional Semicolon dimensions parsing (e.g. 60x40x40; 30x25x20)
-          const parsedDims = box_dimensions_str
-            ? box_dimensions_str.split(";").map((d) => d.trim()).filter((d) => d.length > 0)
-            : [];
-
-          const hasOmittedDimensions = parsedDims.length === 0;
-
-          const boxItems: BoxItem[] = [];
-          for (let b = 0; b < total_boxes; b++) {
-            const wt = parsedWeights[b] || parsedWeights[0] || 10;
-            let l: number | null = null;
-            let w: number | null = null;
-            let h: number | null = null;
-            if (parsedDims[b]) {
-              const parts = parsedDims[b].toLowerCase().split("x").map((p) => parseFloat(p.trim()));
-              if (parts.length === 3 && !parts.some(isNaN)) {
-                l = parts[0];
-                w = parts[1];
-                h = parts[2];
-              }
-            }
-            boxItems.push({ id: `b-${i}-${b}`, qty: 1, weight: wt, length: l, width: w, height: h });
-          }
-
-          const actualWeight = boxItems.reduce((acc, bi) => acc + bi.weight, 0);
-          const divisor = 4500;
-          const volumetricWeight = hasOmittedDimensions
-            ? 0
-            : boxItems.reduce((acc, bi) => acc + (((bi.length || 0) * (bi.width || 0) * (bi.height || 0)) / divisor), 0);
-          const billableWeight = hasOmittedDimensions ? actualWeight : Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10);
-
-          const quotes = calculateQuotesForShipment(
-            activeOriginAddress.pincode,
-            dest_pin,
-            boxItems,
-            declared_val,
-            "surface",
-            false,
-            rateCards,
-            vendors,
-            feeConfig,
-            creditAgreements
-          );
-          const sorted = [...quotes].sort((a, b) => a.breakdown.total - b.breakdown.total);
-
-          parsedRows.push({
-            rowId: `row-${i}-${Date.now()}`,
-            dest_pin,
-            consignee_name,
-            consignee_phone,
-            delivery_address,
-            consignee_gstin: "27AAACP9988G1ZK",
-            total_boxes,
-            boxes: boxItems,
-            declared_value: declared_val,
-            hasOmittedDimensions,
-            actualWeight: Math.round(actualWeight * 10) / 10,
-            volumetricWeight: Math.round(volumetricWeight * 10) / 10,
-            billableWeight: Math.round(billableWeight * 10) / 10,
-            quotes,
-            selectedQuote: sorted[0] || null
-          });
-        }
-        setBulkManifestList(parsedRows);
-      } catch (err: any) {
-        setBulkUploadError(err.message || "Failed to process bulk CSV.");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  // 10. Confirm Batch Booking
-  const handleConfirmBatchBooking = async () => {
-    if (bulkManifestList.length === 0) return;
-    setIsBatchProcessing(true);
-
-    const refString =
-      bulkSettlementMethod === "direct_upi"
-        ? bulkConsolidatedUtr ? `BULK-UPI-${bulkConsolidatedUtr}` : "BULK-UPI"
-        : bulkSettlementMethod === "corporate_credit" ? "BULK-CREDIT" : "BULK-TO-PAY";
-
-    const newBookingsToInsert = bulkManifestList.map((row) => {
-      const selected = row.selectedQuote || row.quotes[0];
-      const carrierVendor = selected?.vendor;
-      const carrierName = carrierVendor?.name || "Delhivery B2B Express";
-      const officialDocket = generateCarrierDocket(carrierName);
-      const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      return {
-        order_id: platformOrderId,
-        awb_number: officialDocket,
-        carrier_docket_no: officialDocket,
-        carrier_portal_url: getOfficialCarrierTrackingUrl(carrierVendor || carrierName, officialDocket),
-        shipper_id: currentUser.id,
-        vendor_id: selected?.vendor?.id || vendors[0].id,
-        rate_card_id: selected?.rateCard?.id,
-        shipper_name: currentUser.company_name || currentUser.full_name,
-        shipper_phone: currentUser.phone || MERCHANT_DETAILS.phone,
-        shipper_email: currentUser.email,
-        shipper_gstin: currentUser.gstin || "07AAACA1234A1Z5",
-        pickup_address: `${activeOriginAddress.address_line1}, ${activeOriginAddress.city} - ${activeOriginAddress.pincode}`,
-        pickup_pincode: activeOriginAddress.pincode,
-        consignee_name: row.consignee_name,
-        consignee_phone: row.consignee_phone,
-        consignee_gstin: row.consignee_gstin,
-        delivery_address: row.delivery_address,
-        origin_pin: activeOriginAddress.pincode,
-        dest_pin: row.dest_pin,
-        mode: selected?.rateCard?.mode || "surface",
-        boxes: row.boxes,
-        declared_value: row.declared_value,
-        actual_weight: row.actualWeight,
-        volumetric_weight: row.volumetricWeight,
-        billable_weight: row.billableWeight,
-        cost_breakdown: {
-          ...(selected?.breakdown || {
-            base: 0,
-            fuel: 0,
-            docket: 0,
-            fov: 0,
-            handling: 0,
-            oda: 0,
-            gst: 0,
-            freightSubtotal: 0,
-            platformConvenienceFee: feeConfig.minFloorINR,
-            total: feeConfig.minFloorINR
-          }),
-          settlement_type: bulkSettlementMethod,
-          payment_ref: refString
-        },
-        final_total: selected?.breakdown?.total || feeConfig.minFloorINR,
-        status: "Booked" as const,
-        is_demo: modeEnv === "demo",
-        tracking_history: [
-          {
-            status: "Booked",
-            location: `${activeOriginAddress.city} Origin Hub (${activeOriginAddress.pincode})`,
-            timestamp: new Date().toISOString(),
-            remarks: `Batch consignment booked. Carrier Waybill ${officialDocket} assigned.`
-          }
-        ]
-      };
-    });
-
-    try {
-      const { data } = await supabase.from("bookings").insert(newBookingsToInsert).select("*, vendors(*)");
-      const savedBookings =
-        data && data.length > 0
-          ? (data as Booking[])
-          : newBookingsToInsert.map((b, i) => ({
-              ...b,
-              id: `bulk-${Date.now()}-${i}`,
-              created_at: new Date().toISOString(),
-              vendors: vendors.find((v) => v.id === b.vendor_id) || vendors[0]
-            }));
-
-      setBookings((prev) => [...savedBookings, ...prev]);
-      setBatchPrintBookings(savedBookings);
-      setBulkManifestList([]);
-      setShipperTab("shipments");
-      alert(`Success! Dispatched all ${savedBookings.length} consignments. Continuous 4x6 labels ready for printing.`);
-    } catch {
-      alert("Notice: Database synchronization fallback used. Bookings saved in local ledger.");
-    } finally {
-      setIsBatchProcessing(false);
-    }
-  };
-
-  // 11. Carrier Docket Bilty Photo Upload with Auto-Compression
-  const handleUploadDocketFile = async (bookingId: string, rawFile: File) => {
-    if (!rawFile) return;
-    if (rawFile.size > 5 * 1024 * 1024) {
-      alert("File size limit exceeded! Please upload photo/PDF under 5 MB.");
-      return;
-    }
-
-    setStatusUpdateMap((prev) => ({
-      ...prev,
-      [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), isUploading: true }
-    }));
-
-    try {
-      const fileToUpload = await compressImageFile(rawFile);
-      const fileExt = fileToUpload.name.split(".").pop();
-      const filePath = `dockets/bilty-${bookingId}-${Date.now()}.${fileExt}`;
-      let publicUrl = "";
-
-      const { data, error } = await supabase.storage.from("dockets").upload(filePath, fileToUpload, {
-        cacheControl: "3600",
-        upsert: true
-      });
-
-      if (!error && data) {
-        publicUrl = supabase.storage.from("dockets").getPublicUrl(filePath).data.publicUrl;
-      } else {
-        publicUrl = URL.createObjectURL(fileToUpload);
-      }
-
-      setStatusUpdateMap((prev) => ({
-        ...prev,
-        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: publicUrl, isUploading: false }
-      }));
-
-      await supabase.from("bookings").update({ carrier_docket_doc_url: publicUrl }).eq("id", bookingId);
-      setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: publicUrl } : b)));
-      alert(`Physical Bilty scan compressed & uploaded successfully! Saved size: ~${Math.round(fileToUpload.size / 1024)} KB.`);
-    } catch {
-      const fallbackUrl = URL.createObjectURL(rawFile);
-      setStatusUpdateMap((prev) => ({
-        ...prev,
-        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: fallbackUrl, isUploading: false }
-      }));
-    }
-  };
-
-  // 12. Carrier Status Dispatch
-  const handleUpdateShipmentStatus = async (bookingId: string) => {
-    const updateData = statusUpdateMap[bookingId];
-    if (!updateData) return;
-    const booking = bookings.find((b) => b.id === bookingId);
-    if (!booking) return;
-
-    const carrierName = booking.vendors?.name || "Carrier";
-    const effectiveDocket =
-      updateData.docketNo && updateData.docketNo.trim() !== ""
-        ? updateData.docketNo.trim()
-        : booking.carrier_docket_no || booking.awb_number;
-    const newPortalUrl = getOfficialCarrierTrackingUrl(booking.vendors || carrierName, effectiveDocket);
-    const effectiveDocUrl = updateData.docUrl || booking.carrier_docket_doc_url || "";
-
-    const newStep: TrackingStep = {
-      status: updateData.status || booking.status,
-      location: updateData.location || "En-route Hub",
-      timestamp: new Date().toISOString(),
-      remarks: updateData.remarks || `Carrier updated status with Docket ${effectiveDocket}`
-    };
-    const updatedHistory = [...(booking.tracking_history || []), newStep];
-
-    try {
-      await supabase
-        .from("bookings")
-        .update({
-          awb_number: effectiveDocket,
-          carrier_docket_no: effectiveDocket,
-          carrier_portal_url: newPortalUrl,
-          carrier_docket_doc_url: effectiveDocUrl,
-          status: updateData.status || booking.status,
-          tracking_history: updatedHistory
-        })
-        .eq("id", bookingId);
-
-      setBookings(
-        bookings.map((b) =>
-          b.id === bookingId
-            ? {
-                ...b,
-                awb_number: effectiveDocket,
-                carrier_docket_no: effectiveDocket,
-                carrier_portal_url: newPortalUrl,
-                carrier_docket_doc_url: effectiveDocUrl,
-                status: (updateData.status as Booking["status"]) || b.status,
-                tracking_history: updatedHistory
-              }
-            : b
-        )
-      );
-
-      alert("Carrier Docket & Status successfully synchronized!");
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // 13. Settle Platform Fee Invoice
-  const handlePayInvoiceSuccess = (invoiceId: string, utr: string, method: string) => {
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.id === invoiceId
-          ? {
-              ...inv,
-              status: "Paid",
-              payment_date: new Date().toISOString().split("T")[0],
-              payment_ref: utr,
-              payment_method: method
-            }
-          : inv
-      )
-    );
-  };
-
-  // 14. Carrier Custom Public Tracking Portal URL Update
-  const handleSaveCarrierTrackingUrl = async (customUrl: string) => {
-    const cleanUrl = customUrl.trim();
-    setCarrierCustomTrackingUrl(cleanUrl);
-    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
-
-    try {
-      await supabase.from("vendors").update({
-        custom_tracking_url: cleanUrl,
-        tracking_base_url: cleanUrl
-      }).eq("id", vendorId);
-
-      setVendors((prev) =>
-        prev.map((v) =>
-          v.id === vendorId ? { ...v, custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl } : v
-        )
-      );
-      alert("Public Tracking Portal URL updated! Shippers and clients will now be redirected to your custom tracking portal.");
-    } catch (err) {
-      console.warn("Local update fallback:", err);
-      setVendors((prev) =>
-        prev.map((v) =>
-          v.id === vendorId ? { ...v, custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl } : v
-        )
-      );
-      alert("Tracking portal URL saved in local session state!");
-    }
-  };
-
-  // 15. Shipper Formal Credit Agreement Application Submission
-  const handleSubmitCreditApplication = (
-    carrierId: string,
-    limit: number,
-    termsDays: number,
-    file: File,
-    docName: string,
-    storageUrl?: string
-  ) => {
-    const targetCarrier = vendors.find((v) => v.id === carrierId);
-    const newAgreement: CreditAgreement = {
-      id: `ca-${Date.now()}`,
-      shipper_id: currentUser.id,
-      shipper_name: currentUser.company_name || currentUser.full_name,
-      carrier_id: carrierId,
-      carrier_name: targetCarrier?.name || "National Transporter",
-      document_url: storageUrl || URL.createObjectURL(file),
-      document_name: docName,
-      requested_limit: limit,
-      approved_limit: 0,
-      utilized_amount: 0,
-      status: "Pending_Review",
-      payment_terms_days: termsDays,
-      submitted_at: new Date().toISOString(),
-      is_demo: modeEnv === "demo"
-    };
-
-    setCreditAgreements((prev) => [newAgreement, ...prev]);
-  };
-  // 16. Carrier Review & Verification of Credit Agreement
-  const handleReviewCreditAgreement = (
-    agreementId: string,
-    status: "Approved" | "Rejected",
-    approvedLimit?: number,
-    reason?: string
-  ) => {
-    setCreditAgreements((prev) =>
-      prev.map((a) => {
-        if (a.id !== agreementId) return a;
-        return {
-          ...a,
-          status,
-          approved_limit: status === "Approved" ? (approvedLimit || a.requested_limit) : 0,
-          reviewed_at: new Date().toISOString(),
-          rejection_reason: reason
-        };
-      })
-    );
-    alert(`Agreement ${agreementId} has been marked as ${status.toUpperCase()}!`);
-  };
-
-  // 17. Filtered Live Data Sets (Strict Auth Isolation - Zero Mock Leakage)
-  const isolatedBookings = useMemo(() => {
-    if (modeEnv === "live") {
-      return bookings.filter((b) => !b.is_demo);
-    }
-    return bookings;
-  }, [bookings, modeEnv]);
-
-  const isolatedRfqList = useMemo(() => {
-    if (modeEnv === "live") {
-      return rfqList.filter((r) => !r.is_demo);
-    }
-    return rfqList;
-  }, [rfqList, modeEnv]);
-
-  const isolatedInvoices = useMemo(() => {
-    if (modeEnv === "live") {
-      return invoices.filter((i) => !i.is_demo);
-    }
-    return invoices;
-  }, [invoices, modeEnv]);
-
-  const isolatedAgreements = useMemo(() => {
-    if (modeEnv === "live") {
-      return creditAgreements.filter((a) => !a.is_demo);
-    }
-    return creditAgreements;
-  }, [creditAgreements, modeEnv]);
-
-  const isolatedCreditLedger = useMemo(() => {
-    if (modeEnv === "live") {
-      return creditLedger.filter((c) => !c.is_demo);
-    }
-    return creditLedger;
-  }, [creditLedger, modeEnv]);
+  }, [originPin, destPin, boxes, declaredValue, selectedMode, isOda, activeRateCards, vendors, feeConfig, creditAgreements]);
 
   return {
     state: {
       activeRole, setActiveRole,
       modeEnv, setModeEnv,
       highVolumeMode, setHighVolumeMode,
+      isAuthRestoring,
       shipperTab, setShipperTab,
       carrierTab, setCarrierTab,
       currentUser, setCurrentUser,
@@ -2807,18 +1786,18 @@ function useAppEngine() {
       activeOriginAddress, setActiveOriginAddress,
       showAddressModal, setShowAddressModal,
       editingAddress, setEditingAddress,
-      creditAgreements: isolatedAgreements, setCreditAgreements,
-      creditLedger: isolatedCreditLedger, setCreditLedger,
+      creditAgreements, setCreditAgreements,
+      creditLedger, setCreditLedger,
       showCreditApplyModal, setShowCreditApplyModal,
       billingCycle, setBillingCycle,
-      invoices: isolatedInvoices, setInvoices,
+      invoices, setInvoices,
       showPayFeeModal, setShowPayFeeModal,
       selectedInvoiceToPay, setSelectedInvoiceToPay,
       feeConfig, setFeeConfig,
-      rateCards, setRateCards,
+      rateCards: activeRateCards, setRateCards,
       vendors, setVendors,
-      bookings: isolatedBookings, setBookings,
-      rfqList: isolatedRfqList, setRfqList,
+      bookings, setBookings,
+      rfqList, setRfqList,
       showLegalModal, setShowLegalModal,
       legalModalTab, setLegalModalTab,
       showAuthModal, setShowAuthModal,
@@ -2840,37 +1819,27 @@ function useAppEngine() {
       bulkUploadError, setBulkUploadError,
       bulkSettlementMethod, setBulkSettlementMethod,
       bulkConsolidatedUtr, setBulkConsolidatedUtr,
-      isBatchProcessing,
+      isBatchProcessing, setIsBatchProcessing,
       globalSearchInput, setGlobalSearchInput,
       landingTrackingInput, setLandingTrackingInput,
       activeTrackingAwb, setActiveTrackingAwb,
       trackingSearchInput, setTrackingSearchInput,
       originZoneData, destZoneData,
       statusUpdateMap, setStatusUpdateMap,
-      calculatedQuotes,
-      bulkFileInputRef
+      calculatedQuotes
     },
     handlers: {
       handleGlobalSearch,
       handleRoleSwitch,
-      handleModeToggle,
       handleLogout,
-      handleBulkCsvUpload,
-      handleConfirmBatchBooking,
-      handleUploadDocketFile,
-      handleUpdateShipmentStatus,
       handleSaveAddress,
       applyOriginAddress,
-      handlePayInvoiceSuccess,
-      handleSaveCarrierTrackingUrl,
-      handleSubmitCreditApplication,
-      handleReviewCreditAgreement,
-      fetchAllData
+      fetchLiveDatabaseData
     }
   };
 }
 // ============================================================================
-// 11. 3D VISUAL ENGINES FOR SHIPPER CALCULATOR (LOCAL COMPONENTS)
+// 8. 3D INTERACTIVE CARTOON & TRAJECTORY ENGINES (LOCAL COMPONENTS)
 // ============================================================================
 interface Interactive3DBoxProps {
   length?: number | null;
@@ -3038,7 +2007,7 @@ const Interactive3DBox: FC<Interactive3DBoxProps> = ({ length, width, height }) 
           />
         </div>
       </div>
-      <span className="text-[9px] text-slate-400 mt-1 font-mono">Drag with mouse to rotate 360°</span>
+      <span className="text-[9px] text-slate-400 mt-1 font-mono">Drag with mouse to inspect package volume</span>
     </div>
   );
 };
@@ -3147,14 +2116,290 @@ const RouteTrajectory3D: FC<RouteTrajectory3DProps> = ({ originHub, destHub }) =
 };
 
 // ============================================================================
-// 12. DYNAMIC ORIGIN WAREHOUSE ADDRESS MANAGER SECTION
+// 9. DYNAMIC ORIGIN WAREHOUSE ADDRESS MODAL
+// ============================================================================
+interface AddressModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (address: AddressProfile) => void;
+  initialAddress?: AddressProfile | null;
+}
+
+const AddressModal: FC<AddressModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  initialAddress
+}) => {
+  const [label, setLabel] = useState(initialAddress?.label || "Primary Warehouse Facility");
+  const [companyName, setCompanyName] = useState(initialAddress?.company_name || "");
+  const [contactName, setContactName] = useState(initialAddress?.contact_name || "");
+  const [phone, setPhone] = useState(initialAddress?.phone || "");
+  const [email, setEmail] = useState(initialAddress?.email || "");
+  const [gstin, setGstin] = useState(initialAddress?.gstin || "");
+  const [line1, setLine1] = useState(initialAddress?.address_line1 || "");
+  const [line2, setLine2] = useState(initialAddress?.address_line2 || "");
+  const [city, setCity] = useState(initialAddress?.city || "");
+  const [stateName, setStateName] = useState(initialAddress?.state || "");
+  const [pincode, setPincode] = useState(initialAddress?.pincode || "110020");
+  const [isDefault, setIsDefault] = useState(initialAddress?.is_default ?? true);
+  const [isLookingUpPin, setIsLookingUpPin] = useState(false);
+
+  useEffect(() => {
+    if (initialAddress) {
+      setLabel(initialAddress.label);
+      setCompanyName(initialAddress.company_name);
+      setContactName(initialAddress.contact_name);
+      setPhone(initialAddress.phone);
+      setEmail(initialAddress.email);
+      setGstin(initialAddress.gstin);
+      setLine1(initialAddress.address_line1);
+      setLine2(initialAddress.address_line2 || "");
+      setCity(initialAddress.city);
+      setStateName(initialAddress.state);
+      setPincode(initialAddress.pincode);
+      setIsDefault(initialAddress.is_default);
+    }
+  }, [initialAddress]);
+
+  const handlePincodeBlur = async () => {
+    const cleanPin = pincode.trim();
+    if (cleanPin.length === 6) {
+      setIsLookingUpPin(true);
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`);
+        const data = await res.json();
+        if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+          const po = data[0].PostOffice[0];
+          setCity(po.District || po.Block || po.Name);
+          setStateName(po.State);
+        } else {
+          const fb = getLocalFallbackZone(cleanPin);
+          setCity(fb.city);
+          setStateName(fb.state);
+        }
+      } catch {
+        const fb = getLocalFallbackZone(cleanPin);
+        setCity(fb.city);
+        setStateName(fb.state);
+      } finally {
+        setIsLookingUpPin(false);
+      }
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!pincode || pincode.trim().length !== 6) {
+      alert("Please provide a valid 6-digit Indian PIN code.");
+      return;
+    }
+    const updated: AddressProfile = {
+      id: initialAddress?.id || `addr-${Date.now()}`,
+      label: label.trim(),
+      company_name: companyName.trim() || "Consignor Business Hub",
+      contact_name: contactName.trim() || "Dispatch Manager",
+      phone: phone.trim() || "+91 98110 23456",
+      email: email.trim(),
+      gstin: gstin.trim().toUpperCase(),
+      address_line1: line1.trim(),
+      address_line2: line2.trim(),
+      city: city.trim() || "New Delhi",
+      state: stateName.trim() || "Delhi",
+      pincode: pincode.trim(),
+      is_default: isDefault
+    };
+    onSave(updated);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">
+              {initialAddress ? "Edit Dispatch Warehouse Facility" : "Add Origin Pickup Warehouse"}
+            </h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Configure dynamic dispatch locations across India with automatic postal zoning.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Facility Label *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Primary Hub, Okhla Warehouse"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Company / Facility Name</label>
+              <input
+                type="text"
+                placeholder="Consignor Corporate Name"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Dispatch Lead Name</label>
+              <input
+                type="text"
+                required
+                placeholder="Manager Name"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Phone Helpline</label>
+              <input
+                type="text"
+                required
+                placeholder="+91 98110 23456"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">GSTIN</label>
+              <input
+                type="text"
+                maxLength={15}
+                placeholder="07AAACA1234A1Z5"
+                value={gstin}
+                onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Address Line 1 (Street / Plot No.) *</label>
+            <input
+              type="text"
+              required
+              placeholder="Plot 42, Okhla Industrial Area Phase-III"
+              value={line1}
+              onChange={(e) => setLine1(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Address Line 2 (Landmark / Gate / Yard)</label>
+            <input
+              type="text"
+              placeholder="Near Gate No. 2, Behind Container Staging Area"
+              value={line2}
+              onChange={(e) => setLine2(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">
+                PIN Code * {isLookingUpPin && <span className="text-indigo-600 text-[10px] animate-pulse">(Lookup...)</span>}
+              </label>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                placeholder="110020"
+                value={pincode}
+                onChange={(e) => setPincode(e.target.value)}
+                onBlur={handlePincodeBlur}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">City / District *</label>
+              <input
+                type="text"
+                required
+                placeholder="South Delhi"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">State *</label>
+              <input
+                type="text"
+                required
+                placeholder="Delhi"
+                value={stateName}
+                onChange={(e) => setStateName(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 pt-1">
+            <input
+              type="checkbox"
+              id="is_default_addr"
+              checked={isDefault}
+              onChange={(e) => setIsDefault(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+            />
+            <label htmlFor="is_default_addr" className="text-xs font-bold text-slate-700 cursor-pointer">
+              Set as Primary Origin Facility (Auto-loads into rate cards and 50/day bulk dispatches)
+            </label>
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition"
+            >
+              Save Warehouse Facility
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 10. SHIPPER ADDRESS PROFILE MANAGER SECTION
 // ============================================================================
 interface ShipperAddressSectionProps {
   addresses: AddressProfile[];
-  activeAddress: AddressProfile;
+  activeAddress: AddressProfile | null;
   onSelectAddress: (address: AddressProfile) => void;
   onAddNewAddress: () => void;
   onEditAddress: (address: AddressProfile) => void;
+  isRealUser?: boolean;
 }
 
 const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
@@ -3162,7 +2407,8 @@ const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
   activeAddress,
   onSelectAddress,
   onAddNewAddress,
-  onEditAddress
+  onEditAddress,
+  isRealUser
 }) => {
   return (
     <div className="space-y-4 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -3173,7 +2419,9 @@ const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
             <span>Pickup Warehouse & Origin Facilities</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manage dynamic dispatch facilities across India. Eliminates hardcoded developer coordinates.
+            {isRealUser
+              ? "Your authenticated corporate pickup locations. Configure your facility PINs for direct linehaul carrier dispatch."
+              : "Demo Dispatch facilities for live sandbox testing across Indian logistics corridors."}
           </p>
         </div>
         <button
@@ -3186,70 +2434,85 @@ const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {addresses.map((addr) => {
-          const isActive = activeAddress.id === addr.id;
-          return (
-            <div
-              key={addr.id}
-              onClick={() => onSelectAddress(addr)}
-              className={`p-4 rounded-xl border-2 cursor-pointer transition relative flex flex-col justify-between ${
-                isActive
-                  ? "bg-indigo-50/70 border-indigo-600 ring-2 ring-indigo-200 shadow-sm"
-                  : "bg-white border-slate-200 hover:border-slate-300"
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-black text-xs text-slate-900">{addr.label}</span>
-                  {addr.is_default && (
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold">
-                      Default Origin
-                    </span>
-                  )}
+      {addresses.length === 0 ? (
+        <div className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-2xl space-y-3">
+          <BuildingOfficeIcon className="w-8 h-8 text-slate-400 mx-auto" />
+          <p className="font-bold text-slate-700">No pickup warehouse facilities registered yet.</p>
+          <p className="text-slate-400">Add your warehouse or factory dispatch address to unlock linehaul rate searches.</p>
+          <button
+            type="button"
+            onClick={onAddNewAddress}
+            className="bg-indigo-600 text-white font-black px-4 py-2 rounded-xl text-xs shadow-sm hover:bg-indigo-700 transition"
+          >
+            + Add First Pickup Facility
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {addresses.map((addr) => {
+            const isActive = activeAddress?.id === addr.id;
+            return (
+              <div
+                key={addr.id}
+                onClick={() => onSelectAddress(addr)}
+                className={`p-4 rounded-xl border-2 cursor-pointer transition relative flex flex-col justify-between ${
+                  isActive
+                    ? "bg-indigo-50/70 border-indigo-600 ring-2 ring-indigo-200 shadow-sm"
+                    : "bg-white border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-black text-xs text-slate-900">{addr.label}</span>
+                    {addr.is_default && (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                        Default Origin
+                      </span>
+                    )}
+                  </div>
+                  <strong className="block text-xs text-slate-800">{addr.company_name}</strong>
+                  <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                    {addr.address_line1}
+                    {addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                  </p>
+                  <p className="text-[11px] font-bold text-slate-800 mt-0.5">
+                    {addr.city}, {addr.state} - <span className="font-mono text-indigo-700">{addr.pincode}</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                    Contact: {addr.contact_name} ({addr.phone})
+                  </p>
                 </div>
-                <strong className="block text-xs text-slate-800">{addr.company_name}</strong>
-                <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-                  {addr.address_line1}
-                  {addr.address_line2 ? `, ${addr.address_line2}` : ""}
-                </p>
-                <p className="text-[11px] font-bold text-slate-800 mt-0.5">
-                  {addr.city}, {addr.state} - <span className="font-mono text-indigo-700">{addr.pincode}</span>
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1 font-mono">
-                  Contact: {addr.contact_name} ({addr.phone})
-                </p>
-              </div>
 
-              <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-xs">
-                <span className={`text-[10px] font-bold ${isActive ? "text-indigo-700" : "text-slate-400"}`}>
-                  {isActive ? "✓ Selected Origin" : "Click to select"}
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditAddress(addr);
-                  }}
-                  className="text-slate-600 hover:text-indigo-600 font-bold text-[11px] underline"
-                >
-                  Edit
-                </button>
+                <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-xs">
+                  <span className={`text-[10px] font-bold ${isActive ? "text-indigo-700" : "text-slate-400"}`}>
+                    {isActive ? "✓ Selected Origin" : "Click to select"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditAddress(addr);
+                    }}
+                    className="text-slate-600 hover:text-indigo-600 font-bold text-[11px] underline"
+                  >
+                    Edit
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
 
 // ============================================================================
-// 13. SHIPPER SINGLE RATE CALCULATOR (OPTIONAL DIMENSIONS & LINE-ITEM CARDS)
+// 11. SHIPPER SINGLE RATE FORM (STRICTLY OPTIONAL DIMENSIONS L x W x H)
 // ============================================================================
 interface ShipperSingleCalculatorSectionProps {
   highVolumeMode: boolean;
-  activeOriginAddress: AddressProfile;
+  activeOriginAddress: AddressProfile | null;
   onChangeAddressTrigger: () => void;
   originPin: string;
   setOriginPin: (val: string) => void;
@@ -3271,6 +2534,7 @@ interface ShipperSingleCalculatorSectionProps {
   onOpenCityModal: (target: "origin" | "dest") => void;
   onSelectQuoteForBooking: (q: CalculatedQuote) => void;
   onOpenCreditApplyModal: () => void;
+  isRealUser?: boolean;
 }
 
 const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = ({
@@ -3296,10 +2560,13 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
   calculatedQuotes,
   onOpenCityModal,
   onSelectQuoteForBooking,
-  onOpenCreditApplyModal
+  onOpenCreditApplyModal,
+  isRealUser
 }) => {
   const hasDimensions = useMemo(() => {
-    return boxes.some((b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0);
+    return boxes.some(
+      (b) => b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0
+    );
   }, [boxes]);
 
   const totalActualWeight = useMemo(() => {
@@ -3311,7 +2578,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
     const divisor = selectedMode === "air" ? 5000 : 4500;
     return boxes.reduce((acc, b) => {
       if (!b.length || !b.width || !b.height || Number(b.length) <= 0 || Number(b.width) <= 0 || Number(b.height) <= 0) return acc;
-      const volKg = ((Number(b.length)) * (Number(b.width)) * (Number(b.height))) / divisor;
+      const volKg = (Number(b.length) * Number(b.width) * Number(b.height)) / divisor;
       return acc + volKg * (Number(b.qty) || 1);
     }, 0);
   }, [boxes, selectedMode, hasDimensions]);
@@ -3338,28 +2605,47 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
 
   return (
     <div className="space-y-6">
-      {/* 1. Dynamic Origin Facility Banner */}
-      <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Active Dispatch Facility:</span>
-            <span className="font-black text-sm text-white">{activeOriginAddress.label}</span>
+      {/* 1. Dynamic Origin Warehouse Facility Banner */}
+      {activeOriginAddress ? (
+        <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Active Dispatch Facility:</span>
+              <span className="font-black text-sm text-white">{activeOriginAddress.label}</span>
+            </div>
+            <p className="text-xs text-slate-300 font-medium">
+              {activeOriginAddress.address_line1}, {activeOriginAddress.city} -{" "}
+              <span className="font-mono font-bold text-emerald-400">{activeOriginAddress.pincode}</span>
+            </p>
           </div>
-          <p className="text-xs text-slate-300 font-medium">
-            {activeOriginAddress.address_line1}, {activeOriginAddress.city} - <span className="font-mono font-bold text-emerald-400">{activeOriginAddress.pincode}</span>
-          </p>
+          <button
+            type="button"
+            onClick={onChangeAddressTrigger}
+            className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl text-xs shadow-sm transition"
+          >
+            Manage Facilities
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onChangeAddressTrigger}
-          className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl text-xs shadow-sm transition"
-        >
-          Manage Facilities
-        </button>
-      </div>
+      ) : (
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-900 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="font-black text-sm">No Origin Pickup Address Selected</h4>
+            <p className="text-xs text-amber-800">
+              Please register or select a verified pickup warehouse address to populate origin PIN and calculate linehaul tariffs.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onChangeAddressTrigger}
+            className="bg-amber-700 hover:bg-amber-800 text-white font-black px-4 py-2 rounded-xl text-xs shadow-sm transition"
+          >
+            + Set Origin Warehouse
+          </button>
+        </div>
+      )}
 
-      {/* 2. Parameters Grid */}
+      {/* 2. Route & Consignment Parameters Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Origin PIN */}
         <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200">
@@ -3379,6 +2665,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
             maxLength={6}
             value={originPin}
             onChange={(e) => setOriginPin(e.target.value)}
+            placeholder="110020"
             className="w-full bg-white border-2 border-indigo-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
           />
           <div className="mt-2 text-[11px] font-bold text-indigo-800 truncate">
@@ -3423,7 +2710,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
             onChange={(e) => setDeclaredValue(Number(e.target.value))}
             className="w-full bg-white border-2 border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
           />
-          <p className="text-[11px] text-slate-500 mt-2 font-medium">0.20% FOV cargo risk coverage</p>
+          <p className="text-[11px] text-slate-500 mt-2 font-medium">0.20% FOV insurance risk coverage</p>
         </div>
 
         {/* Transport Mode & ODA */}
@@ -3456,14 +2743,14 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
         </div>
       </div>
 
-      {/* 3. Parabolic Trajectory Canvas (Bypassed in 60FPS mode) */}
+      {/* 3. Parabolic Trajectory Canvas */}
       {!highVolumeMode && (
         <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
           <RouteTrajectory3D originHub={originZoneData.hub} destHub={destZoneData.hub} />
         </div>
       )}
 
-      {/* 4. Multi-Box Carton Specifications with Optional Dimensions */}
+      {/* 4. Multi-Box Carton Specifications with Strictly Optional Dimensions */}
       <div className="border border-slate-200 rounded-2xl p-5 bg-slate-50/70 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -3471,7 +2758,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
               Carton Specs ({boxes.length} Box Type{boxes.length > 1 ? "s" : ""})
             </span>
             <p className="text-[11px] text-slate-500 font-medium">
-              Length, width, and height are optional. Dead weight alone calculates rate when left blank.
+              Length, width, and height are completely optional. Dead weight alone calculates freight tariffs when left blank.
             </p>
           </div>
           <button
@@ -3480,7 +2767,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
             className="text-xs text-indigo-600 hover:text-indigo-800 font-black flex items-center space-x-1"
           >
             <PlusIcon className="w-4 h-4" />
-            <span>Add Another Carton</span>
+            <span>Add Another Carton Type</span>
           </button>
         </div>
 
@@ -3606,23 +2893,66 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
           </div>
           {!hasDimensions && (
             <span className="text-[11px] bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold">
-              Dead Weight Applied
+              Dead Weight Pricing Applied
             </span>
           )}
         </div>
       </div>
+    </div>
+  );
+};
+// ============================================================================
+// 12. SHIPPER LIVE RATE COMPARISON CARDS (STRICT ISOLATION & LINE ITEMS)
+// ============================================================================
+interface ShipperRateComparisonCardsProps {
+  quotes: CalculatedQuote[];
+  isRealUser?: boolean;
+  modeEnv: ModeEnv;
+  originPin: string;
+  destPin: string;
+  onSelectQuoteForBooking: (q: CalculatedQuote) => void;
+  onOpenCreditApplyModal: () => void;
+}
 
-      {/* 5. Real-Time Rate Matrix Cards & Credit Facility Status */}
-      <div className="space-y-4 pt-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-black text-slate-900">Direct Carrier Freight Rate Matrix</h3>
-          <span className="text-xs bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1 rounded-full font-black">
-            {calculatedQuotes.length} Verified Tariffs Found
-          </span>
+const ShipperRateComparisonCards: FC<ShipperRateComparisonCardsProps> = ({
+  quotes,
+  isRealUser,
+  modeEnv,
+  originPin,
+  destPin,
+  onSelectQuoteForBooking,
+  onOpenCreditApplyModal
+}) => {
+  return (
+    <div className="space-y-4 pt-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-black text-slate-900">
+            {modeEnv === "live" ? "Verified Direct Carrier Tariffs" : "Sandbox Direct Carrier Freight Tariffs"}
+          </h3>
+          <p className="text-xs text-slate-500 font-medium">
+            Lane: <span className="font-mono font-bold text-slate-800">{originPin || "---"}</span> → <span className="font-mono font-bold text-slate-800">{destPin || "---"}</span>
+          </p>
         </div>
 
+        <span className="text-xs bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-1 rounded-full font-black">
+          {quotes.length} Carrier Route{quotes.length === 1 ? "" : "s"} Available
+        </span>
+      </div>
+
+      {quotes.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-10 text-center space-y-3">
+          <TruckIcon className="w-10 h-10 text-slate-400 mx-auto" />
+          <h4 className="text-sm font-bold text-slate-800">No verified carrier rates found for this route yet.</h4>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            {modeEnv === "live"
+              ? "None of our active partner carriers have published a rate tariff covering this specific origin/destination PIN pair. Try alternative pincodes or post an RFQ."
+              : "No demo rate cards match the entered pincode prefixes."}
+          </p>
+        </div>
+      ) : (
         <div className="grid grid-cols-1 gap-4">
-          {calculatedQuotes.map((quote) => (
+          {quotes.map((quote) => (
             <div
               key={quote.rateCard.id}
               className="bg-white border-2 border-slate-200 hover:border-indigo-500 rounded-2xl p-5 shadow-sm hover:shadow-md transition"
@@ -3651,10 +2981,10 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
                     <span>•</span>
                     <span>Billable Wt: <strong className="text-slate-900">{quote.billableWeight} kg</strong></span>
                     <span>•</span>
-                    <span className="font-mono text-emerald-800 font-bold">Direct UPI: {quote.vendor.upi_id}</span>
+                    <span className="font-mono text-emerald-800 font-bold">Carrier UPI: {quote.vendor.upi_id || "Available at Checkout"}</span>
                   </div>
 
-                  {/* Credit Facility Status Indicator for This Carrier */}
+                  {/* Credit Facility Status Indicator */}
                   <div className="pt-1">
                     {quote.creditAvailable ? (
                       <span className="inline-flex items-center space-x-1.5 text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-lg font-bold">
@@ -3664,7 +2994,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
                     ) : quote.creditAgreement?.status === "Pending_Review" ? (
                       <span className="inline-flex items-center space-x-1.5 text-[11px] bg-amber-50 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-lg font-bold">
                         <ClockIcon className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Credit Application Pending Review by Carrier</span>
+                        <span>Credit Application Underwriting in Progress by Carrier</span>
                       </span>
                     ) : (
                       <button
@@ -3703,7 +3033,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
                   </div>
                 </div>
 
-                {/* Direct Action */}
+                {/* Direct Booking Action */}
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0">
                   <div className="text-left sm:text-right">
                     <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Total Consignment Cost</span>
@@ -3722,6 +3052,263 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 13. CLIENT-SIDE COMPRESSED PDF CREDIT APPLICATION MODAL
+// ============================================================================
+interface CreditApplyModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  carriers: Vendor[];
+  currentShipper: UserProfile;
+  onSubmitApplication: (
+    carrierId: string,
+    limit: number,
+    termsDays: number,
+    file: File,
+    docName: string,
+    storageUrl?: string
+  ) => void;
+}
+
+const CreditApplyModal: FC<CreditApplyModalProps> = ({
+  isOpen,
+  onClose,
+  carriers,
+  currentShipper,
+  onSubmitApplication
+}) => {
+  const [selectedCarrierId, setSelectedCarrierId] = useState<string>(carriers[0]?.id || "");
+  const [requestedLimit, setRequestedLimit] = useState<number>(300000);
+  const [termsDays, setTermsDays] = useState<number>(15);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState<string>("");
+  const [statusType, setStatusType] = useState<"idle" | "optimizing" | "uploading" | "success" | "error">("idle");
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) {
+      alert("Please upload an executed B2B Credit Agreement or KYC document (PDF).");
+      return;
+    }
+    if (requestedLimit <= 0) {
+      alert("Please enter a valid requested credit ceiling amount.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      let fileToUpload = selectedFile;
+      let savingsInfo = "";
+
+      // 1. Minify PDF using pdf-lib if file size exceeds 1MB
+      if (selectedFile.size > 1024 * 1024) {
+        setStatusType("optimizing");
+        setUploadStatusText("Optimizing PDF with object streams...");
+        
+        const result = await compressAgreementFile(selectedFile);
+        fileToUpload = result.file;
+        if (result.savedKB > 0) {
+          savingsInfo = ` (Saved ${result.savedKB} KB)`;
+        }
+      }
+
+      // 2. Upload to Supabase Storage 'agreements' bucket
+      setStatusType("uploading");
+      setUploadStatusText("Uploading to secure agreements storage...");
+
+      const safeFileName = `${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const filePath = `credit-agreements/${currentShipper.id}/${safeFileName}`;
+
+      let publicUrl = "";
+      const { data, error } = await supabase.storage.from("agreements").upload(filePath, fileToUpload, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (!error && data) {
+        const { data: urlData } = supabase.storage.from("agreements").getPublicUrl(filePath);
+        publicUrl = urlData.publicUrl;
+      } else {
+        // Fallback to local Object URL if bucket upload is unprovisioned
+        publicUrl = URL.createObjectURL(fileToUpload);
+      }
+
+      // 3. Visual Confirmation
+      setStatusType("success");
+      setUploadStatusText(`Uploaded successfully${savingsInfo}`);
+
+      onSubmitApplication(
+        selectedCarrierId,
+        requestedLimit,
+        termsDays,
+        fileToUpload,
+        fileToUpload.name,
+        publicUrl
+      );
+
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setUploadStatusText("");
+        setStatusType("idle");
+        onClose();
+      }, 1200);
+
+    } catch (err) {
+      console.error("Submission failed:", err);
+      setStatusType("error");
+      setUploadStatusText("Failed to process document. Please try again.");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Apply for Carrier Credit Facility</h3>
+            <p className="text-xs text-slate-500 font-medium">
+              Submit signed credit agreement / KYC documents for transporter underwriting approval.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} disabled={isSubmitting} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">Select Target Transporter *</label>
+            <select
+              disabled={isSubmitting}
+              value={selectedCarrierId}
+              onChange={(e) => setSelectedCarrierId(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            >
+              {carriers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} (GSTIN: {c.gstin})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Requested Credit Ceiling (₹) *</label>
+              <input
+                type="number"
+                step={10000}
+                required
+                disabled={isSubmitting}
+                value={requestedLimit}
+                onChange={(e) => setRequestedLimit(Number(e.target.value))}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">Requested Billing Terms</label>
+              <select
+                disabled={isSubmitting}
+                value={termsDays}
+                onChange={(e) => setTermsDays(Number(e.target.value))}
+                className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+              >
+                <option value={7}>7-Day Rolling Payout</option>
+                <option value={15}>15-Day Net Bi-Monthly</option>
+                <option value={30}>30-Day Monthly Net Credit</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Compressed Agreement PDF Upload */}
+          <div>
+            <label className="block text-slate-700 font-bold mb-1">
+              Upload Signed Agreement / GST KYC (PDF or Scan) *
+            </label>
+            <div className="border-2 border-dashed border-indigo-300 rounded-2xl p-4 bg-indigo-50/40 text-center space-y-2">
+              <input
+                type="file"
+                id="credit_agreement_doc_upload"
+                accept=".pdf,image/*"
+                disabled={isSubmitting}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setSelectedFile(file);
+                }}
+                className="hidden"
+              />
+              <label
+                htmlFor="credit_agreement_doc_upload"
+                className={`bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 shadow-xs ${
+                  isSubmitting ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                }`}
+              >
+                <UploadIcon className="w-4 h-4" />
+                <span>
+                  {selectedFile
+                    ? `${selectedFile.name} (${Math.round(selectedFile.size / 1024)} KB)`
+                    : "Select Agreement Document (PDF)"}
+                </span>
+              </label>
+
+              {uploadStatusText && (
+                <div className="pt-1.5">
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-[11px] font-black ${
+                      statusType === "optimizing"
+                        ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse"
+                        : statusType === "uploading"
+                        ? "bg-indigo-100 text-indigo-900 border border-indigo-300 animate-pulse"
+                        : statusType === "success"
+                        ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                        : "bg-rose-100 text-rose-900 border border-rose-300"
+                    }`}
+                  >
+                    {statusType === "success" ? "✓ " : "⏳ "}
+                    {uploadStatusText}
+                  </span>
+                </div>
+              )}
+
+              <p className="text-[10px] text-slate-500 font-medium">
+                PDFs over 1MB are automatically minified in-browser using pdf-lib object streams.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 text-[11px] text-slate-600">
+            <p><strong>Applying Entity:</strong> {currentShipper.company_name} ({currentShipper.gstin})</p>
+            <p><strong>Authorized Signatory:</strong> {currentShipper.full_name} ({currentShipper.phone})</p>
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !selectedFile}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
+            >
+              {isSubmitting ? "Processing Upload..." : "Submit Credit Application"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -3733,11 +3320,13 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
 interface ShipperCreditStatusSectionProps {
   agreements: CreditAgreement[];
   onApplyNewCredit: () => void;
+  isRealUser?: boolean;
 }
 
 const ShipperCreditStatusSection: FC<ShipperCreditStatusSectionProps> = ({
   agreements,
-  onApplyNewCredit
+  onApplyNewCredit,
+  isRealUser
 }) => {
   return (
     <div className="space-y-4 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -3762,8 +3351,9 @@ const ShipperCreditStatusSection: FC<ShipperCreditStatusSectionProps> = ({
       </div>
 
       {agreements.length === 0 ? (
-        <div className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-xl space-y-2">
-          <p>No active credit agreements. Shippers cannot book on credit without an approved carrier facility.</p>
+        <div className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-2xl space-y-2">
+          <p className="font-bold text-slate-700">No active credit agreements found.</p>
+          <p>Shippers cannot book on credit without an approved transporter underwriting agreement.</p>
           <button
             type="button"
             onClick={onApplyNewCredit}
@@ -3812,7 +3402,6 @@ const ShipperCreditStatusSection: FC<ShipperCreditStatusSectionProps> = ({
                   </div>
                 </div>
 
-                {/* Utilization Progress Bar */}
                 {agreement.status === "Approved" && (
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] text-slate-500 font-bold">
@@ -3851,7 +3440,7 @@ const ShipperCreditStatusSection: FC<ShipperCreditStatusSectionProps> = ({
   );
 };
 // ============================================================================
-// 15. CARRIER AVAILABLE LOADS BOARD & REVERSE AUCTION BIDDING
+// 15. CARRIER AVAILABLE LOADS BOARD & REVERSE AUCTION BIDDING CONSOLE
 // ============================================================================
 interface CarrierBidsSectionProps {
   currentUser: UserProfile;
@@ -4020,7 +3609,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({
 };
 
 // ============================================================================
-// 16. CARRIER-CONFIGURABLE PUBLIC TRACKING PORTAL URL MANAGER
+// 16. CARRIER CUSTOM PUBLIC TRACKING PORTAL URL CONFIGURATION
 // ============================================================================
 interface CarrierTrackingUrlConfigProps {
   currentUrl: string;
@@ -4117,7 +3706,200 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({
 };
 
 // ============================================================================
-// 17. CARRIER CREDIT AGREEMENT APPROVAL & REVIEW CONSOLE
+// 17. CARRIER FLEET DISPATCH CONSOLE & AUTO-COMPRESSED BILTY UPLOAD
+// ============================================================================
+interface CarrierOrdersSectionProps {
+  currentUser: UserProfile;
+  bookings: Booking[];
+  statusUpdateMap: Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>;
+  setStatusUpdateMap: React.Dispatch<React.SetStateAction<Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>>>;
+  onUploadDocketFile: (bookingId: string, file: File) => Promise<void>;
+  onUpdateShipmentStatus: (bookingId: string) => Promise<void>;
+}
+
+const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
+  currentUser,
+  bookings,
+  statusUpdateMap,
+  setStatusUpdateMap,
+  onUploadDocketFile,
+  onUpdateShipmentStatus
+}) => {
+  return (
+    <div className="space-y-4">
+      {/* Header Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Fleet Tracking & Bilty Dispatch Console</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Operating Fleet: <strong className="text-emerald-700 font-bold">{currentUser.company_name}</strong>
+          </p>
+        </div>
+      </div>
+
+      {/* Dispatches Data Cards */}
+      {bookings.length === 0 ? (
+        <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
+          No active consignments booked with your fleet network yet.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {bookings.map((booking) => {
+            const rowForm = statusUpdateMap[booking.id] || {
+              status: "",
+              location: "",
+              remarks: "",
+              docketNo: booking.carrier_docket_no || booking.awb_number,
+              docUrl: booking.carrier_docket_doc_url || "",
+              isUploading: false
+            };
+
+            return (
+              <div key={booking.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                {/* Consignment Overview Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
+                      Ref: {booking.order_id || "LC-ORDER"}
+                    </span>
+                    <span className="font-mono text-sm font-black text-slate-900">
+                      Docket: {booking.carrier_docket_no || booking.awb_number}
+                    </span>
+                    <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold capitalize">
+                      {booking.mode} Linehaul
+                    </span>
+                    <span className="text-xs font-mono text-slate-600 font-bold">
+                      {booking.origin_pin} → {booking.dest_pin}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-xs">
+                    <span className="text-slate-500 font-medium">Settlement:</span>
+                    <span className="font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                      {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bilty Entry & Photo Upload Form */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    {/* Carrier Docket / LR Input */}
+                    <div className="md:col-span-4">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Carrier Docket / LR No.
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter Physical Bilty No."
+                        value={rowForm.docketNo}
+                        onChange={(e) =>
+                          setStatusUpdateMap({
+                            ...statusUpdateMap,
+                            [booking.id]: { ...rowForm, docketNo: e.target.value }
+                          })
+                        }
+                        className="w-full bg-white border-2 border-indigo-300 font-mono font-black text-indigo-950 rounded-xl px-3 py-1.5 text-xs shadow-sm focus:border-indigo-600 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Compressed File Upload */}
+                    <div className="md:col-span-5">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Physical Bilty / POD (Image / PDF)
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="file"
+                          id={`file-upload-${booking.id}`}
+                          accept="image/*,application/pdf"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) onUploadDocketFile(booking.id, file);
+                          }}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor={`file-upload-${booking.id}`}
+                          className="bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-1.5"
+                        >
+                          <UploadIcon className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>{rowForm.isUploading ? "Compressing & Uploading..." : "📷 Upload Bilty Scan"}</span>
+                        </label>
+
+                        {(rowForm.docUrl || booking.carrier_docket_doc_url) && (
+                          <a
+                            href={rowForm.docUrl || booking.carrier_docket_doc_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-700 hover:text-emerald-800 font-black text-xs flex items-center space-x-1 underline truncate max-w-[150px]"
+                          >
+                            <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Attached Scan</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Transit Milestone Status */}
+                    <div className="md:col-span-3">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
+                        Transit Milestone Status
+                      </label>
+                      <select
+                        value={rowForm.status}
+                        onChange={(e) =>
+                          setStatusUpdateMap({
+                            ...statusUpdateMap,
+                            [booking.id]: { ...rowForm, status: e.target.value }
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:border-indigo-600 focus:outline-none"
+                      >
+                        <option value="">Update Status...</option>
+                        <option value="Picked Up">Picked Up</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Out for Delivery">Out for Delivery</option>
+                        <option value="Delivered">Delivered</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Location & Save Action Bar */}
+                  <div className="flex flex-col md:flex-row items-center gap-2.5 pt-2 border-t border-slate-200">
+                    <input
+                      type="text"
+                      placeholder="Current Hub / City (e.g. Bilaspur Linehaul Gateway)"
+                      value={rowForm.location}
+                      onChange={(e) =>
+                        setStatusUpdateMap({
+                          ...statusUpdateMap,
+                          [booking.id]: { ...rowForm, location: e.target.value }
+                        })
+                      }
+                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => onUpdateShipmentStatus(booking.id)}
+                      className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2 rounded-xl transition shadow-sm flex items-center justify-center space-x-1.5 shrink-0"
+                    >
+                      <CheckCircleIcon className="w-4 h-4" />
+                      <span>Save & Dispatch Docket Update</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+// ============================================================================
+// 18. CARRIER CREDIT AGREEMENT REVIEW & APPROVAL CONSOLE
 // ============================================================================
 interface CarrierCreditApprovalSectionProps {
   agreements: CreditAgreement[];
@@ -4164,7 +3946,7 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({
             <span>Shipper Credit Facility Underwriting & KYC Approval</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Review signed B2B credit agreements, authorize billing limits, and manage counterparty exposure.
+            Review signed B2B credit agreements, authorize revolving billing limits, and manage counterparty risk.
           </p>
         </div>
 
@@ -4352,628 +4134,7 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({
 };
 
 // ============================================================================
-// 18. CARRIER FLEET ORDERS & PHYSICAL BILTY DISPATCH
-// ============================================================================
-interface CarrierOrdersSectionProps {
-  currentUser: UserProfile;
-  bookings: Booking[];
-  statusUpdateMap: Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>;
-  setStatusUpdateMap: React.Dispatch<React.SetStateAction<Record<string, { status: string; location: string; remarks: string; docketNo?: string; docUrl?: string; isUploading?: boolean }>>>;
-  onUploadDocketFile: (bookingId: string, file: File) => Promise<void>;
-  onUpdateShipmentStatus: (bookingId: string) => Promise<void>;
-}
-
-const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
-  currentUser,
-  bookings,
-  statusUpdateMap,
-  setStatusUpdateMap,
-  onUploadDocketFile,
-  onUpdateShipmentStatus
-}) => {
-  return (
-    <div className="space-y-4">
-      {/* 1. Header Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-black text-slate-900">Fleet Tracking & Bilty Dispatch Console</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Operating Fleet: <strong className="text-emerald-700 font-bold">{currentUser.company_name}</strong>
-          </p>
-        </div>
-      </div>
-
-      {/* 2. Dispatches Data Cards */}
-      {bookings.length === 0 ? (
-        <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-sm">
-          No active consignments booked with your fleet network yet.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {bookings.map((booking) => {
-            const rowForm = statusUpdateMap[booking.id] || {
-              status: "",
-              location: "",
-              remarks: "",
-              docketNo: booking.carrier_docket_no || booking.awb_number,
-              docUrl: booking.carrier_docket_doc_url || "",
-              isUploading: false
-            };
-
-            return (
-              <div key={booking.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                {/* Consignment Overview Strip */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div className="flex items-center space-x-3">
-                    <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
-                      Ref: {booking.order_id || "LC-ORDER"}
-                    </span>
-                    <span className="font-mono text-sm font-black text-slate-900">
-                      Docket: {booking.carrier_docket_no || booking.awb_number}
-                    </span>
-                    <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold capitalize">
-                      {booking.mode} Linehaul
-                    </span>
-                    <span className="text-xs font-mono text-slate-600 font-bold">
-                      {booking.origin_pin} → {booking.dest_pin}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center space-x-2 text-xs">
-                    <span className="text-slate-500 font-medium">Settlement:</span>
-                    <span className="font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
-                      {booking.cost_breakdown?.payment_ref || "DIRECT-TO-PAY"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Bilty Entry & Photo Upload Form */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                    {/* Carrier Docket / LR Input */}
-                    <div className="md:col-span-4">
-                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
-                        Carrier Docket / LR No.
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Enter Physical Bilty No."
-                        value={rowForm.docketNo}
-                        onChange={(e) =>
-                          setStatusUpdateMap({
-                            ...statusUpdateMap,
-                            [booking.id]: { ...rowForm, docketNo: e.target.value }
-                          })
-                        }
-                        className="w-full bg-white border-2 border-indigo-300 font-mono font-black text-indigo-950 rounded-xl px-3 py-1.5 text-xs shadow-sm focus:border-indigo-600 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Compressed File Upload */}
-                    <div className="md:col-span-5">
-                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
-                        Physical Bilty / POD (Image / PDF)
-                      </label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="file"
-                          id={`file-upload-${booking.id}`}
-                          accept="image/*,application/pdf"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) onUploadDocketFile(booking.id, file);
-                          }}
-                          className="hidden"
-                        />
-                        <label
-                          htmlFor={`file-upload-${booking.id}`}
-                          className="bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-1.5"
-                        >
-                          <UploadIcon className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>{rowForm.isUploading ? "Compressing & Uploading..." : "📷 Upload Bilty Scan"}</span>
-                        </label>
-
-                        {(rowForm.docUrl || booking.carrier_docket_doc_url) && (
-                          <a
-                            href={rowForm.docUrl || booking.carrier_docket_doc_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-emerald-700 hover:text-emerald-800 font-black text-xs flex items-center space-x-1 underline truncate max-w-[150px]"
-                          >
-                            <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Attached Scan</span>
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Transit Milestone Status */}
-                    <div className="md:col-span-3">
-                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">
-                        Transit Milestone Status
-                      </label>
-                      <select
-                        value={rowForm.status}
-                        onChange={(e) =>
-                          setStatusUpdateMap({
-                            ...statusUpdateMap,
-                            [booking.id]: { ...rowForm, status: e.target.value }
-                          })
-                        }
-                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:border-indigo-600 focus:outline-none"
-                      >
-                        <option value="">Update Status...</option>
-                        <option value="Picked Up">Picked Up</option>
-                        <option value="In Transit">In Transit</option>
-                        <option value="Out for Delivery">Out for Delivery</option>
-                        <option value="Delivered">Delivered</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Location & Save Action Bar */}
-                  <div className="flex flex-col md:flex-row items-center gap-2.5 pt-2 border-t border-slate-200">
-                    <input
-                      type="text"
-                      placeholder="Current Hub / City (e.g. Bilaspur Linehaul Gateway)"
-                      value={rowForm.location}
-                      onChange={(e) =>
-                        setStatusUpdateMap({
-                          ...statusUpdateMap,
-                          [booking.id]: { ...rowForm, location: e.target.value }
-                        })
-                      }
-                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => onUpdateShipmentStatus(booking.id)}
-                      className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2 rounded-xl transition shadow-sm flex items-center justify-center space-x-1.5 shrink-0"
-                    >
-                      <CheckCircleIcon className="w-4 h-4" />
-                      <span>Save & Dispatch Docket Update</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// 19. CARRIER COMMERCIAL RATE CARD MASTER & BULK CSV UPLOADER
-// ============================================================================
-interface CarrierRatesSectionProps {
-  currentUser: UserProfile;
-  rateCards: RateCard[];
-  setRateCards: React.Dispatch<React.SetStateAction<RateCard[]>>;
-  vendors: Vendor[];
-  onOpenAddRateModal: () => void;
-}
-
-const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({
-  currentUser,
-  rateCards,
-  setRateCards,
-  vendors,
-  onOpenAddRateModal
-}) => {
-  const [csvFileName, setCsvFileName] = useState("");
-  const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRateCard[]>([]);
-  const [csvErrors, setCsvErrors] = useState<string[]>([]);
-  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
-  const [csvUploadStatus, setCsvUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleDownloadSampleCsv = () => {
-    const csvHeader = "origin,dest,mode,min_weight_kg,base_rate,per_kg_rate,fuel_surcharge_pct,docket_charge,sla_days\n";
-    const sampleRows = [
-      "Delhi,Chandigarh,surface,20,450,14.5,12.5,150,2",
-      "110,Bengaluru,air,5,850,48,18,250,1",
-      "Mumbai,Kolkata,surface,25,500,16,12.5,150,4",
-      "Ludhiana,Delhi,surface,15,350,11,10,120,2",
-      "%,%,ftl,500,8500,6.5,15,500,5"
-    ].join("\n");
-
-    const blob = new Blob([csvHeader + sampleRows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "logicompare_rate_card_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setCsvFileName(file.name);
-    setCsvUploadStatus(null);
-    setCsvErrors([]);
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const text = event.target?.result as string;
-        if (!text) throw new Error("Empty file content");
-
-        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-        if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
-
-        const rows: ParsedCsvRateCard[] = [];
-        const errors: string[] = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
-          if (cols.length < 9) {
-            errors.push(`Row ${i + 1}: Expected 9 columns, found ${cols.length}`);
-            continue;
-          }
-
-          const [origRaw, destRaw, modeRaw, minWtRaw, baseRateRaw, perKgRaw, fuelRaw, docketRaw, slaRaw] = cols;
-          const modeClean = modeRaw.toLowerCase();
-
-          const origin_prefix = await resolveLocationToPrefix(origRaw);
-          const dest_prefix = await resolveLocationToPrefix(destRaw);
-
-          if (!["surface", "air", "ftl"].includes(modeClean)) {
-            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be surface, air, or ftl.`);
-            continue;
-          }
-
-          const min_weight_kg = parseFloat(minWtRaw);
-          const base_rate = parseFloat(baseRateRaw);
-          const per_kg_rate = parseFloat(perKgRaw);
-          const fuel_surcharge_pct = parseFloat(fuelRaw);
-          const docket_charge = parseFloat(docketRaw);
-          const sla_days = parseInt(slaRaw, 10);
-
-          if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days].some(isNaN)) {
-            errors.push(`Row ${i + 1}: Numeric fields contain invalid values.`);
-            continue;
-          }
-
-          rows.push({
-            origin_prefix,
-            dest_prefix,
-            mode: modeClean as "surface" | "air" | "ftl",
-            min_weight_kg,
-            base_rate,
-            per_kg_rate,
-            fuel_surcharge_pct,
-            docket_charge,
-            sla_days,
-            fov_pct: 0.2,
-            oda_charge: 450,
-            handling_per_kg: 2,
-            is_active: true
-          });
-        }
-
-        setParsedCsvRows(rows);
-        setCsvErrors(errors);
-      } catch (err: any) {
-        setCsvUploadStatus({ type: "error", message: err.message || "Failed to parse CSV." });
-        setParsedCsvRows([]);
-      }
-    };
-
-    reader.readAsText(file);
-  };
-
-  const handleBatchInsertRateCards = async () => {
-    if (parsedCsvRows.length === 0) return;
-    setIsUploadingCsv(true);
-    setCsvUploadStatus(null);
-
-    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
-    const payload = parsedCsvRows.map((r) => ({
-      ...r,
-      vendor_id: vendorId
-    }));
-
-    try {
-      const { data, error } = await supabase.from("rate_cards").insert(payload).select("*, vendors(*)");
-
-      if (!error && data && data.length > 0) {
-        setRateCards([...(data as RateCard[]), ...rateCards]);
-      } else {
-        const localCards: RateCard[] = payload.map((p, idx) => ({
-          ...(p as RateCard),
-          id: `rc-bulk-${Date.now()}-${idx}`,
-          vendors: vendors.find((v) => v.id === vendorId)
-        }));
-        setRateCards([...localCards, ...rateCards]);
-      }
-
-      setCsvUploadStatus({
-        type: "success",
-        message: `Successfully published ${parsedCsvRows.length} lane routes!`
-      });
-      setParsedCsvRows([]);
-      setCsvFileName("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (err: any) {
-      setCsvUploadStatus({
-        type: "error",
-        message: err.message || "Failed to batch insert rate cards."
-      });
-    } finally {
-      setIsUploadingCsv(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-900">Commercial Rate Card Master</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Manage route tariffs individually or batch-publish route matrices via CSV</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={handleDownloadSampleCsv}
-            className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
-          >
-            <DownloadIcon className="w-4 h-4 text-indigo-600" />
-            <span>📥 Download Sample CSV</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenAddRateModal}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 shadow-sm transition"
-          >
-            <PlusIcon className="w-4 h-4" />
-            <span>Add Route Manually</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-6 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-          <div>
-            <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-              <UploadIcon className="w-4 h-4 text-indigo-600" />
-              <span>Bulk Upload Rate Cards via CSV (City Names or Prefixes Supported)</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Standard 9 columns: <code className="font-mono text-indigo-700 font-bold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
-            </p>
-          </div>
-
-          {parsedCsvRows.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setParsedCsvRows([]);
-                  setCsvFileName("");
-                  setCsvErrors([]);
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-                className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                disabled={isUploadingCsv}
-                onClick={handleBatchInsertRateCards}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
-              >
-                <CheckCircleIcon className="w-4 h-4" />
-                <span>{isUploadingCsv ? "Publishing Routes..." : `Publish All ${parsedCsvRows.length} Routes`}</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col items-center justify-center py-6 px-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".csv,text/csv"
-            onChange={handleFileUpload}
-            className="hidden"
-            id="csv-rate-card-upload"
-          />
-          <label
-            htmlFor="csv-rate-card-upload"
-            className="bg-white hover:bg-slate-100 text-indigo-700 border-2 border-indigo-200 px-5 py-2.5 rounded-xl text-xs font-black cursor-pointer transition shadow-xs flex items-center space-x-2"
-          >
-            <UploadIcon className="w-4 h-4 text-indigo-600" />
-            <span>{csvFileName ? `Replace (${csvFileName})` : "Select Rate Card CSV File"}</span>
-          </label>
-          <p className="text-[11px] text-slate-500 font-medium">
-            {csvFileName ? `Selected File: ${csvFileName}` : "Click to select .csv file from your computer"}
-          </p>
-        </div>
-
-        {csvErrors.length > 0 && (
-          <div className="p-3.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 text-xs font-medium space-y-1">
-            <strong>Formatting Errors Encountered:</strong>
-            <ul className="list-disc pl-5">
-              {csvErrors.slice(0, 5).map((err, eIdx) => (
-                <li key={eIdx}>{err}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {csvUploadStatus && (
-          <div
-            className={`p-3.5 rounded-xl text-xs font-bold border ${
-              csvUploadStatus.type === "success"
-                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                : "bg-rose-50 text-rose-800 border-rose-300"
-            }`}
-          >
-            {csvUploadStatus.message}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 20. CARRIER DIRECT FREIGHT SETTLEMENT PROFILE (BANK & UPI)
-// ============================================================================
-interface CarrierBankSectionProps {
-  currentUser: UserProfile;
-  vendors: Vendor[];
-  setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
-}
-
-const CarrierBankSection: FC<CarrierBankSectionProps> = ({
-  currentUser,
-  vendors,
-  setVendors
-}) => {
-  const currentVendor =
-    vendors.find((v) => v.id === (currentUser.vendor_id || "11111111-1111-1111-1111-111111111111")) || vendors[0];
-
-  const [upi, setUpi] = useState(currentVendor?.upi_id || "delhivery.b2b@icici");
-  const [bankAcc, setBankAcc] = useState(currentVendor?.bank_account || "50200088910234");
-  const [ifsc, setIfsc] = useState(currentVendor?.ifsc_code || "HDFC0000240");
-  const [beneficiary, setBeneficiary] = useState(currentVendor?.beneficiary_name || "Delhivery Limited B2B Logistics");
-  const [isSaving, setIsSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setMsg("");
-
-    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
-    const payload = {
-      upi_id: upi.trim(),
-      bank_account: bankAcc.trim(),
-      ifsc_code: ifsc.trim().toUpperCase(),
-      beneficiary_name: beneficiary.trim()
-    };
-
-    try {
-      const { error } = await supabase.from("vendors").update(payload).eq("id", vendorId);
-      if (error) throw error;
-      setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v)));
-      setMsg("Bank and UPI settlement details saved successfully! Shippers can now pay you directly.");
-    } catch {
-      setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v)));
-      setMsg("Settlement details saved locally in session state!");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm max-w-2xl space-y-5">
-      <div className="border-b border-slate-200 pb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
-            <CreditCardIcon className="w-5 h-5 text-emerald-600" />
-            <span>Direct Freight Settlement Details</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Configure where commercial shippers send 100% direct freight payments when booking your routes.
-          </p>
-        </div>
-        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-black px-3.5 py-1 rounded-full">
-          Zero Commission on Freight
-        </span>
-      </div>
-
-      {msg && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold">
-          {msg}
-        </div>
-      )}
-
-      <form onSubmit={handleSave} className="space-y-4 text-xs">
-        <div>
-          <label className="block text-slate-800 font-bold mb-1">
-            Official Transporter UPI ID (VPA)
-          </label>
-          <input
-            type="text"
-            required
-            value={upi}
-            onChange={(e) => setUpi(e.target.value)}
-            placeholder="e.g. yourbusiness@icici or 9899123456@upi"
-            className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
-          />
-          <p className="text-[11px] text-slate-500 mt-1 font-medium">
-            Shippers who select "Direct Carrier UPI" at checkout will see this UPI handle to make immediate payment.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank Account Number</label>
-            <input
-              type="text"
-              required
-              value={bankAcc}
-              onChange={(e) => setBankAcc(e.target.value)}
-              placeholder="e.g. 50200088910234"
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank IFSC Code</label>
-            <input
-              type="text"
-              required
-              maxLength={11}
-              value={ifsc}
-              onChange={(e) => setIfsc(e.target.value.toUpperCase())}
-              placeholder="e.g. HDFC0000240"
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono uppercase text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-slate-800 font-bold mb-1">
-            Beneficiary / Account Holder Name (As per Bank Records)
-          </label>
-          <input
-            type="text"
-            required
-            value={beneficiary}
-            onChange={(e) => setBeneficiary(e.target.value)}
-            placeholder="e.g. Delhivery Limited B2B Logistics"
-            className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 text-slate-900 font-bold focus:bg-white focus:border-emerald-600 focus:outline-none"
-          />
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-6 py-2.5 rounded-xl transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
-          >
-            <CheckCircleIcon className="w-4 h-4" />
-            <span>{isSaving ? "Saving..." : "Save Bank & UPI Settlement Profile"}</span>
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-};
-// ============================================================================
-// 21. COMBINED B2B CREDIT LEDGER & OUTSTANDING EXPOSURE (SHIPPER & CARRIER)
+// 19. COMBINED B2B CREDIT RISK & COUNTERPARTY LEDGER
 // ============================================================================
 interface CombinedCreditLedgerSectionProps {
   role: RoleType;
@@ -4995,7 +4156,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
 
   const isShipper = role === "shipper";
 
-  // Filtered ledger entries based on active role
+  // Filtered ledger entries based on role
   const relevantLedger = useMemo(() => {
     return creditLedger.filter((entry) => {
       if (isShipper) {
@@ -5010,7 +4171,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
     return relevantLedger.filter((e) => e.status === filter);
   }, [relevantLedger, filter]);
 
-  // Aggregate Metrics
+  // Aggregate Financial Metrics
   const summary: CreditLedgerSummary = useMemo(() => {
     const relevantAgreements = creditAgreements.filter((a) => {
       if (isShipper) return a.shipper_id === currentUser.id;
@@ -5053,7 +4214,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
@@ -5061,7 +4222,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
             <span>
               {isShipper
                 ? "B2B Credit Facility & Outstanding Balance Ledger"
-                : "Receivables & Shipper Credit Risk Ledger"}
+                : "Receivables & Shipper Counterparty Credit Risk Ledger"}
             </span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -5088,7 +4249,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
         </div>
       </div>
 
-      {/* 2. Structured Financial Summary Cards */}
+      {/* Financial Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
@@ -5133,7 +4294,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
         </div>
       </div>
 
-      {/* 3. Detailed Credit Ledger Table */}
+      {/* Detailed Credit Ledger Table */}
       <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden space-y-4 p-5">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
@@ -5225,7 +4386,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
 };
 
 // ============================================================================
-// 22. CARRIER PLATFORM FEE COMMISSION INVOICING ENGINE
+// 20. CARRIER PLATFORM FEE INVOICING ENGINE & COMMISSION LEDGER
 // ============================================================================
 interface CarrierBillingSectionProps {
   currentUser: UserProfile;
@@ -5265,7 +4426,7 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
             <span>Platform Fee Billing & Commission Ledger</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Transparent weekly and monthly commission settlements (2% per load, min ₹25).
+            Transparent weekly and monthly commission settlements (2% per load, min ₹25 floor cap).
           </p>
         </div>
 
@@ -5308,7 +4469,7 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Commission Structure</span>
           <span className="text-2xl font-black text-slate-900 font-mono">2.00%</span>
-          <p className="text-[10px] text-slate-400">Fixed rate with ₹25 floor cap</p>
+          <p className="text-[10px] text-slate-400">Fixed rate with ₹25 floor cap per consignment</p>
         </div>
       </div>
 
@@ -5384,11 +4545,163 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({
 };
 
 // ============================================================================
-// 23. SHIPPER BULK CSV DISPATCH MATRIX (50/DAY CAPACITY)
+// 21. PLATFORM FEE COMMISSION SETTLEMENT & INVOICE PAYMENT MODAL
+// ============================================================================
+interface PayPlatformFeeModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  invoice: PlatformInvoice | null;
+  onPaySuccess: (invoiceId: string, utr: string, method: string) => void;
+}
+
+const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({
+  isOpen,
+  onClose,
+  invoice,
+  onPaySuccess
+}) => {
+  const [method, setMethod] = useState<"upi" | "netbanking" | "card">("upi");
+  const [utrNumber, setUtrNumber] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  if (!isOpen || !invoice) return null;
+
+  const handlePay = (e: FormEvent) => {
+    e.preventDefault();
+    if (!utrNumber.trim()) {
+      alert("Please enter a valid Transaction / UTR reference number.");
+      return;
+    }
+    setIsProcessing(true);
+    setTimeout(() => {
+      onPaySuccess(
+        invoice.id,
+        utrNumber.trim(),
+        method === "upi" ? "UPI VPA" : method === "netbanking" ? "Corporate NetBanking" : "Corporate Debit Card"
+      );
+      setIsProcessing(false);
+      onClose();
+      alert(`Platform Fee Payment of ${formatINR(invoice.platform_fee_total)} verified! Invoice marked as Paid.`);
+    }, 700);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Settle Platform Commission Fee</h3>
+            <p className="text-xs text-slate-500 font-medium">Invoice: <span className="font-mono font-bold text-indigo-700">{invoice.invoice_number}</span></p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Billing Cycle:</span>
+            <span className="font-bold uppercase tracking-wider bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+              {invoice.billing_cycle} Period ({invoice.period_start} to {invoice.period_end})
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Carrier Organization:</span>
+            <strong className="text-white">{invoice.carrier_name}</strong>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Dispatched Consignments:</span>
+            <strong className="text-white">{invoice.total_consignments} Loads</strong>
+          </div>
+          <div className="flex justify-between items-center text-slate-300">
+            <span>Gross Freight Handled:</span>
+            <strong className="font-mono text-white">{formatINR(invoice.gross_freight)}</strong>
+          </div>
+          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
+            <span>Platform Fee Payable (2%):</span>
+            <span className="text-base font-mono">{formatINR(invoice.platform_fee_total)}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handlePay} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Select Payment Mode</label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setMethod("upi")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "upi" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                📲 UPI Transfer
+              </button>
+              <button
+                type="button"
+                onClick={() => setMethod("netbanking")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "netbanking" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                🏦 NetBanking
+              </button>
+              <button
+                type="button"
+                onClick={() => setMethod("card")}
+                className={`p-2.5 rounded-xl border-2 font-bold text-center transition ${
+                  method === "card" ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "bg-white border-slate-200 text-slate-700"
+                }`}
+              >
+                💳 Debit/Card
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px]">
+            <p className="text-slate-600"><strong>Aggregator Beneficiary:</strong> {MERCHANT_DETAILS.proprietor}</p>
+            <p className="text-slate-600"><strong>Platform VPA:</strong> {MERCHANT_DETAILS.vpa}</p>
+            <p className="text-slate-600"><strong>Bank Account:</strong> {MERCHANT_DETAILS.accountNumber} (IFSC: {MERCHANT_DETAILS.ifsc})</p>
+          </div>
+
+          <div>
+            <label className="block text-slate-800 font-bold mb-1">Bank Payment Reference / UTR Number *</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. UTR-998124018274 or CMS-Ref"
+              value={utrNumber}
+              onChange={(e) => setUtrNumber(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isProcessing}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50"
+            >
+              {isProcessing ? "Verifying..." : `Confirm Payment (${formatINR(invoice.platform_fee_total)})`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+// ============================================================================
+// 22. SHIPPER BULK CSV DISPATCH MATRIX (50/DAY MULTI-LANE CAPACITY)
 // ============================================================================
 interface ShipperBulkCsvSectionProps {
   highVolumeMode: boolean;
-  activeOriginAddress: AddressProfile;
+  activeOriginAddress: AddressProfile | null;
   bulkManifestList: BulkManifestRow[];
   setBulkManifestList: React.Dispatch<React.SetStateAction<BulkManifestRow[]>>;
   onAutoSelectCheapest: () => void;
@@ -5446,28 +4759,34 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
   return (
     <div className="space-y-6">
       {/* Dynamic Origin Dispatch Banner */}
-      <div className="bg-slate-950 text-white p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center space-x-2.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-black text-sm uppercase tracking-wide">Dynamic Dispatch Facility:</span>
-            <span className="font-mono bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2.5 py-0.5 rounded text-xs font-bold">
-              {activeOriginAddress.label} (PIN: {activeOriginAddress.pincode})
-            </span>
+      {activeOriginAddress ? (
+        <div className="bg-slate-950 text-white p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center space-x-2.5">
+              <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="font-black text-sm uppercase tracking-wide">Origin Dispatch Facility:</span>
+              <span className="font-mono bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-2.5 py-0.5 rounded text-xs font-bold">
+                {activeOriginAddress.label} (PIN: {activeOriginAddress.pincode})
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 font-medium leading-relaxed">
+              {activeOriginAddress.address_line1}, {activeOriginAddress.city} - {activeOriginAddress.pincode}
+            </p>
           </div>
-          <p className="text-xs text-slate-400 font-medium leading-relaxed">
-            {activeOriginAddress.address_line1}, {activeOriginAddress.city} - {activeOriginAddress.pincode}
-          </p>
+          <button
+            type="button"
+            onClick={handleDownloadBulkTemplate}
+            className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-md shrink-0 transition"
+          >
+            <DownloadIcon className="w-4 h-4 text-indigo-600" />
+            <span>Download CSV Template</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleDownloadBulkTemplate}
-          className="bg-white hover:bg-slate-100 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-md shrink-0 transition"
-        >
-          <DownloadIcon className="w-4 h-4 text-indigo-600" />
-          <span>Download Template (.csv)</span>
-        </button>
-      </div>
+      ) : (
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-900 p-4 rounded-2xl text-xs font-bold">
+          Please select or register a pickup facility in the &quot;Dispatch Facilities&quot; tab before batch booking.
+        </div>
+      )}
 
       {/* CSV Drag-and-Drop Area */}
       <div className="bg-white border-2 border-dashed border-indigo-300 rounded-2xl p-8 text-center space-y-4 shadow-sm hover:border-indigo-500 transition">
@@ -5485,10 +4804,10 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-6 py-3 rounded-xl text-xs cursor-pointer inline-flex items-center space-x-2 shadow-md transition hover:scale-105"
           >
             <UploadIcon className="w-4 h-4" />
-            <span>{bulkCsvFileName ? `Replace File (${bulkCsvFileName})` : "Select Bulk Consignment CSV (40-50 Locations)"}</span>
+            <span>{bulkCsvFileName ? `Replace Manifest File (${bulkCsvFileName})` : "Select Bulk Consignment CSV (40-50 Locations)"}</span>
           </label>
           <p className="text-xs text-slate-600 font-medium">
-            Dimensions column is optional. Supports semicolon weights (e.g. <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>).
+            Box dimensions are optional. Semicolon-delimited carton weights are supported (e.g. <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>).
           </p>
         </div>
 
@@ -5540,7 +4859,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                   <th className="py-3 px-3.5">Consignee & Address</th>
                   <th className="py-3 px-3.5">Packages</th>
                   <th className="py-3 px-3.5">Billable Wt</th>
-                  <th className="py-3 px-3.5">Carrier</th>
+                  <th className="py-3 px-3.5">Carrier Tariff</th>
                   <th className="py-3 px-3.5">Freight</th>
                   <th className="py-3 px-3.5">2% Fee</th>
                   <th className="py-3 px-3.5 text-right">Total Outlay</th>
@@ -5575,7 +4894,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                         {row.hasOmittedDimensions && (
                           <span
                             className="text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded font-black block mt-0.5"
-                            title="Dead weight applied since dimensions were not specified."
+                            title="Dead weight applied since box dimensions were omitted."
                           >
                             Dead Wt Applied
                           </span>
@@ -5617,7 +4936,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                 <span className="text-sm font-black uppercase text-indigo-400 block tracking-wide">
                   Consolidated Settlement Method ({bulkManifestList.length} Shipments)
                 </span>
-                <p className="text-xs text-slate-400 mt-0.5">100% of freight is settled directly with transporters. Platform fee is 2% (min ₹25).</p>
+                <p className="text-xs text-slate-400 mt-0.5">100% of freight is settled directly with transporters. Platform fee is 2% (min ₹25/consignment).</p>
               </div>
 
               <div className="flex flex-wrap gap-2 text-xs">
@@ -5649,7 +4968,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                     onChange={() => setBulkSettlementMethod("corporate_credit")}
                     className="hidden"
                   />
-                  🏢 Monthly GST Credit
+                  🏢 Monthly Corporate Credit
                 </label>
               </div>
             </div>
@@ -5680,7 +4999,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
 
               <button
                 type="button"
-                disabled={isBatchProcessing}
+                disabled={isBatchProcessing || !activeOriginAddress}
                 onClick={onConfirmBatchBooking}
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-7 py-3.5 rounded-xl text-xs transition shadow-lg flex items-center space-x-2 disabled:opacity-50"
               >
@@ -5696,1573 +5015,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
 };
 
 // ============================================================================
-// 24. SHIPPER ACTIVE SHIPMENTS & PRINT ALL LABELS ENGINE
-// ============================================================================
-interface ShipperShipmentsSectionProps {
-  bookings: Booking[];
-  onRefresh: () => void;
-  onOpenLabelModal: (b: Booking) => void;
-  onOpenTrackerTab: (orderRef: string) => void;
-  onBatchPrintLabels: () => void;
-}
-
-const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({
-  bookings,
-  onRefresh,
-  onOpenLabelModal,
-  onOpenTrackerTab,
-  onBatchPrintLabels
-}) => {
-  return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-900">Consignment Manifests & Thermal Printing</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Internal Order IDs, synced carrier dockets, printable 4x6 labels, and deep-links to carrier tracking portals
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2.5">
-          {bookings.length > 0 && (
-            <button
-              type="button"
-              onClick={onBatchPrintLabels}
-              className="bg-slate-950 hover:bg-slate-800 text-white font-black px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-sm transition"
-            >
-              <PrinterIcon className="w-4 h-4 text-emerald-400" />
-              <span>🖨️ Print All 4x6 Labels & Manifest</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="bg-white hover:bg-slate-100 text-slate-800 px-4 py-2.5 rounded-xl text-xs font-black border border-slate-300 shadow-sm transition"
-          >
-            🔄 Refresh List
-          </button>
-        </div>
-      </div>
-
-      {/* Grid */}
-      {bookings.length === 0 ? (
-        <div className="bg-white border border-slate-300 rounded-2xl p-12 text-center shadow-sm space-y-2">
-          <p className="text-slate-800 font-bold text-sm">No shipments booked yet.</p>
-          <p className="text-slate-500 text-xs">
-            Calculate freight tariffs or upload a bulk CSV to dispatch your first consignment!
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-950 text-white uppercase font-black text-[11px] tracking-wider">
-              <tr>
-                <th className="py-3.5 px-4">Order Ref / Carrier Docket</th>
-                <th className="py-3.5 px-4">Carrier Partner</th>
-                <th className="py-3.5 px-4">Route PIN</th>
-                <th className="py-3.5 px-4">Freight (Direct)</th>
-                <th className="py-3.5 px-4">Physical Bilty</th>
-                <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {bookings.map((booking, idx) => {
-                const carrierName = booking.vendors?.name || "Carrier Partner";
-                const docketNo = booking.carrier_docket_no || booking.awb_number;
-                const orderRef = booking.order_id || booking.id.slice(0, 8);
-                const portalUrl = booking.carrier_portal_url || getOfficialCarrierTrackingUrl(booking.vendors || carrierName, docketNo);
-
-                return (
-                  <tr
-                    key={booking.id}
-                    className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/60 transition" : "bg-slate-50 hover:bg-indigo-50/60 transition"}
-                  >
-                    <td className="py-3.5 px-4">
-                      <span className="font-mono font-black text-indigo-700 block text-xs">{orderRef}</span>
-                      <span className="font-mono text-[11px] text-slate-600 block mt-0.5">
-                        Docket: <strong className="text-slate-900">{docketNo}</strong>
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <span className="font-black text-slate-900 block">{carrierName}</span>
-                      <span className="text-[11px] text-slate-500 font-medium">{booking.consignee_name}</span>
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center space-x-1 font-mono font-bold text-slate-900">
-                        <span>{booking.origin_pin}</span>
-                        <span className="text-slate-400">→</span>
-                        <span>{booking.dest_pin}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 block">
-                        {booking.boxes?.length || 1} Box(es) • {booking.billable_weight} kg
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 font-mono font-black text-slate-900 text-sm">
-                      {formatINR(booking.cost_breakdown?.freightSubtotal || booking.final_total)}
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      {booking.carrier_docket_doc_url ? (
-                        <a
-                          href={booking.carrier_docket_doc_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 underline text-[11px]"
-                        >
-                          <DocumentIcon className="w-3.5 h-3.5" />
-                          <span>View Bilty Scan</span>
-                        </a>
-                      ) : (
-                        <span className="text-slate-400 text-[10px] font-semibold bg-slate-100 px-2 py-0.5 rounded">
-                          Pending Upload
-                        </span>
-                      )}
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                          booking.status === "Delivered"
-                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                            : booking.status === "In Transit"
-                            ? "bg-sky-100 text-sky-800 border-sky-300"
-                            : booking.status === "Picked Up"
-                            ? "bg-amber-100 text-amber-800 border-amber-300"
-                            : "bg-slate-100 text-slate-700 border-slate-300"
-                        }`}
-                      >
-                        {booking.status}
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right space-x-2">
-                      <a
-                        href={portalUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
-                        title="Open Carrier Public Tracking Portal"
-                      >
-                        <span>Carrier Portal</span>
-                        <ExternalLinkIcon className="w-3 h-3" />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => onOpenLabelModal(booking)}
-                        className="bg-white hover:bg-slate-100 text-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 inline-flex items-center space-x-1 shadow-xs transition"
-                      >
-                        <PrinterIcon className="w-3.5 h-3.5 text-slate-600" />
-                        <span>Label</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenTrackerTab(orderRef)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
-                      >
-                        <span>Track</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-// ============================================================================
-// 25. 2D CANVAS ANIMATED HERO TRUCK (LOCAL COMPONENT)
-// ============================================================================
-function Hero3DTruck() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [speed, setSpeed] = useState<"normal" | "turbo">("normal");
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    let animId: number;
-    let wheelAngle = 0;
-
-    const render = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2 + 10;
-
-      // Perspective Road Guidelines
-      ctx.save();
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
-      ctx.lineWidth = 1;
-      for (let i = -140; i <= 140; i += 28) {
-        ctx.beginPath();
-        ctx.moveTo(cx + i * 1.8, cy + 50);
-        ctx.lineTo(cx + i * 0.5, cy - 20);
-        ctx.stroke();
-      }
-
-      // Highway Road Center Dashed Line
-      const stripeOffset = (Date.now() / (speed === "turbo" ? 35 : 75)) % 40;
-      ctx.strokeStyle = "rgba(52, 211, 153, 0.5)";
-      ctx.lineWidth = 2;
-      for (let y = -20; y < 60; y += 20) {
-        ctx.beginPath();
-        ctx.moveTo(cx - 2, cy + y + stripeOffset);
-        ctx.lineTo(cx - 2, cy + y + stripeOffset + 10);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // Chassis Drop Shadow
-      ctx.save();
-      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 30, 85, 20, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // Vehicle Body Assembly
-      ctx.save();
-      ctx.translate(cx, cy);
-
-      // Cargo Container Body
-      const gradContainer = ctx.createLinearGradient(-80, -35, 10, 10);
-      gradContainer.addColorStop(0, "#4f46e5");
-      gradContainer.addColorStop(0.5, "#3730a3");
-      gradContainer.addColorStop(1, "#1e1b4b");
-      ctx.fillStyle = gradContainer;
-      ctx.strokeStyle = "#818cf8";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(-80, -38, 95, 48, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      // Corrugated Container Vertical Ribs
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-      ctx.lineWidth = 1;
-      for (let rx = -70; rx < 10; rx += 8) {
-        ctx.beginPath();
-        ctx.moveTo(rx, -36);
-        ctx.lineTo(rx, 8);
-        ctx.stroke();
-      }
-
-      // Fleet Brand Text
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 9px monospace";
-      ctx.fillText("LOGICOMPARE B2B", -68, -12);
-      ctx.fillStyle = "#34d399";
-      ctx.font = "bold 7px sans-serif";
-      ctx.fillText("EXPRESS CARGO LINEHAUL", -68, -2);
-
-      // Driver Cabin Shell
-      const gradCab = ctx.createLinearGradient(16, -20, 52, 10);
-      gradCab.addColorStop(0, "#059669");
-      gradCab.addColorStop(1, "#065f46");
-      ctx.fillStyle = gradCab;
-      ctx.beginPath();
-      ctx.moveTo(15, 10);
-      ctx.lineTo(55, 10);
-      ctx.lineTo(55, -8);
-      ctx.lineTo(40, -28);
-      ctx.lineTo(15, -28);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "#34d399";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      // Windshield Glass
-      ctx.fillStyle = "rgba(186, 230, 253, 0.85)";
-      ctx.beginPath();
-      ctx.moveTo(38, -25);
-      ctx.lineTo(50, -9);
-      ctx.lineTo(24, -9);
-      ctx.lineTo(24, -25);
-      ctx.closePath();
-      ctx.fill();
-
-      // Front Headlight Beam
-      const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
-      lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
-      lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
-      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0)");
-      ctx.fillStyle = lightBeam;
-      ctx.beginPath();
-      ctx.moveTo(54, -2);
-      ctx.lineTo(110, -10);
-      ctx.lineTo(110, 22);
-      ctx.closePath();
-      ctx.fill();
-
-      // Multi-Axle Rotating Wheels
-      wheelAngle += speed === "turbo" ? 0.35 : 0.16;
-      const wheelPositions = [-62, -42, 28, 46];
-      for (let wIdx = 0; wIdx < wheelPositions.length; wIdx++) {
-        const wx = wheelPositions[wIdx];
-        ctx.save();
-        ctx.translate(wx, 14);
-        ctx.fillStyle = "#0f172a";
-        ctx.beginPath();
-        ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#94a3b8";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.rotate(wheelAngle);
-        ctx.strokeStyle = "#cbd5e1";
-        ctx.beginPath();
-        ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
-        ctx.moveTo(0, -5); ctx.lineTo(0, 5);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      ctx.restore();
-      animId = requestAnimationFrame(render);
-    };
-
-    render();
-    return () => cancelAnimationFrame(animId);
-  }, [speed]);
-
-  return (
-    <div className="relative flex flex-col items-center bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-xl w-full max-w-sm">
-      <div className="flex items-center justify-between w-full px-2 mb-1">
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span className="text-xs font-mono font-bold text-slate-200">3D Linehaul Container Transit</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setSpeed(speed === "normal" ? "turbo" : "normal")}
-          className="text-[10px] font-black uppercase tracking-wider text-indigo-300 bg-indigo-900/60 border border-indigo-500/40 px-2.5 py-1 rounded-full hover:bg-indigo-800 transition"
-        >
-          {speed === "turbo" ? "⚡ Turbo Speed" : "▶ Normal Transit"}
-        </button>
-      </div>
-
-      <canvas ref={canvasRef} width={340} height={170} className="w-full max-w-[340px] h-[170px]" />
-
-      <div className="flex items-center justify-between w-full text-[10px] text-slate-400 pt-2 border-t border-slate-800 font-mono">
-        <span>Vehicle: 32ft MXL Container</span>
-        <span className="text-emerald-400 font-bold">GPS Active • Linehaul</span>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// 26. COMPLETE 6-SECTION CONVERTING LANDING PAGE (LOCAL COMPONENT)
-// ============================================================================
-interface LandingViewProps {
-  highVolumeMode: boolean;
-  vendors: Vendor[];
-  landingTrackingInput: string;
-  setLandingTrackingInput: (val: string) => void;
-  onQuickTrack: (val?: string) => void;
-  onJumpToCompare: () => void;
-  onJumpToBulk: () => void;
-  onSwitchShipperDemo: () => void;
-  onSwitchCarrierDemo: () => void;
-}
-
-const LandingView: FC<LandingViewProps> = ({
-  highVolumeMode,
-  vendors,
-  landingTrackingInput,
-  setLandingTrackingInput,
-  onQuickTrack,
-  onJumpToCompare,
-  onJumpToBulk,
-  onSwitchShipperDemo,
-  onSwitchCarrierDemo
-}) => {
-  const [workflowTab, setWorkflowTab] = useState<"shipper" | "vendor">("shipper");
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
-
-  return (
-    <div className="flex-1 flex flex-col space-y-16 pb-16">
-      {/* SECTION 1: HERO & LIVE TRACKER */}
-      <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out pointer-events-none"
-          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
-        />
-        <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950 pointer-events-none" />
-
-        <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
-          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
-              <span>🇮🇳</span>
-              <span>Hybrid Dual-ID Consignment Discovery & Automated Dispatches</span>
-            </div>
-
-            <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight">
-              One-Click Bulk Freight Booking & Multi-Box 4x6 Thermal Labels.
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-              Compare Delhivery, Blue Dart, Safexpress, TCI, and Gati rates across India. Upload semicolon-delimited CSVs, auto-assign lowest rates, manage approved corporate credit lines, and print continuous thermal labels with driver handover manifests.
-            </p>
-
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onJumpToBulk}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
-              >
-                <UploadIcon className="w-5 h-5" />
-                <span>Launch 50/Day Bulk Shipper Console</span>
-              </button>
-              <button
-                type="button"
-                onClick={onJumpToCompare}
-                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
-              >
-                <BoxIcon className="w-5 h-5 text-indigo-400" />
-                <span>Single Calculator</span>
-              </button>
-              <button
-                type="button"
-                onClick={onSwitchCarrierDemo}
-                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
-              >
-                <TruckIcon className="w-5 h-5 text-emerald-400" />
-                <span>Carrier Sandbox (Demo)</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="lg:col-span-5 flex justify-center">
-            {!highVolumeMode ? (
-              <div className="bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-4 shadow-2xl backdrop-blur-md">
-                <Hero3DTruck />
-              </div>
-            ) : (
-              <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
-                <span className="text-5xl">⚡</span>
-                <h3 className="text-white font-black text-lg">60FPS High-Volume Mode Active</h3>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                  Direct settlements via To-Pay POD, UPI, and Pre-Approved B2B Credit with 0% markups.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Universal Tracking Quick Lookups */}
-        <div className="pt-10 max-w-xl mx-auto relative z-10">
-          <div className="bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
-            <div className="flex items-center space-x-2 px-3 py-1.5 text-slate-300 w-full sm:w-auto flex-1">
-              <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
-              <input
-                type="text"
-                value={landingTrackingInput}
-                onChange={(e) => setLandingTrackingInput(e.target.value)}
-                placeholder="Enter Order Ref (LC-...) or Carrier Docket..."
-                className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => onQuickTrack()}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-3 rounded-xl transition shadow-md shrink-0"
-            >
-              Track Shipment
-            </button>
-          </div>
-          <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3 font-medium">
-            <span>Sample Tracking Identifiers:</span>
-            <button
-              type="button"
-              onClick={() => onQuickTrack(DEMO_INIT_ORDER_ID)}
-              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
-            >
-              Ref: {DEMO_INIT_ORDER_ID}
-            </button>
-            <span>•</span>
-            <button
-              type="button"
-              onClick={() => onQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
-              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
-            >
-              Docket: {DEMO_INIT_CARRIER_DOCKET}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 2: STATS & CARRIER STRIP */}
-      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-            <span className="text-3xl font-black text-indigo-600">5+</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Fleets</p>
-            <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-            <span className="text-3xl font-black text-emerald-600">19,000+</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Serviceable PIN Codes</p>
-            <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-            <span className="text-3xl font-black text-slate-900">100%</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Direct Carrier Settlement</p>
-            <p className="text-[11px] text-slate-500">To-Pay / Direct UPI / B2B Credit</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-            <span className="text-3xl font-black text-amber-500">2%</span>
-            <p className="text-xs font-bold text-slate-900 mt-1">Flat Verification Platform Fee</p>
-            <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
-          </div>
-        </div>
-
-        <div className="pt-8 text-center space-y-4">
-          <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">
-            Integrated National Logistics Transporters
-          </span>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {vendors.map((v) => (
-              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-400 transition">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                <span className="font-extrabold text-xs text-slate-900">{v.name}</span>
-                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 3: WORKFLOW */}
-      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
-            Operational Architecture
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
-          <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-            Consolidating platform transparency with real-world carrier waybill and corporate credit standards.
-          </p>
-
-          <div className="inline-flex p-1.5 bg-slate-200 rounded-2xl mt-4 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setWorkflowTab("shipper")}
-              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
-                workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              📦 For Shippers & Businesses
-            </button>
-            <button
-              type="button"
-              onClick={() => setWorkflowTab("vendor")}
-              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
-                workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              🚛 For Logistics Fleets & Carriers
-            </button>
-          </div>
-        </div>
-
-        {workflowTab === "shipper" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">1</span>
-              <h3 className="font-bold text-slate-900 text-sm">PIN & Optional Dimensions</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Enter single destination PINs or upload a 50-location CSV. Dimensions are strictly optional—dead weight calculates freight when omitted.
-              </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">2</span>
-              <h3 className="font-bold text-slate-900 text-sm">Compare Rates & Credit</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Inspect transparent line-item pricing: Base, Fuel %, Docket, ODA, FOV, GST. View approved B2B credit lines per carrier.
-              </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">3</span>
-              <h3 className="font-bold text-slate-900 text-sm">One-Click Dual-ID Booking</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Settle freight via To-Pay, direct UPI, or approved corporate net credit. Receive internal Ref (`LC-XXXXXX`) and official AWB docket.
-              </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">4</span>
-              <h3 className="font-bold text-slate-900 text-sm">Continuous 4x6 Labels</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Print multi-box Box X of Y thermal labels and generate a Master Handover Manifest with driver signature sign-off blocks.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">1</span>
-              <h3 className="font-bold text-slate-900 text-sm">Onboard Fleet & Custom URL</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Register as a verified transporter, configure bank settlement details, and specify your company&apos;s custom public tracking portal.
-              </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">2</span>
-              <h3 className="font-bold text-slate-900 text-sm">Underwrite Credit Agreements</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Review signed credit applications and KYC documents from enterprise shippers. Approve or reject credit ceilings with custom net terms.
-              </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">3</span>
-              <h3 className="font-bold text-slate-900 text-sm">Weekly / Monthly Billing</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Track platform fee dues transparently with cycle breakdown, due dates, and one-click UTR payment reconciliation.
-              </p>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* SECTION 4: 6 CAPABILITIES */}
-      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
-            Enterprise Architecture
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><LayersIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Calculates actual weight vs. volumetric weight across multiple cartons using standard 4500 and 5000 divisors. Dead weight alone applies when dimensions are omitted.</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><CurrencyRupeeIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Transparent breakdown: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><ShieldCheckIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected.</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><PrinterIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">4x6 Thermal Label Printing</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Continuous print engine for multi-box labels with barcode and docket, ending with a driver handover sign-off manifest.</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center"><TruckIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">Carrier-Configured Tracking URLs</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Deep dynamic redirection to each transporter&apos;s custom public tracking portal with docket numbers appended automatically.</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center"><CreditCardIcon className="w-5 h-5" /></div>
-            <h3 className="font-bold text-slate-900 text-base">Formal B2B Credit Agreements</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">Execute KYC agreements on company letterhead to unlock approved revolving credit balances with net payment term schedules.</p>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 5: FAQ ACCORDION */}
-      <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
-            FAQ & Knowledge Base
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
-        </div>
-
-        <div className="space-y-3">
-          {[
-            {
-              q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
-              a: "The Order Ref is LogiCompare Pro's internal reference number used for platform invoices and receipts. The Carrier Docket is the transporter's official waybill used by drivers and freight hubs."
-            },
-            {
-              q: "Can I book shipments if I don't know the exact box dimensions?",
-              a: "Yes! Length, width, and height are strictly optional. When dimensions are omitted, our rate calculation engine applies dead actual weight alone to generate instant carrier quotes."
-            },
-            {
-              q: "How does the formal B2B Credit Facility work?",
-              a: "Shippers cannot book on credit by default. You must apply for credit by uploading an executed credit agreement on company letterhead. Once the carrier underwrites and approves your limit, the credit option becomes available at checkout."
-            },
-            {
-              q: "How does the weekly and monthly Platform Fee billing work?",
-              a: "100% of freight is collected directly by carriers. LogiCompare generates an itemized weekly or monthly invoice for the 2% platform convenience fee (min ₹25/load), which carriers reconcile via UPI or NetBanking."
-            },
-            {
-              q: "Where does the physical Bilty / LR slip photo get saved?",
-              a: "Documents are stored in a dedicated Supabase Object Storage bucket, auto-compressed to ~100KB to retain full text legibility while eliminating storage waste."
-            }
-          ].map((faq, idx) => (
-            <div key={idx} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition">
-              <button
-                type="button"
-                onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full p-4 text-left font-black text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
-              >
-                <span>{faq.q}</span>
-                <ChevronDownIcon className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`} />
-              </button>
-              {openFaq === idx && (
-                <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3 font-medium">
-                  {faq.a}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* SECTION 6: BOTTOM CTA BANNER */}
-      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
-        <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
-          <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
-          <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
-            Start Saving On B2B Freight
-          </span>
-          <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
-            Ready to book with official national carrier dockets and zero hidden markups?
-          </h2>
-          <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
-            Switch to the Freight Matrix Dashboard to calculate live rates, print certified carrier labels, and manage approved credit agreements across India.
-          </p>
-          <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onJumpToCompare}
-              className="bg-white hover:bg-slate-100 text-slate-950 font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg hover:scale-105"
-            >
-              Open Freight Rate Matrix
-            </button>
-            <button
-              type="button"
-              onClick={onSwitchShipperDemo}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md shadow-md"
-            >
-              ⚡ Instant Demo as Shipper
-            </button>
-            <button
-              type="button"
-              onClick={onJumpToBulk}
-              className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md"
-            >
-              🚀 Launch 50/Day Bulk Console
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-};
-
-// ============================================================================
-// 27. SHIPPER UNIVERSAL DUAL-ID TRACKER (LOCAL COMPONENT)
-// ============================================================================
-interface ShipperTrackerSectionProps {
-  bookings: Booking[];
-  activeTrackingAwb: string;
-  setActiveTrackingAwb: (val: string) => void;
-  trackingSearchInput: string;
-  setTrackingSearchInput: (val: string) => void;
-}
-
-const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
-  bookings,
-  activeTrackingAwb,
-  setActiveTrackingAwb,
-  trackingSearchInput,
-  setTrackingSearchInput
-}) => {
-  const activeTrackBooking = useMemo(() => {
-    const input = activeTrackingAwb.trim().toLowerCase();
-    return bookings.find(
-      (b) =>
-        (b.order_id && b.order_id.toLowerCase() === input) ||
-        (b.carrier_docket_no && b.carrier_docket_no.toLowerCase() === input) ||
-        b.awb_number.toLowerCase() === input
-    );
-  }, [bookings, activeTrackingAwb]);
-
-  const stages = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
-  const currentStageIndex = useMemo(() => {
-    if (!activeTrackBooking) return 0;
-    const idx = stages.indexOf(activeTrackBooking.status);
-    return idx === -1 ? 0 : idx;
-  }, [activeTrackBooking]);
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-3">
-        <h2 className="text-base font-black text-slate-900">Universal Consignment Live Tracker</h2>
-        <p className="text-xs text-slate-500">
-          Enter either your Platform Order Ref (e.g. <strong className="text-indigo-600">{DEMO_INIT_ORDER_ID}</strong>) or official Carrier Docket No. (e.g. <strong className="text-indigo-600">{DEMO_INIT_CARRIER_DOCKET}</strong>)
-        </p>
-
-        <div className="flex gap-2 max-w-md">
-          <input
-            type="text"
-            value={trackingSearchInput}
-            onChange={(e) => setTrackingSearchInput(e.target.value)}
-            placeholder="Enter Order Ref or Docket..."
-            className="flex-1 bg-white border-2 border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => setActiveTrackingAwb(trackingSearchInput)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-5 py-2.5 rounded-xl text-xs shadow-md transition flex items-center space-x-1.5"
-          >
-            <SearchIcon className="w-4 h-4" />
-            <span>Track</span>
-          </button>
-        </div>
-      </div>
-
-      {activeTrackBooking ? (
-        <div className="bg-white border border-slate-300 rounded-2xl p-6 space-y-8 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
-            <div>
-              <div className="flex items-center space-x-3">
-                <span className="text-xl font-mono font-black text-indigo-700">
-                  {activeTrackBooking.order_id || "LC-CONSIGNMENT"}
-                </span>
-                <span className="text-sm font-mono font-black text-slate-800 bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg">
-                  Carrier Docket: {activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number}
-                </span>
-                <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs px-3 py-1 rounded-full font-black uppercase">
-                  {activeTrackBooking.status}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-2 font-medium">
-                Carrier Partner: <strong className="text-slate-900">{activeTrackBooking.vendors?.name || "Delhivery B2B Express"}</strong>
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:items-end gap-2.5">
-              <div className="flex items-center space-x-2">
-                {activeTrackBooking.carrier_docket_doc_url && (
-                  <a
-                    href={activeTrackBooking.carrier_docket_doc_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5"
-                  >
-                    <DocumentIcon className="w-3.5 h-3.5" />
-                    <span>View Physical Bilty Scan</span>
-                  </a>
-                )}
-                <a
-                  href={
-                    activeTrackBooking.carrier_portal_url ||
-                    getOfficialCarrierTrackingUrl(
-                      activeTrackBooking.vendors || "Delhivery",
-                      activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number
-                    )
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5"
-                >
-                  <span>Carrier Portal</span>
-                  <ExternalLinkIcon className="w-3.5 h-3.5" />
-                </a>
-              </div>
-              <span className="text-xs text-slate-600">
-                Route: <strong className="text-slate-900 font-mono">{activeTrackBooking.origin_pin} → {activeTrackBooking.dest_pin}</strong>
-              </span>
-            </div>
-          </div>
-
-          {/* Visual Milestone Pipeline */}
-          <div className="py-2">
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-6">Delivery Milestone Pipeline</h4>
-            <div className="grid grid-cols-5 gap-2 relative">
-              {stages.map((stage, idx) => {
-                const isPassed = idx <= currentStageIndex;
-                const isCurrent = idx === currentStageIndex;
-                return (
-                  <div key={stage} className="flex flex-col items-center text-center space-y-2">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
-                        isPassed ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-500"
-                      } ${isCurrent ? "ring-4 ring-emerald-200 scale-110" : ""}`}
-                    >
-                      {isPassed ? <CheckCircleIcon className="w-4 h-4" /> : idx + 1}
-                    </div>
-                    <span className={`text-[11px] font-bold ${isPassed ? "text-slate-900 font-black" : "text-slate-400"}`}>
-                      {stage}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Milestone Log */}
-          <div className="border-t border-slate-200 pt-6">
-            <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-4">Milestone Audit Log</h4>
-            <div className="space-y-3">
-              {(activeTrackBooking.tracking_history || []).map((step, idx) => (
-                <div key={idx} className="flex items-start space-x-3 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 mt-1.5 shrink-0"></div>
-                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex-1 shadow-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-black text-slate-900 text-xs">{step.status}</span>
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {new Date(step.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
-                      </span>
-                    </div>
-                    <p className="text-indigo-800 font-bold mt-0.5">{step.location}</p>
-                    <p className="text-slate-600 mt-1">{step.remarks}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white border border-slate-300 rounded-2xl p-10 text-center shadow-sm">
-          <p className="text-slate-600 text-sm font-medium">
-            Consignment identifier <strong className="text-slate-900">&quot;{activeTrackingAwb}&quot;</strong> not found.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// 28. SHIPPER HEAVY LOAD REVERSE AUCTION (LOCAL COMPONENT)
-// ============================================================================
-interface ShipperRfqSectionProps {
-  currentUser: UserProfile;
-  rfqList: RfqBid[];
-  setRfqList: React.Dispatch<React.SetStateAction<RfqBid[]>>;
-}
-
-const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, rfqList, setRfqList }) => {
-  const [newRfqOrigin, setNewRfqOrigin] = useState("110001");
-  const [newRfqDest, setNewRfqDest] = useState("560001");
-  const [newRfqDesc, setNewRfqDesc] = useState("Industrial Gearboxes and Heavy Machinery Parts");
-  const [newRfqWeight, setNewRfqWeight] = useState(8500);
-  const [newRfqTruck, setNewRfqTruck] = useState("32ft Multi-Axle Trailer (MXL)");
-  const [newRfqBudget, setNewRfqBudget] = useState(65000);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleCreateRfq = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const newRecord: Partial<RfqBid> = {
-      shipper_name: currentUser.company_name || currentUser.full_name,
-      origin_pin: newRfqOrigin.trim(),
-      dest_pin: newRfqDest.trim(),
-      cargo_description: newRfqDesc.trim(),
-      total_weight_kg: Number(newRfqWeight),
-      truck_type: newRfqTruck,
-      target_price: Number(newRfqBudget),
-      status: "Open",
-      bids: []
-    };
-
-    try {
-      const { data, error } = await supabase.from("rfq_bids").insert([newRecord]).select();
-      if (!error && data && data[0]) {
-        setRfqList([data[0] as RfqBid, ...rfqList]);
-      } else {
-        const localRfq: RfqBid = {
-          ...(newRecord as RfqBid),
-          id: `rfq-${Date.now()}`,
-          created_at: new Date().toISOString()
-        };
-        setRfqList([localRfq, ...rfqList]);
-      }
-      alert("Heavy cargo load successfully broadcast to national fleet operators!");
-    } catch (err) {
-      console.error("Failed to post RFQ load:", err);
-      const localRfq: RfqBid = {
-        ...(newRecord as RfqBid),
-        id: `rfq-${Date.now()}`,
-        created_at: new Date().toISOString()
-      };
-      setRfqList([localRfq, ...rfqList]);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-6">
-        <div className="border-b border-slate-200 pb-4">
-          <h2 className="text-lg font-black text-slate-900">Post Heavy / FTL Cargo Load for Reverse Auction</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Verified fleet operators and trailer transporters will bid competitively below your ceiling target price.
-          </p>
-        </div>
-
-        <form onSubmit={handleCreateRfq} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Origin Pincode (Pickup)</label>
-            <input
-              type="text"
-              maxLength={6}
-              value={newRfqOrigin}
-              onChange={(e) => setNewRfqOrigin(e.target.value)}
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Destination Pincode (Drop)</label>
-            <input
-              type="text"
-              maxLength={6}
-              value={newRfqDest}
-              onChange={(e) => setNewRfqDest(e.target.value)}
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Cargo Description</label>
-            <input
-              type="text"
-              value={newRfqDesc}
-              onChange={(e) => setNewRfqDesc(e.target.value)}
-              placeholder="e.g. Electrical Panels / Steel Coils"
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Total Cargo Weight (Kg)</label>
-            <input
-              type="number"
-              value={newRfqWeight}
-              onChange={(e) => setNewRfqWeight(Number(e.target.value))}
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Required Vehicle / Truck Body</label>
-            <select
-              value={newRfqTruck}
-              onChange={(e) => setNewRfqTruck(e.target.value)}
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-2.5 py-2 font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-            >
-              <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
-              <option value="24ft Container Truck">24ft Container Truck</option>
-              <option value="Taurus 21-Tonner (10-Tyre)">Taurus 21-Tonner (10-Tyre)</option>
-              <option value="19ft Open Body Truck">19ft Open Body Truck</option>
-              <option value="Tata 407 (3.5T)">Tata 407 (3.5T)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-slate-800 font-bold mb-1">Ceiling Target Budget (₹)</label>
-            <input
-              type="number"
-              value={newRfqBudget}
-              onChange={(e) => setNewRfqBudget(Number(e.target.value))}
-              className="w-full bg-white border-2 border-slate-300 rounded-xl px-3 py-2 font-mono font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div className="md:col-span-3 flex justify-end pt-2">
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-7 py-3 rounded-xl text-xs transition shadow-md flex items-center space-x-2 disabled:opacity-50"
-            >
-              <span>{isSubmitting ? "Broadcasting..." : "Broadcast Load to Verified Transporters"}</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="space-y-4">
-        <h3 className="text-base font-black text-slate-900">Your Broadcasted Loads & Carrier Counter-Bids</h3>
-        {rfqList.length === 0 ? (
-          <div className="bg-white border border-slate-300 rounded-2xl p-8 text-center text-slate-500 text-xs shadow-sm">
-            No reverse auction loads posted yet. Fill the form above to invite competitive carrier bidding.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {rfqList.map((rfq) => (
-              <div key={rfq.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-mono text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded font-black">
-                        PIN {rfq.origin_pin} → {rfq.dest_pin}
-                      </span>
-                      <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">
-                        {rfq.truck_type}
-                      </span>
-                      <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold uppercase">
-                        {rfq.status}
-                      </span>
-                    </div>
-                    <h4 className="text-base font-black text-slate-900 mt-1.5">{rfq.cargo_description}</h4>
-                    <p className="text-xs text-slate-500 font-medium">Cargo Weight: {rfq.total_weight_kg.toLocaleString()} kg</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Ceiling Target Budget</span>
-                    <span className="text-xl font-black text-emerald-700 font-mono">{formatINR(rfq.target_price)}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <span className="text-xs font-black text-slate-700 block uppercase tracking-wider">
-                    Received Carrier Bids ({(rfq.bids || []).length})
-                  </span>
-                  {(!rfq.bids || rfq.bids.length === 0) ? (
-                    <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-slate-200">
-                      Awaiting bids from fleet operators on the carrier exchange...
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {rfq.bids.map((bid, bIdx) => (
-                        <div key={bIdx} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                          <div>
-                            <span className="font-black text-slate-900 block">{bid.vendor_name}</span>
-                            <span className="text-[11px] text-slate-600 font-medium mt-0.5 block">{bid.notes}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-base font-black text-emerald-700 font-mono block">{formatINR(bid.bid_amount)}</span>
-                            <span className="text-[11px] text-slate-500 font-bold block">SLA: {bid.transit_days} Days</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 29. SYSTEM ADMINISTRATION & AUDIT OVERSIGHT (LOCAL COMPONENT)
-// ============================================================================
-interface AdminOverviewSectionProps {
-  bookings: Booking[];
-  vendors: Vendor[];
-  rateCards: RateCard[];
-}
-
-const AdminOverviewSection: FC<AdminOverviewSectionProps> = ({ bookings, vendors }) => {
-  return (
-    <div className="space-y-6">
-      <div className="border-b border-slate-200 pb-4">
-        <h1 className="text-2xl font-black text-slate-900 tracking-tight">System Administration & Oversight</h1>
-        <p className="text-xs text-slate-500 mt-0.5">Platform Performance, Verified Fleets & Statutory Margin Audit</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Total Dispatches</span>
-          <span className="text-3xl font-black text-slate-900">{bookings.length}</span>
-          <p className="text-[11px] text-emerald-600 font-bold">Dual-ID Carrier Verified</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Active Carrier Partners</span>
-          <span className="text-3xl font-black text-indigo-600">{vendors.length}</span>
-          <p className="text-[11px] text-indigo-600 font-bold">100% KYC Approved</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Gross Freight Routed</span>
-          <span className="text-3xl font-black text-slate-900 font-mono">
-            {formatINR(bookings.reduce((acc, b) => acc + (b.cost_breakdown?.freightSubtotal || b.final_total || 0), 0))}
-          </span>
-          <p className="text-[11px] text-slate-500 font-bold">0% Aggregator Markup</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-1">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Platform Fees (2%)</span>
-          <span className="text-3xl font-black text-emerald-600 font-mono">
-            {formatINR(bookings.reduce((acc, b) => acc + (b.cost_breakdown?.platformConvenienceFee || 25), 0))}
-          </span>
-          <p className="text-[11px] text-emerald-700 font-bold">Statutory Margin Accrued</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
-        <h3 className="text-base font-black text-slate-900">Active Integrated Transporters</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-950 text-white font-black uppercase text-[11px] tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Carrier Name</th>
-                <th className="py-3 px-4">Rating</th>
-                <th className="py-3 px-4">GSTIN</th>
-                <th className="py-3 px-4">Fleet Types</th>
-                <th className="py-3 px-4">Direct UPI VPA</th>
-                <th className="py-3 px-4">Live Tracking Base</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {vendors.map((v) => (
-                <tr key={v.id} className="hover:bg-slate-50">
-                  <td className="py-3 px-4 font-bold text-slate-900">{v.name}</td>
-                  <td className="py-3 px-4 text-amber-500 font-bold">★ {v.rating}</td>
-                  <td className="py-3 px-4 font-mono">{v.gstin}</td>
-                  <td className="py-3 px-4 text-[11px] text-slate-500">{v.fleet_types.join(", ")}</td>
-                  <td className="py-3 px-4 font-mono text-emerald-700 font-bold">{v.upi_id}</td>
-                  <td className="py-3 px-4 font-mono text-[10px] text-indigo-600 truncate max-w-[150px]">{v.tracking_base_url}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 30. SINGLE DIRECT BOOKING CHECKOUT MODAL (LOCAL COMPONENT)
-// ============================================================================
-interface DirectBookingModalProps {
-  quote: CalculatedQuote;
-  currentUser: UserProfile;
-  originPin: string;
-  destPin: string;
-  boxes: BoxItem[];
-  declaredValue: number;
-  pickupAddress: string;
-  onClose: () => void;
-  onSuccess: (b: Booking) => void;
-  onOpenCreditApplyModal: () => void;
-}
-
-const DirectBookingModal: FC<DirectBookingModalProps> = ({
-  quote,
-  currentUser,
-  originPin,
-  destPin,
-  boxes,
-  declaredValue,
-  pickupAddress,
-  onClose,
-  onSuccess,
-  onOpenCreditApplyModal
-}) => {
-  const [consigneeName, setConsigneeName] = useState("Prime Electronics Retail");
-  const [consigneePhone, setConsigneePhone] = useState("+91 98200 44556");
-  const [consigneeGstin, setConsigneeGstin] = useState("27AAACP9988G1ZK");
-  const [deliveryAddress, setDeliveryAddress] = useState("Warehouse 4B, Bhiwandi Logistics Park, Mumbai");
-  const [settlementType, setSettlementType] = useState<"direct_to_pay" | "direct_upi" | "corporate_credit">("direct_to_pay");
-  const [directPaymentUtr, setDirectPaymentUtr] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleConfirm = async () => {
-    if (!termsAccepted) {
-      alert("Please accept the consignment booking terms before proceeding.");
-      return;
-    }
-    if (settlementType === "corporate_credit" && !quote.creditAvailable) {
-      alert("Credit facility is not approved or ceiling limit exceeded with this transporter. Please apply for credit or choose another payment mode.");
-      return;
-    }
-    setIsSubmitting(true);
-
-    const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
-    const carrierName = quote.vendor.name;
-    const initialCarrierDocket = generateCarrierDocket(carrierName);
-    const portalUrl = getOfficialCarrierTrackingUrl(quote.vendor, initialCarrierDocket);
-
-    let refString = "DIRECT-TO-PAY-POD";
-    if (settlementType === "direct_upi") {
-      refString = directPaymentUtr ? `UPI-UTR-${directPaymentUtr}` : `DIRECT-UPI-${quote.vendor.upi_id}`;
-    } else if (settlementType === "corporate_credit") {
-      refString = `CORP-CREDIT-FACILITY-${quote.creditAgreement?.id || "APPROVED"}`;
-    }
-
-    const enhancedBreakdown = {
-      ...quote.breakdown,
-      settlement_type: settlementType,
-      payment_method: settlementType === "direct_upi" ? "Direct Carrier UPI" : settlementType === "corporate_credit" ? "B2B Monthly Credit" : "Direct To-Pay POD",
-      payment_ref: refString,
-      carrier_upi: quote.vendor.upi_id,
-      credit_agreement_id: quote.creditAgreement?.id
-    };
-
-    const newBookingRecord: Partial<Booking> = {
-      order_id: platformOrderId,
-      awb_number: initialCarrierDocket,
-      carrier_docket_no: initialCarrierDocket,
-      carrier_portal_url: portalUrl,
-      shipper_id: currentUser.id,
-      vendor_id: quote.vendor.id,
-      rate_card_id: quote.rateCard.id,
-      shipper_name: currentUser.company_name || currentUser.full_name,
-      shipper_phone: currentUser.phone || MERCHANT_DETAILS.phone,
-      shipper_email: currentUser.email,
-      shipper_gstin: currentUser.gstin || "07AAACA1234A1Z5",
-      pickup_address: pickupAddress,
-      pickup_pincode: originPin,
-      consignee_name: consigneeName,
-      consignee_phone: consigneePhone,
-      consignee_gstin: consigneeGstin,
-      delivery_address: deliveryAddress,
-      origin_pin: originPin,
-      dest_pin: destPin,
-      mode: quote.rateCard.mode,
-      boxes,
-      declared_value: declaredValue,
-      actual_weight: quote.actualWeight,
-      volumetric_weight: quote.volumetricWeight,
-      billable_weight: quote.billableWeight,
-      cost_breakdown: enhancedBreakdown,
-      final_total: quote.breakdown.total,
-      status: "Booked",
-      tracking_history: [
-        {
-          status: "Booked",
-          location: `Origin Hub (${originPin})`,
-          timestamp: new Date().toISOString(),
-          remarks: `Order Ref ${platformOrderId} generated. Carrier Docket ${initialCarrierDocket} assigned. Direct freight (${formatINR(enhancedBreakdown.freightSubtotal)}) payable to ${quote.vendor.name} [Ref: ${refString}]. Platform 2% fee (₹${enhancedBreakdown.platformConvenienceFee}) recorded.`
-        }
-      ]
-    };
-
-    try {
-      const { data, error } = await supabase.from("bookings").insert([newBookingRecord]).select("*, vendors(*)");
-      if (!error && data && data[0]) {
-        onSuccess(data[0] as Booking);
-      } else {
-        const localMock = {
-          ...(newBookingRecord as Booking),
-          id: `book-${Date.now()}`,
-          created_at: new Date().toISOString(),
-          vendors: quote.vendor
-        };
-        onSuccess(localMock);
-      }
-    } catch {
-      const localMock = {
-        ...(newBookingRecord as Booking),
-        id: `book-${Date.now()}`,
-        created_at: new Date().toISOString(),
-        vendors: quote.vendor
-      };
-      onSuccess(localMock);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-lg font-black text-slate-900">Direct Consignment Booking & Carrier Settlement</h3>
-            <p className="text-xs text-slate-500">
-              Carrier Partner: <strong className="text-emerald-700 font-bold">{quote.vendor.name}</strong>
-            </p>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="bg-slate-950 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
-          <div className="flex justify-between items-center text-slate-300">
-            <span>Direct Freight (Payable to {quote.vendor.name}):</span>
-            <strong className="text-base text-white font-mono">{formatINR(quote.breakdown.freightSubtotal)}</strong>
-          </div>
-          <div className="flex justify-between items-center text-indigo-300">
-            <span>Platform Docket Verification Fee (2%, min ₹25):</span>
-            <strong className="font-mono">₹{quote.breakdown.platformConvenienceFee}</strong>
-          </div>
-          <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
-            <span>Total Consignment Outlay:</span>
-            <span className="font-mono text-base">{formatINR(quote.breakdown.total)}</span>
-          </div>
-        </div>
-
-        <div className="space-y-3 text-xs">
-          <label className="block text-slate-900 font-black uppercase tracking-wider">Choose Settlement Method:</label>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "direct_to_pay" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
-              <input
-                type="radio"
-                name="settlement_type"
-                checked={settlementType === "direct_to_pay"}
-                onChange={() => setSettlementType("direct_to_pay")}
-                className="text-emerald-600"
-              />
-              <span className="font-bold block mt-1 text-slate-900">💵 To-Pay at Delivery</span>
-              <p className="text-[10px] text-slate-500">Pay cash/cheque upon delivery.</p>
-            </label>
-
-            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "direct_upi" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
-              <input
-                type="radio"
-                name="settlement_type"
-                checked={settlementType === "direct_upi"}
-                onChange={() => setSettlementType("direct_upi")}
-                className="text-emerald-600"
-              />
-              <span className="font-bold block mt-1 text-slate-900">📲 Direct Carrier UPI</span>
-              <p className="text-[10px] text-slate-500">Transfer freight directly to carrier.</p>
-            </label>
-
-            <label className={`p-3 rounded-xl border-2 cursor-pointer transition ${settlementType === "corporate_credit" ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"}`}>
-              <input
-                type="radio"
-                name="settlement_type"
-                checked={settlementType === "corporate_credit"}
-                onChange={() => setSettlementType("corporate_credit")}
-                className="text-emerald-600"
-              />
-              <span className="font-bold block mt-1 text-slate-900">🏢 Corporate Credit</span>
-              <p className="text-[10px] text-slate-500">
-                {quote.creditAvailable ? "Approved credit balance applied" : "KYC application required"}
-              </p>
-            </label>
-          </div>
-
-          {/* Conditional Credit Validation Notification */}
-          {settlementType === "corporate_credit" && !quote.creditAvailable && (
-            <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl text-amber-900 text-xs space-y-1">
-              <p className="font-bold">Notice: Formal Credit Facility Not Active</p>
-              <p className="text-[11px]">
-                Underwriting approval required. Shippers must upload an executed agreement before booking on net terms.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenCreditApplyModal();
-                }}
-                className="text-indigo-700 font-bold underline text-[11px]"
-              >
-                Apply for credit facility with {quote.vendor.name} now →
-              </button>
-            </div>
-          )}
-
-          {settlementType === "direct_upi" && (
-            <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200 space-y-2 font-mono">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-emerald-950 font-bold">Carrier UPI Handle:</span>
-                <span className="bg-white px-2 py-0.5 rounded font-black text-slate-900 border border-emerald-200">
-                  {quote.vendor.upi_id || "delhivery.b2b@icici"}
-                </span>
-              </div>
-              <input
-                type="text"
-                placeholder="Payment Reference / UTR Number (Optional)"
-                value={directPaymentUtr}
-                onChange={(e) => setDirectPaymentUtr(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs font-mono text-slate-900"
-              />
-            </div>
-          )}
-
-          <div className="space-y-2.5 pt-2">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Consignee Name</label>
-                <input
-                  type="text"
-                  value={consigneeName}
-                  onChange={(e) => setConsigneeName(e.target.value)}
-                  className="w-full border rounded-lg p-2 font-medium"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Consignee Phone</label>
-                <input
-                  type="text"
-                  value={consigneePhone}
-                  onChange={(e) => setConsigneePhone(e.target.value)}
-                  className="w-full border rounded-lg p-2 font-medium"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-slate-700 font-bold mb-1">Destination Address</label>
-              <input
-                type="text"
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                className="w-full border rounded-lg p-2 font-medium"
-              />
-            </div>
-          </div>
-
-          <label className="flex items-start space-x-2 pt-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={termsAccepted}
-              onChange={(e) => setTermsAccepted(e.target.checked)}
-              className="mt-0.5 text-indigo-600 rounded"
-            />
-            <span className="text-[11px] text-slate-600 font-medium">
-              I agree to settle freight directly with {quote.vendor.name} under Carriage by Road Act 2007 guidelines.
-            </span>
-          </label>
-        </div>
-
-        <div className="flex justify-end space-x-3 border-t border-slate-200 pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting || !termsAccepted || (settlementType === "corporate_credit" && !quote.creditAvailable)}
-            onClick={handleConfirm}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl text-xs shadow-md transition disabled:opacity-50"
-          >
-            {isSubmitting ? "Assigning Docket..." : "Confirm Booking & Assign Carrier Docket"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 31. CONTINUOUS 4x6 THERMAL MULTI-BOX LABEL & HANDOVER MANIFEST MODAL
+// 23. CONTINUOUS 4x6 THERMAL MULTI-BOX LABEL & HANDOVER MANIFEST MODAL
 // ============================================================================
 interface ThermalPrintModalProps {
   printableBooking: Booking | null;
@@ -7515,553 +5268,628 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({
 };
 
 // ============================================================================
-// 32. POSTAL PIN DIRECTORY SEARCH MODAL (LOCAL COMPONENT)
+// 24. 2D CANVAS ANIMATED HERO TRUCK
 // ============================================================================
-interface CitySearchModalProps {
-  target: "origin" | "dest";
-  onSelectPin: (pin: string) => void;
-  onClose: () => void;
-}
+function Hero3DTruck() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [speed, setSpeed] = useState<"normal" | "turbo">("normal");
 
-const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClose }) => {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Array<{ name: string; district: string; state: string; pincode: string }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let animId: number;
+    let wheelAngle = 0;
 
-  const handleSearch = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!query || query.trim().length < 3) return;
-    setLoading(true);
-    setHasSearched(true);
-    try {
-      const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query.trim())}`);
-      const data = await res.json();
-      if (data && data[0]?.Status === "Success" && data[0]?.PostOffice) {
-        setResults(
-          data[0].PostOffice.map((item: any) => ({
-            name: item.Name,
-            district: item.District,
-            state: item.State,
-            pincode: item.Pincode
-          }))
-        );
-      } else {
-        setResults([]);
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2 + 10;
+
+      // Perspective Road Guidelines
+      ctx.save();
+      ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
+      ctx.lineWidth = 1;
+      for (let i = -140; i <= 140; i += 28) {
+        ctx.beginPath();
+        ctx.moveTo(cx + i * 1.8, cy + 50);
+        ctx.lineTo(cx + i * 0.5, cy - 20);
+        ctx.stroke();
       }
-    } catch {
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      // Highway Road Center Dashed Line
+      const stripeOffset = (Date.now() / (speed === "turbo" ? 35 : 75)) % 40;
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.5)";
+      ctx.lineWidth = 2;
+      for (let y = -20; y < 60; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, cy + y + stripeOffset);
+        ctx.lineTo(cx - 2, cy + y + stripeOffset + 10);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Chassis Drop Shadow
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 30, 85, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Vehicle Body Assembly
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Cargo Container Body
+      const gradContainer = ctx.createLinearGradient(-80, -35, 10, 10);
+      gradContainer.addColorStop(0, "#4f46e5");
+      gradContainer.addColorStop(0.5, "#3730a3");
+      gradContainer.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = gradContainer;
+      ctx.strokeStyle = "#818cf8";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-80, -38, 95, 48, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Corrugated Container Vertical Ribs
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.lineWidth = 1;
+      for (let rx = -70; rx < 10; rx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(rx, -36);
+        ctx.lineTo(rx, 8);
+        ctx.stroke();
+      }
+
+      // Fleet Brand Text
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("LOGICOMPARE B2B", -68, -12);
+      ctx.fillStyle = "#34d399";
+      ctx.font = "bold 7px sans-serif";
+      ctx.fillText("EXPRESS CARGO LINEHAUL", -68, -2);
+
+      // Driver Cabin Shell
+      const gradCab = ctx.createLinearGradient(16, -20, 52, 10);
+      gradCab.addColorStop(0, "#059669");
+      gradCab.addColorStop(1, "#065f46");
+      ctx.fillStyle = gradCab;
+      ctx.beginPath();
+      ctx.moveTo(15, 10);
+      ctx.lineTo(55, 10);
+      ctx.lineTo(55, -8);
+      ctx.lineTo(40, -28);
+      ctx.lineTo(15, -28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Windshield Glass
+      ctx.fillStyle = "rgba(186, 230, 253, 0.85)";
+      ctx.beginPath();
+      ctx.moveTo(38, -25);
+      ctx.lineTo(50, -9);
+      ctx.lineTo(24, -9);
+      ctx.lineTo(24, -25);
+      ctx.closePath();
+      ctx.fill();
+
+      // Front Headlight Beam
+      const lightBeam = ctx.createRadialGradient(55, 0, 2, 95, 8, 45);
+      lightBeam.addColorStop(0, "rgba(250, 204, 21, 0.9)");
+      lightBeam.addColorStop(0.5, "rgba(250, 204, 21, 0.2)");
+      lightBeam.addColorStop(1, "rgba(250, 204, 21, 0)");
+      ctx.fillStyle = lightBeam;
+      ctx.beginPath();
+      ctx.moveTo(54, -2);
+      ctx.lineTo(110, -10);
+      ctx.lineTo(110, 22);
+      ctx.closePath();
+      ctx.fill();
+
+      // Multi-Axle Rotating Wheels
+      wheelAngle += speed === "turbo" ? 0.35 : 0.16;
+      const wheelPositions = [-62, -42, 28, 46];
+      for (let wIdx = 0; wIdx < wheelPositions.length; wIdx++) {
+        const wx = wheelPositions[wIdx];
+        ctx.save();
+        ctx.translate(wx, 14);
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.arc(0, 0, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.rotate(wheelAngle);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.beginPath();
+        ctx.moveTo(-5, 0); ctx.lineTo(5, 0);
+        ctx.moveTo(0, -5); ctx.lineTo(0, 5);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [speed]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">
-              Find PIN Code for {target === "origin" ? "Origin" : "Destination"}
-            </h3>
-            <p className="text-xs text-slate-500 font-medium">Search Indian cities, districts, or branch post offices</p>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+    <div className="relative flex flex-col items-center bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-5 shadow-2xl backdrop-blur-xl w-full max-w-sm">
+      <div className="flex items-center justify-between w-full px-2 mb-1">
+        <div className="flex items-center space-x-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="text-xs font-mono font-bold text-slate-200">3D Linehaul Container Transit</span>
         </div>
+        <button
+          type="button"
+          onClick={() => setSpeed(speed === "normal" ? "turbo" : "normal")}
+          className="text-[10px] font-black uppercase tracking-wider text-indigo-300 bg-indigo-900/60 border border-indigo-500/40 px-2.5 py-1 rounded-full hover:bg-indigo-800 transition"
+        >
+          {speed === "turbo" ? "⚡ Turbo Speed" : "▶ Normal Transit"}
+        </button>
+      </div>
 
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="e.g. Ludhiana, Meerut, Panipat, Bhiwandi..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              autoFocus
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm flex items-center space-x-1.5 transition disabled:opacity-50"
-          >
-            <SearchIcon className="w-4 h-4" />
-            <span>{loading ? "..." : "Search"}</span>
-          </button>
-        </form>
+      <canvas ref={canvasRef} width={340} height={170} className="w-full max-w-[340px] h-[170px]" />
 
-        <div className="max-h-64 overflow-y-auto space-y-2 divide-y divide-slate-100 pr-1">
-          {results.length > 0 ? (
-            results.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => {
-                  onSelectPin(item.pincode);
-                  onClose();
-                }}
-                className="pt-2 flex items-center justify-between p-2 rounded-xl hover:bg-indigo-50/80 cursor-pointer transition text-xs group"
-              >
-                <div>
-                  <p className="font-bold text-slate-900 group-hover:text-indigo-900 flex items-center space-x-1">
-                    <MapPinIcon className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>{item.name}</span>
-                  </p>
-                  <p className="text-[11px] text-slate-500">{item.district}, {item.state}</p>
-                </div>
-                <span className="font-mono font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
-                  {item.pincode}
-                </span>
-              </div>
-            ))
-          ) : hasSearched && !loading ? (
-            <p className="text-center text-xs text-slate-400 py-6">No matching post offices found. Try another city name.</p>
-          ) : (
-            <p className="text-center text-xs text-slate-400 py-6">Type at least 3 letters of your city and press search.</p>
-          )}
-        </div>
+      <div className="flex items-center justify-between w-full text-[10px] text-slate-400 pt-2 border-t border-slate-800 font-mono">
+        <span>Vehicle: 32ft MXL Container</span>
+        <span className="text-emerald-400 font-bold">GPS Active • Linehaul</span>
       </div>
     </div>
   );
-};
+}
 
 // ============================================================================
-// 33. MANUAL LANE RATE CARD PUBLISHER MODAL (LOCAL COMPONENT)
+// 25. COMPLETE CONVERTING LANDING VIEW
 // ============================================================================
-interface AddRateCardModalProps {
-  currentUser: UserProfile;
+interface LandingViewProps {
+  highVolumeMode: boolean;
   vendors: Vendor[];
-  onSuccess: (card: RateCard) => void;
-  onClose: () => void;
+  landingTrackingInput: string;
+  setLandingTrackingInput: (val: string) => void;
+  onQuickTrack: (val?: string) => void;
+  onJumpToCompare: () => void;
+  onJumpToBulk: () => void;
+  onSwitchShipperDemo: () => void;
+  onSwitchCarrierDemo: () => void;
 }
 
-const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, vendors, onSuccess, onClose }) => {
-  const [card, setCard] = useState({
-    origin_prefix: "110",
-    dest_prefix: "400",
-    mode: "surface" as "surface" | "air" | "ftl",
-    min_weight_kg: 10,
-    base_rate: 400,
-    per_kg_rate: 14,
-    fuel_surcharge_pct: 12,
-    docket_charge: 150,
-    fov_pct: 0.2,
-    oda_charge: 450,
-    handling_per_kg: 2,
-    sla_days: 3
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const vendorId = currentUser.vendor_id || "11111111-1111-1111-1111-111111111111";
-    const payload = { ...card, vendor_id: vendorId, is_active: true };
-
-    try {
-      const { data, error } = await supabase.from("rate_cards").insert([payload]).select("*, vendors(*)");
-      if (!error && data && data[0]) {
-        onSuccess(data[0] as RateCard);
-      } else {
-        const localCard: RateCard = {
-          ...(payload as RateCard),
-          id: `rc-${Date.now()}`,
-          vendors: vendors.find((v) => v.id === vendorId)
-        };
-        onSuccess(localCard);
-      }
-      onClose();
-    } catch {
-      const localCard: RateCard = {
-        ...(payload as RateCard),
-        id: `rc-${Date.now()}`,
-        vendors: vendors.find((v) => v.id === vendorId)
-      };
-      onSuccess(localCard);
-      onClose();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+const LandingView: FC<LandingViewProps> = ({
+  highVolumeMode,
+  vendors,
+  landingTrackingInput,
+  setLandingTrackingInput,
+  onQuickTrack,
+  onJumpToCompare,
+  onJumpToBulk,
+  onSwitchShipperDemo,
+  onSwitchCarrierDemo
+}) => {
+  const [workflowTab, setWorkflowTab] = useState<"shipper" | "vendor">("shipper");
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-xl w-full p-6 space-y-4 shadow-2xl my-8">
-        <div className="flex justify-between items-center border-b border-slate-200 pb-3">
-          <h3 className="text-base font-black text-slate-900">Publish New Commercial Rate Tariff</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
-        </div>
+    <div className="flex-1 flex flex-col space-y-16 pb-16">
+      {/* SECTION 1: HERO & LIVE TRACKER */}
+      <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 transition-transform duration-1000 ease-out pointer-events-none"
+          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
+        />
+        <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950 pointer-events-none" />
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 text-xs">
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Origin Prefix (3 digits or %)</label>
-            <input
-              type="text"
-              value={card.origin_prefix}
-              onChange={(e) => setCard({ ...card, origin_prefix: e.target.value })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
+        <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
+          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
+            <div className="inline-flex items-center space-x-2 bg-indigo-500/10 border border-indigo-400/30 text-indigo-300 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide backdrop-blur-md shadow-inner">
+              <span>🇮🇳</span>
+              <span>Hybrid Dual-ID Consignment Discovery & Automated Dispatches</span>
+            </div>
 
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Dest Prefix (3 digits or %)</label>
-            <input
-              type="text"
-              value={card.dest_prefix}
-              onChange={(e) => setCard({ ...card, dest_prefix: e.target.value })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
+            <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight">
+              One-Click Bulk Freight Booking & Multi-Box 4x6 Thermal Labels.
+            </h1>
 
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Transport Mode</label>
-            <select
-              value={card.mode}
-              onChange={(e) => setCard({ ...card, mode: e.target.value as any })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-            >
-              <option value="surface">Surface Express</option>
-              <option value="air">Air Cargo</option>
-              <option value="ftl">Full Truck Load (FTL)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Transit SLA (Days)</label>
-            <input
-              type="number"
-              value={card.sla_days}
-              onChange={(e) => setCard({ ...card, sla_days: Number(e.target.value) })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Base Rate (₹)</label>
-            <input
-              type="number"
-              value={card.base_rate}
-              onChange={(e) => setCard({ ...card, base_rate: Number(e.target.value) })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Rate Per Kg (₹)</label>
-            <input
-              type="number"
-              step={0.1}
-              value={card.per_kg_rate}
-              onChange={(e) => setCard({ ...card, per_kg_rate: Number(e.target.value) })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Fuel Surcharge (%)</label>
-            <input
-              type="number"
-              step={0.5}
-              value={card.fuel_surcharge_pct}
-              onChange={(e) => setCard({ ...card, fuel_surcharge_pct: Number(e.target.value) })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 font-bold mb-1">Docket / AWB Charge (₹)</label>
-            <input
-              type="number"
-              value={card.docket_charge}
-              onChange={(e) => setCard({ ...card, docket_charge: Number(e.target.value) })}
-              className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2 font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div className="col-span-2 flex justify-end space-x-2 pt-3 border-t border-slate-200">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-2 rounded-xl shadow-sm transition"
-            >
-              {isSubmitting ? "Publishing..." : "Publish Tariff Card"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// 34. RAZORPAY COMPLIANCE & LEGAL POLICY MODAL (LOCAL COMPONENT)
-// ============================================================================
-interface LegalModalProps {
-  tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact";
-  setTab: (t: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => void;
-  onClose: () => void;
-}
-
-const LegalModal: FC<LegalModalProps> = ({ tab, setTab, onClose }) => {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
-      <div className="bg-white border border-slate-300 rounded-3xl max-w-3xl w-full p-6 shadow-2xl my-8 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div>
-            <h3 className="text-base font-black text-slate-900">Legal, Governance & Razorpay KYC Compliance</h3>
-            <p className="text-xs text-slate-500 font-medium">
-              Merchant: {MERCHANT_DETAILS.proprietor} • Jurisdiction: {MERCHANT_DETAILS.jurisdiction}
+            <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
+              Compare Delhivery, Blue Dart, Safexpress, TCI, and Gati rates across India. Upload semicolon-delimited CSVs, auto-assign lowest rates, manage approved corporate credit lines, and print continuous thermal labels with driver handover manifests.
             </p>
+
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onJumpToBulk}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-105 flex items-center space-x-2"
+              >
+                <UploadIcon className="w-5 h-5" />
+                <span>Launch 50/Day Bulk Shipper Console</span>
+              </button>
+              <button
+                type="button"
+                onClick={onJumpToCompare}
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2"
+              >
+                <BoxIcon className="w-5 h-5 text-indigo-400" />
+                <span>Single Calculator</span>
+              </button>
+              <button
+                type="button"
+                onClick={onSwitchCarrierDemo}
+                className="bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-6 py-3.5 rounded-xl text-sm transition backdrop-blur-md flex items-center space-x-2 hover:border-slate-500"
+              >
+                <TruckIcon className="w-5 h-5 text-emerald-400" />
+                <span>Carrier Sandbox (Demo)</span>
+              </button>
+            </div>
           </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+
+          <div className="lg:col-span-5 flex justify-center">
+            {!highVolumeMode ? (
+              <div className="bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-4 shadow-2xl backdrop-blur-md">
+                <Hero3DTruck />
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl text-center space-y-3 shadow-2xl">
+                <span className="text-5xl">⚡</span>
+                <h3 className="text-white font-black text-lg">60FPS High-Volume Mode Active</h3>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                  Direct settlements via To-Pay POD, UPI, and Pre-Approved B2B Credit with 0% markups.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-2">
-          {[
-            { id: "terms", label: "Terms of Service" },
-            { id: "privacy", label: "Privacy Policy" },
-            { id: "refund", label: "Refund & Cancellation" },
-            { id: "shipping", label: "Shipping Policy" },
-            { id: "prohibited", label: "Prohibited Goods" },
-            { id: "contact", label: "Contact Us" }
-          ].map((t) => (
+        {/* Universal Tracking Quick Lookups */}
+        <div className="pt-10 max-w-xl mx-auto relative z-10">
+          <div className="bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20 shadow-2xl flex flex-col sm:flex-row items-center gap-2">
+            <div className="flex items-center space-x-2 px-3 py-1.5 text-slate-300 w-full sm:w-auto flex-1">
+              <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+              <input
+                type="text"
+                value={landingTrackingInput}
+                onChange={(e) => setLandingTrackingInput(e.target.value)}
+                placeholder="Enter Order Ref (LC-...) or Carrier Docket..."
+                className="bg-transparent font-mono text-sm text-white font-bold focus:outline-none w-full placeholder-slate-500"
+              />
+            </div>
             <button
-              key={t.id}
               type="button"
-              onClick={() => setTab(t.id as any)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                tab === t.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+              onClick={() => onQuickTrack()}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-3 rounded-xl transition shadow-md shrink-0"
+            >
+              Track Shipment
+            </button>
+          </div>
+          <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 mt-3 font-medium">
+            <span>Sample Tracking Identifiers:</span>
+            <button
+              type="button"
+              onClick={() => onQuickTrack(DEMO_INIT_ORDER_ID)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Ref: {DEMO_INIT_ORDER_ID}
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={() => onQuickTrack(DEMO_INIT_CARRIER_DOCKET)}
+              className="font-mono text-indigo-300 hover:text-indigo-200 underline font-bold"
+            >
+              Docket: {DEMO_INIT_CARRIER_DOCKET}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 2: STATS & CARRIER STRIP */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-8 border-b border-slate-200">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-indigo-600">5+</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Verified National Fleets</p>
+            <p className="text-[11px] text-slate-500">Official AWB / Docket Integrated</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-emerald-600">19,000+</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Serviceable PIN Codes</p>
+            <p className="text-[11px] text-slate-500">Pan-India Tier-1 to ODA Coverage</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-slate-900">100%</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Direct Carrier Settlement</p>
+            <p className="text-[11px] text-slate-500">To-Pay / Direct UPI / B2B Credit</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
+            <span className="text-3xl font-black text-amber-500">2%</span>
+            <p className="text-xs font-bold text-slate-900 mt-1">Flat Verification Platform Fee</p>
+            <p className="text-[11px] text-slate-500">Min ₹25 floor cap per booking</p>
+          </div>
+        </div>
+
+        <div className="pt-8 text-center space-y-4">
+          <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">
+            Integrated National Logistics Transporters
+          </span>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {vendors.map((v) => (
+              <div key={v.id} className="flex items-center space-x-2.5 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-400 transition">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span className="font-extrabold text-xs text-slate-900">{v.name}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">★ {v.rating}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3: WORKFLOW ARCHITECTURE */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-8">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            Operational Architecture
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">How LogiCompare Pro Works</h2>
+          <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+            Consolidating platform transparency with real-world carrier waybill and corporate credit standards.
+          </p>
+
+          <div className="inline-flex p-1.5 bg-slate-200 rounded-2xl mt-4 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setWorkflowTab("shipper")}
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "shipper" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              {t.label}
+              📦 For Shippers & Businesses
             </button>
+            <button
+              type="button"
+              onClick={() => setWorkflowTab("vendor")}
+              className={`px-5 py-2 rounded-xl text-xs font-black transition ${
+                workflowTab === "vendor" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              🚛 For Logistics Fleets & Carriers
+            </button>
+          </div>
+        </div>
+
+        {workflowTab === "shipper" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">1</span>
+              <h3 className="font-bold text-slate-900 text-sm">PIN & Optional Dimensions</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Enter single destination PINs or upload a 50-location CSV. Dimensions are strictly optional—dead weight calculates freight when omitted.
+              </p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">2</span>
+              <h3 className="font-bold text-slate-900 text-sm">Compare Rates & Credit</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Inspect transparent line-item pricing: Base, Fuel %, Docket, ODA, FOV, GST. View approved B2B credit lines per carrier.
+              </p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">One-Click Dual-ID Booking</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Settle freight via To-Pay, direct UPI, or approved corporate net credit. Receive internal Ref (`LC-XXXXXX`) and official AWB docket.
+              </p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-black flex items-center justify-center text-sm">4</span>
+              <h3 className="font-bold text-slate-900 text-sm">Continuous 4x6 Labels</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Print multi-box Box X of Y thermal labels and generate a Master Handover Manifest with driver signature sign-off blocks.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">1</span>
+              <h3 className="font-bold text-slate-900 text-sm">Onboard Fleet & Custom URL</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Register as a verified transporter, configure bank settlement details, and specify your company&apos;s custom public tracking portal.
+              </p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">2</span>
+              <h3 className="font-bold text-slate-900 text-sm">Underwrite Credit Agreements</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Review signed credit applications and KYC documents from enterprise shippers. Approve or reject credit ceilings with custom net terms.
+              </p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black flex items-center justify-center text-sm">3</span>
+              <h3 className="font-bold text-slate-900 text-sm">Weekly / Monthly Billing</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Track platform fee dues transparently with cycle breakdown, due dates, and one-click UTR payment reconciliation.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 4: ENTERPRISE CAPABILITIES */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            Enterprise Architecture
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Engineered for Indian Logistics Complexity</h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><LayersIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">Multi-Box Volumetric Engine</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Calculates actual weight vs. volumetric weight across multiple cartons using standard 4500 and 5000 divisors. Dead weight alone applies when dimensions are omitted.</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><CurrencyRupeeIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">Zero Hidden Surcharges</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Transparent breakdown: Base freight, Fuel Surcharge %, Docket AWB charge, Handling per kg, ODA fee, and 18% GST.</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><ShieldCheckIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">FOV Cargo Risk Insurance</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Built-in 0.20% Freight On Value (FOV) risk coverage calculator ensuring high-value electronic and pharmaceutical shipments are protected.</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><PrinterIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">4x6 Thermal Label Printing</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Continuous print engine for multi-box labels with barcode and docket, ending with a driver handover sign-off manifest.</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center"><TruckIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">Carrier-Configured Tracking URLs</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Deep dynamic redirection to each transporter&apos;s custom public tracking portal with docket numbers appended automatically.</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center"><CreditCardIcon className="w-5 h-5" /></div>
+            <h3 className="font-bold text-slate-900 text-base">Formal B2B Credit Agreements</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">Execute KYC agreements on company letterhead to unlock approved revolving credit balances with net payment term schedules.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 5: FAQ ACCORDION */}
+      <section className="max-w-4xl mx-auto px-4 lg:px-8 w-full space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-black text-indigo-700 uppercase tracking-wider bg-indigo-50 border border-indigo-200 px-3.5 py-1 rounded-full">
+            FAQ & Knowledge Base
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Frequently Asked Questions</h2>
+        </div>
+
+        <div className="space-y-3">
+          {[
+            {
+              q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
+              a: "The Order Ref is LogiCompare Pro's internal reference number used for platform invoices and receipts. The Carrier Docket is the transporter's official waybill used by drivers and freight hubs."
+            },
+            {
+              q: "Can I book shipments if I don't know the exact box dimensions?",
+              a: "Yes! Length, width, and height are strictly optional. When dimensions are omitted, our rate calculation engine applies dead actual weight alone to generate instant carrier quotes."
+            },
+            {
+              q: "How does the formal B2B Credit Facility work?",
+              a: "Shippers cannot book on credit by default. You must apply for credit by uploading an executed credit agreement on company letterhead. Once the carrier underwrites and approves your limit, the credit option becomes available at checkout."
+            },
+            {
+              q: "How does the weekly and monthly Platform Fee billing work?",
+              a: "100% of freight is collected directly by carriers. LogiCompare generates an itemized weekly or monthly invoice for the 2% platform convenience fee (min ₹25/load), which carriers reconcile via UPI or NetBanking."
+            },
+            {
+              q: "Where does the physical Bilty / LR slip photo get saved?",
+              a: "Documents are stored in a dedicated Supabase Object Storage bucket, auto-compressed to ~100KB to retain full text legibility while eliminating storage waste."
+            }
+          ].map((faq, idx) => (
+            <div key={idx} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition">
+              <button
+                type="button"
+                onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                className="w-full p-4 text-left font-black text-sm text-slate-900 flex items-center justify-between hover:bg-slate-50"
+              >
+                <span>{faq.q}</span>
+                <ChevronDownIcon className={`w-4 h-4 text-slate-500 transition-transform ${openFaq === idx ? "rotate-180 text-indigo-600" : ""}`} />
+              </button>
+              {openFaq === idx && (
+                <div className="px-4 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3 font-medium">
+                  {faq.a}
+                </div>
+              )}
+            </div>
           ))}
         </div>
+      </section>
 
-        <div className="text-xs text-slate-600 space-y-3 max-h-96 overflow-y-auto pr-2 leading-relaxed">
-          {tab === "terms" && (
-            <div className="space-y-2.5">
-              <h4 className="font-black text-slate-900 text-sm">Terms and Conditions of Service</h4>
-              <p>
-                <strong>1. Platform Nature:</strong> {MERCHANT_DETAILS.platformName} is a proprietary B2B freight aggregator platform operated by <strong>{MERCHANT_DETAILS.proprietor}</strong>. LogiCompare connects commercial shippers with third-party verified fleet operators (Delhivery, Blue Dart, TCI, Safexpress, Gati).
-              </p>
-              <p>
-                <strong>2. Statutory Compliance & E-Way Bills:</strong> Shippers warrant that consignments exceeding ₹50,000 are accompanied by valid, active GST E-Way Bills and commercial invoices.
-              </p>
-              <p>
-                <strong>3. Governing Law:</strong> These terms are governed by the laws of India. Any dispute shall be subject to the exclusive jurisdiction of the competent courts in <strong>{MERCHANT_DETAILS.jurisdiction}</strong>.
-              </p>
-            </div>
-          )}
-
-          {tab === "privacy" && (
-            <div className="space-y-2.5">
-              <h4 className="font-black text-slate-900 text-sm">Privacy & Data Protection Policy</h4>
-              <p>
-                <strong>1. Collection of Business Data:</strong> We collect business contact details, GSTIN identifiers, pickup/delivery warehouse addresses, and package specifications solely to facilitate freight calculations, AWB barcode printing, and linehaul tracking.
-              </p>
-              <p>
-                <strong>2. Designated Grievance Officer:</strong> In compliance with the Information Technology Act, 2000 and Digital Personal Data Protection Act, the designated Grievance Officer is:
-              </p>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-800 space-y-0.5">
-                <p><strong>Officer:</strong> {MERCHANT_DETAILS.proprietor}</p>
-                <p><strong>Email:</strong> {MERCHANT_DETAILS.email}</p>
-                <p><strong>Helpline:</strong> {MERCHANT_DETAILS.phone}</p>
-                <p><strong>Address:</strong> {MERCHANT_DETAILS.address}</p>
-              </div>
-            </div>
-          )}
-
-          {tab === "refund" && (
-            <div className="space-y-2.5">
-              <h4 className="font-black text-slate-900 text-sm">Refund & Cancellation Policy</h4>
-              <p>
-                <strong>1. Cancellation Prior to Pickup:</strong> Consignments cancelled before carrier pickup attempt qualify for a <strong>100% full refund</strong> of platform verification fees.
-              </p>
-              <p>
-                <strong>2. Refund Settlement Timeframe:</strong> All approved refunds are processed back to the original source account via Razorpay. The standard credit window is <strong>5 to 7 business days</strong>.
-              </p>
-            </div>
-          )}
-
-          {tab === "shipping" && (
-            <div className="space-y-2.5">
-              <h4 className="font-black text-slate-900 text-sm">Shipping, Transit SLAs & Delivery Policy</h4>
-              <p>
-                <strong>1. Serviceable Network:</strong> LogiCompare Pro services 19,000+ PIN codes across India via aggregated multi-modal express networks.
-              </p>
-              <p>
-                <strong>2. Estimated Transit SLAs:</strong> Surface Express (3–6 business days), Air Express Cargo (24–48 hours connecting primary metro airport gateways).
-              </p>
-            </div>
-          )}
-
-          {tab === "prohibited" && (
-            <div className="space-y-2.5">
-              <h4 className="font-black text-slate-900 text-sm">Strictly Prohibited & Banned Cargo</h4>
-              <ul className="list-disc pl-5 space-y-1 text-slate-700">
-                <li>Explosives, fireworks, ammunition, and hazardous chemicals (Classes 1–9 Hazmat).</li>
-                <li>Flammable liquids, gases, compressed cylinders, and corrosives.</li>
-                <li>Unregistered bullion, loose precious gems, and sovereign cash/currency notes.</li>
-                <li>Narcotics and contraband goods prohibited under the NDPS Act.</li>
-              </ul>
-            </div>
-          )}
-
-          {tab === "contact" && (
-            <div className="space-y-3">
-              <h4 className="font-black text-slate-900 text-sm">Official Merchant Contact & Support</h4>
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5 font-medium">
-                <p><strong className="text-slate-900">Proprietor / Merchant:</strong> {MERCHANT_DETAILS.proprietor}</p>
-                <p><strong className="text-slate-900">Platform:</strong> {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.category})</p>
-                <p><strong className="text-slate-900">Email:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.email}</a></p>
-                <p><strong className="text-slate-900">Helpline:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.phone}</a></p>
-                <p><strong className="text-slate-900">Operating Address:</strong> {MERCHANT_DETAILS.address}</p>
-                <p><strong className="text-slate-900">Operating Hours:</strong> {MERCHANT_DETAILS.operatingHours}</p>
-                <p><strong className="text-slate-900">Jurisdiction:</strong> {MERCHANT_DETAILS.jurisdiction}</p>
-              </div>
-            </div>
-          )}
+      {/* SECTION 6: BOTTOM CALL TO ACTION */}
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 w-full">
+        <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
+          <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+          <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+            Start Saving On B2B Freight
+          </span>
+          <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">
+            Ready to book with official national carrier dockets and zero hidden markups?
+          </h2>
+          <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
+            Switch to the Freight Matrix Dashboard to calculate live rates, print certified carrier labels, and manage approved credit agreements across India.
+          </p>
+          <div className="relative z-10 flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onJumpToCompare}
+              className="bg-white hover:bg-slate-100 text-slate-950 font-black px-7 py-3.5 rounded-xl text-sm transition shadow-lg hover:scale-105"
+            >
+              Open Freight Rate Matrix
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchShipperDemo}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/30 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md shadow-md"
+            >
+              ⚡ Instant Demo as Shipper
+            </button>
+            <button
+              type="button"
+              onClick={onJumpToBulk}
+              className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold px-7 py-3.5 rounded-xl text-sm transition backdrop-blur-md"
+            >
+              🚀 Launch 50/Day Bulk Console
+            </button>
+          </div>
         </div>
-
-        <div className="flex justify-end border-t border-slate-200 pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs px-5 py-2 rounded-xl transition"
-          >
-            Close Compliance Window
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };
 
 // ============================================================================
-// 35. COMPLIANCE & LEGAL FOOTER (LOCAL COMPONENT)
-// ============================================================================
-interface FooterSectionProps {
-  openLegalModal: (tab: "terms" | "privacy" | "refund" | "shipping" | "prohibited" | "contact") => void;
-}
-
-const FooterSection: FC<FooterSectionProps> = ({ openLegalModal }) => {
-  return (
-    <footer className="mt-auto border-t border-slate-800 bg-slate-950 text-slate-300 text-xs no-print select-none">
-      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-10 space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-slate-800/80 pb-8">
-          <div className="space-y-3">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
-                <TruckIcon className="w-5 h-5" />
-              </div>
-              <span className="font-black text-base text-white tracking-tight">{MERCHANT_DETAILS.platformName}</span>
-            </div>
-            <p className="text-[12px] text-slate-400 leading-relaxed">
-              Proprietary freight aggregator connecting commercial shippers with verified fleets (Delhivery, Blue Dart, Safexpress, TCI, Gati) with 0% freight markups.
-            </p>
-            <div className="inline-flex items-center space-x-2 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md text-[11px] text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>Jurisdiction: <strong>{MERCHANT_DETAILS.jurisdiction}</strong></span>
-            </div>
-          </div>
-
-          <div className="space-y-2 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
-            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
-              Merchant Contact & Grievance
-            </span>
-            <p className="text-[11px] text-slate-300"><strong>Proprietor:</strong> {MERCHANT_DETAILS.proprietor}</p>
-            <p className="text-[11px] text-slate-300">
-              <strong>Helpline:</strong> <a href={`tel:${MERCHANT_DETAILS.phone}`} className="text-indigo-400 hover:underline">{MERCHANT_DETAILS.phone}</a>
-            </p>
-            <p className="text-[11px] text-slate-300">
-              <strong>Support:</strong> <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-400 hover:underline">{MERCHANT_DETAILS.email}</a>
-            </p>
-            <p className="text-[11px] text-slate-400 leading-tight">
-              <strong>Address:</strong> {MERCHANT_DETAILS.address}
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <span className="text-xs font-black uppercase tracking-wider block text-indigo-400">
-              Governance & Policies
-            </span>
-            <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-400">
-              <button type="button" onClick={() => openLegalModal("terms")} className="text-left hover:text-white transition">
-                Terms of Service
-              </button>
-              <button type="button" onClick={() => openLegalModal("privacy")} className="text-left hover:text-white transition">
-                Privacy Policy
-              </button>
-              <button type="button" onClick={() => openLegalModal("refund")} className="text-left hover:text-white transition">
-                Refund & Cancellation
-              </button>
-              <button type="button" onClick={() => openLegalModal("shipping")} className="text-left hover:text-white transition">
-                Shipping Policy
-              </button>
-              <button type="button" onClick={() => openLegalModal("prohibited")} className="text-left hover:text-white transition">
-                Prohibited Cargo
-              </button>
-              <button type="button" onClick={() => openLegalModal("contact")} className="text-left hover:text-white transition">
-                Contact Us
-              </button>
-            </div>
-            <div className="pt-2 flex flex-wrap gap-2 text-[10px]">
-              <span className="bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 px-2 py-0.5 rounded font-mono font-bold">
-                100% Direct Settlement
-              </span>
-              <span className="bg-indigo-950/60 text-indigo-300 border border-indigo-800/80 px-2 py-0.5 rounded font-mono font-bold">
-                GST 18% GTA
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-[11px]">
-          <p>© 2026 {MERCHANT_DETAILS.platformName} ({MERCHANT_DETAILS.proprietor}). All rights reserved across India.</p>
-          <div className="flex items-center space-x-3">
-            <span>Carriage by Road Act 2007</span>
-            <span>•</span>
-            <span>Refund SLA: 5–7 Days</span>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-};
-
-// ============================================================================
-// 36. THE MASTER NEXT.JS SINGLE DEFAULT EXPORT: Page()
+// 26. THE MASTER NEXT.JS SINGLE DEFAULT EXPORT: Page()
 // ============================================================================
 export default function Page() {
   const { state, handlers } = useAppEngine();
 
-  // Strict role lock and auth isolation enforcement
+  // Strict live user authentication flags
   const isRealAuthLive = state.modeEnv === "live" && state.currentUser.isRealUser;
   const isShipper = state.currentUser.role === "shipper";
   const isCarrier = state.currentUser.role === "carrier" || state.currentUser.role === "vendor";
+
+  // Prevent flash of demo state during initial session restoration
+  if (state.isAuthRestoring) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
+        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-xs font-mono font-bold tracking-wider text-slate-300">
+          RESTORING VERIFIED ENTERPRISE SESSION...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
       {/* 1. Global Navigation Command Bar */}
       <header className="sticky top-0 z-40 bg-slate-950 text-white border-b border-slate-800 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Logo & Platform Identity */}
+          {/* Logo & Platform Brand */}
           <div
             className="flex items-center space-x-3 cursor-pointer select-none"
             onClick={() => handlers.handleRoleSwitch("landing")}
@@ -8080,7 +5908,7 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Global Search Bar */}
+          {/* Global Search Input */}
           <form onSubmit={handlers.handleGlobalSearch} className="hidden md:flex items-center max-w-sm w-full relative">
             <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
             <input
@@ -8092,7 +5920,7 @@ export default function Page() {
             />
           </form>
 
-          {/* Role Navigation: STRICT ROLE LOCKING */}
+          {/* Role Navigation with Strict Live Auth Lock */}
           <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-bold">
             <button
               type="button"
@@ -8104,7 +5932,6 @@ export default function Page() {
               Overview
             </button>
 
-            {/* In Live Auth mode, show ONLY the verified user's authorized role */}
             {isRealAuthLive ? (
               <>
                 {isShipper && (
@@ -8131,7 +5958,6 @@ export default function Page() {
                 )}
               </>
             ) : (
-              /* In Demo Sandbox mode, allow testing across all consoles */
               <>
                 <button
                   type="button"
@@ -8164,16 +5990,19 @@ export default function Page() {
             )}
           </div>
 
-          {/* AUTH ISOLATION & USER STATE */}
+          {/* User Profile & Session Controls */}
           <div className="flex items-center space-x-2.5">
-            {/* Demo Sandbox Controls: COMPLETELY HIDDEN WHEN AUTHENTICATED IN LIVE MODE */}
+            {/* Demo Sandbox Toggles (Isolated to Demo Mode only) */}
             {!isRealAuthLive && (
               <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
                 <span className="text-[10px] uppercase font-black px-1.5 text-amber-400">Sandbox:</span>
                 <button
                   type="button"
-                  onClick={() => handlers.handleRoleSwitch("shipper")}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                  onClick={() => {
+                    state.setCurrentUser(DEMO_SHIPPER);
+                    state.setActiveRole("shipper");
+                  }}
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition ${
                     state.currentUser.role === "shipper" && state.activeRole === "shipper"
                       ? "bg-indigo-600 text-white shadow-sm"
                       : "text-slate-400 hover:text-white"
@@ -8183,8 +6012,11 @@ export default function Page() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handlers.handleRoleSwitch("carrier")}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                  onClick={() => {
+                    state.setCurrentUser(DEMO_CARRIER);
+                    state.setActiveRole("carrier");
+                  }}
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition ${
                     (state.currentUser.role === "carrier" || state.currentUser.role === "vendor") && state.activeRole === "carrier"
                       ? "bg-emerald-600 text-white shadow-sm"
                       : "text-slate-400 hover:text-white"
@@ -8195,12 +6027,19 @@ export default function Page() {
               </div>
             )}
 
-            {/* Real Auth Status */}
+            {/* Authenticated State Display */}
             {isRealAuthLive ? (
               <div className="flex items-center space-x-2">
                 <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center space-x-2 text-xs">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span className="font-bold text-white max-w-[120px] truncate">{state.currentUser.company_name}</span>
+                  <div className="flex flex-col text-left">
+                    <span className="font-bold text-white max-w-[130px] truncate">
+                      {state.currentUser.company_name || state.currentUser.full_name}
+                    </span>
+                    <span className="text-[9px] text-slate-400 truncate max-w-[130px]">
+                      {state.currentUser.email}
+                    </span>
+                  </div>
                   <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono uppercase font-bold">
                     {state.currentUser.role}
                   </span>
@@ -8226,9 +6065,9 @@ export default function Page() {
         </div>
       </header>
 
-      {/* 2. Workspace View Routing */}
+      {/* 2. Workspace Content Routing */}
       <div className="flex-1">
-        {/* VIEW A: OVERVIEW LANDING PAGE */}
+        {/* VIEW A: LANDING PAGE */}
         {state.activeRole === "landing" && (
           <LandingView
             highVolumeMode={state.highVolumeMode}
@@ -8263,7 +6102,7 @@ export default function Page() {
           />
         )}
 
-        {/* VIEW B: SHIPPER WORKSPACE (ONLY MOUNTED FOR AUTHORIZED SHIPPERS) */}
+        {/* VIEW B: SHIPPER CONSOLE */}
         {state.activeRole === "shipper" && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -8292,7 +6131,7 @@ export default function Page() {
               </div>
             </div>
 
-            {/* Shipper Dashboard Sub-Tabs */}
+            {/* Sub-Tabs */}
             <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 text-xs">
               {[
                 { id: "search", label: "🔍 New Rate Search" },
@@ -8345,6 +6184,16 @@ export default function Page() {
                   onOpenCityModal={(t) => state.setShowCitySearchModal(t)}
                   onSelectQuoteForBooking={(q) => state.setSelectedQuoteForBooking(q)}
                   onOpenCreditApplyModal={() => state.setShowCreditApplyModal(true)}
+                  isRealUser={isRealAuthLive}
+                />
+                <ShipperRateComparisonCards
+                  quotes={state.calculatedQuotes}
+                  isRealUser={isRealAuthLive}
+                  modeEnv={state.modeEnv}
+                  originPin={state.originPin}
+                  destPin={state.destPin}
+                  onSelectQuoteForBooking={(q) => state.setSelectedQuoteForBooking(q)}
+                  onOpenCreditApplyModal={() => state.setShowCreditApplyModal(true)}
                 />
               </div>
             )}
@@ -8382,9 +6231,145 @@ export default function Page() {
                   setBulkSettlementMethod={state.setBulkSettlementMethod}
                   bulkConsolidatedUtr={state.bulkConsolidatedUtr}
                   setBulkConsolidatedUtr={state.setBulkConsolidatedUtr}
-                  onConfirmBatchBooking={handlers.handleConfirmBatchBooking}
+                  onConfirmBatchBooking={async () => {
+                    if (state.bulkManifestList.length === 0) return;
+                    state.setIsBatchProcessing(true);
+
+                    const newBookings: Booking[] = state.bulkManifestList.map((row, idx) => {
+                      const quote = row.selectedQuote || row.quotes[0];
+                      const officialDocket = generateCarrierDocket(quote.vendor.name);
+                      const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
+                      return {
+                        id: `bulk-booking-${Date.now()}-${idx}`,
+                        order_id: platformOrderId,
+                        awb_number: officialDocket,
+                        carrier_docket_no: officialDocket,
+                        carrier_portal_url: getOfficialCarrierTrackingUrl(quote.vendor, officialDocket),
+                        shipper_id: state.currentUser.id,
+                        vendor_id: quote.vendor.id,
+                        rate_card_id: quote.rateCard.id,
+                        shipper_name: state.currentUser.company_name || state.currentUser.full_name,
+                        shipper_phone: state.currentUser.phone,
+                        shipper_email: state.currentUser.email,
+                        shipper_gstin: state.currentUser.gstin,
+                        pickup_address: state.pickupAddress,
+                        pickup_pincode: state.originPin,
+                        consignee_name: row.consignee_name,
+                        consignee_phone: row.consignee_phone,
+                        consignee_gstin: row.consignee_gstin,
+                        delivery_address: row.delivery_address,
+                        origin_pin: state.originPin,
+                        dest_pin: row.dest_pin,
+                        mode: quote.rateCard.mode,
+                        boxes: row.boxes,
+                        declared_value: row.declared_value,
+                        actual_weight: row.actualWeight,
+                        volumetric_weight: row.volumetricWeight,
+                        billable_weight: row.billableWeight,
+                        cost_breakdown: {
+                          ...quote.breakdown,
+                          settlement_type: state.bulkSettlementMethod,
+                          payment_ref: state.bulkConsolidatedUtr || "BULK-SETTLEMENT"
+                        },
+                        final_total: quote.breakdown.total,
+                        status: "Booked",
+                        tracking_history: [
+                          {
+                            status: "Booked",
+                            location: `${state.originZoneData.city} Hub (${state.originPin})`,
+                            timestamp: new Date().toISOString(),
+                            remarks: `Batch consignment booked with Waybill ${officialDocket}`
+                          }
+                        ],
+                        created_at: new Date().toISOString(),
+                        vendors: quote.vendor
+                      };
+                    });
+
+                    state.setBookings([...newBookings, ...state.bookings]);
+                    state.setBatchPrintBookings(newBookings);
+                    state.setBulkManifestList([]);
+                    state.setIsBatchProcessing(false);
+                    state.setShipperTab("shipments");
+                    alert(`Batch booked successfully! ${newBookings.length} consignments assigned.`);
+                  }}
                   isBatchProcessing={state.isBatchProcessing}
-                  handleBulkCsvUpload={handlers.handleBulkCsvUpload}
+                  handleBulkCsvUpload={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    state.setBulkCsvFileName(file.name);
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      try {
+                        const text = event.target?.result as string;
+                        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+                        if (lines.length <= 1) throw new Error("CSV contains no data rows.");
+                        const rows: BulkManifestRow[] = [];
+
+                        for (let i = 1; i < lines.length; i++) {
+                          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+                          if (cols.length < 5) continue;
+                          const [dPin, cName, cPhone, dAddr, bQtyStr, bWtsStr, bDimsStr, dValStr] = cols;
+                          const bQty = Math.max(1, parseInt(bQtyStr, 10) || 1);
+                          const dVal = parseFloat(dValStr) || 50000;
+                          const parsedWts = bWtsStr ? bWtsStr.split(";").map((w) => parseFloat(w.trim())).filter((n) => !isNaN(n) && n > 0) : [];
+                          const parsedDims = bDimsStr ? bDimsStr.split(";").map((d) => d.trim()).filter((d) => d.length > 0) : [];
+                          const hasOmittedDimensions = parsedDims.length === 0;
+
+                          const boxItems: BoxItem[] = [];
+                          for (let b = 0; b < bQty; b++) {
+                            const wt = parsedWts[b] || parsedWts[0] || 10;
+                            let l: number | null = null, w: number | null = null, h: number | null = null;
+                            if (parsedDims[b]) {
+                              const p = parsedDims[b].toLowerCase().split("x").map((x) => parseFloat(x.trim()));
+                              if (p.length === 3 && !p.some(isNaN)) { l = p[0]; w = p[1]; h = p[2]; }
+                            }
+                            boxItems.push({ id: `b-${i}-${b}`, qty: 1, weight: wt, length: l, width: w, height: h });
+                          }
+
+                          const aWeight = boxItems.reduce((acc, bi) => acc + bi.weight, 0);
+                          const vWeight = hasOmittedDimensions ? 0 : boxItems.reduce((acc, bi) => acc + (((bi.length || 0) * (bi.width || 0) * (bi.height || 0)) / 4500), 0);
+                          const bWeight = hasOmittedDimensions ? aWeight : Math.max(aWeight, Math.round(vWeight * 10) / 10);
+
+                          const quotes = calculateQuotesForShipment(
+                            state.originPin,
+                            dPin,
+                            boxItems,
+                            dVal,
+                            "surface",
+                            false,
+                            state.rateCards,
+                            state.vendors,
+                            state.feeConfig,
+                            state.creditAgreements
+                          );
+                          const sorted = [...quotes].sort((a, b) => a.breakdown.total - b.breakdown.total);
+
+                          rows.push({
+                            rowId: `row-${i}-${Date.now()}`,
+                            dest_pin: dPin,
+                            consignee_name: cName,
+                            consignee_phone: cPhone,
+                            delivery_address: dAddr,
+                            consignee_gstin: "27AAACP9988G1ZK",
+                            total_boxes: bQty,
+                            boxes: boxItems,
+                            declared_value: dVal,
+                            hasOmittedDimensions,
+                            actualWeight: Math.round(aWeight * 10) / 10,
+                            volumetricWeight: Math.round(vWeight * 10) / 10,
+                            billableWeight: Math.round(bWeight * 10) / 10,
+                            quotes,
+                            selectedQuote: sorted[0] || null
+                          });
+                        }
+                        state.setBulkManifestList(rows);
+                      } catch (err: any) {
+                        state.setBulkUploadError(err.message || "Failed to process bulk CSV.");
+                      }
+                    };
+                    reader.readAsText(file);
+                  }}
                   bulkCsvFileName={state.bulkCsvFileName}
                   bulkUploadError={state.bulkUploadError}
                 />
@@ -8396,7 +6381,7 @@ export default function Page() {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <ShipperShipmentsSection
                   bookings={state.bookings}
-                  onRefresh={handlers.fetchAllData}
+                  onRefresh={handlers.fetchLiveDatabaseData}
                   onOpenLabelModal={(b) => state.setPrintableBooking(b)}
                   onOpenTrackerTab={(orderRef) => {
                     state.setActiveTrackingAwb(orderRef);
@@ -8446,6 +6431,7 @@ export default function Page() {
                   state.setEditingAddress(addr);
                   state.setShowAddressModal(true);
                 }}
+                isRealUser={isRealAuthLive}
               />
             )}
 
@@ -8455,6 +6441,7 @@ export default function Page() {
                 <ShipperCreditStatusSection
                   agreements={state.creditAgreements}
                   onApplyNewCredit={() => state.setShowCreditApplyModal(true)}
+                  isRealUser={isRealAuthLive}
                 />
                 <CombinedCreditLedgerSection
                   role="shipper"
@@ -8467,7 +6454,7 @@ export default function Page() {
           </div>
         )}
 
-        {/* VIEW C: CARRIER WORKSPACE (ONLY MOUNTED FOR AUTHORIZED CARRIERS) */}
+        {/* VIEW C: CARRIER OPERATIONS HUB */}
         {(state.activeRole === "carrier" || state.activeRole === "vendor") && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
@@ -8526,7 +6513,13 @@ export default function Page() {
               <div className="space-y-6">
                 <CarrierTrackingUrlConfigSection
                   currentUrl={state.carrierCustomTrackingUrl}
-                  onSave={handlers.handleSaveCarrierTrackingUrl}
+                  onSave={async (customUrl) => {
+                    state.setCarrierCustomTrackingUrl(customUrl);
+                    if (state.currentUser.isRealUser) {
+                      await supabase.from("profiles").update({ custom_tracking_url: customUrl }).eq("id", state.currentUser.id);
+                    }
+                    alert("Tracking portal URL saved!");
+                  }}
                 />
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                   <CarrierOrdersSection
@@ -8534,8 +6527,20 @@ export default function Page() {
                     bookings={state.bookings}
                     statusUpdateMap={state.statusUpdateMap}
                     setStatusUpdateMap={state.setStatusUpdateMap}
-                    onUploadDocketFile={handlers.handleUploadDocketFile}
-                    onUpdateShipmentStatus={handlers.handleUpdateShipmentStatus}
+                    onUploadDocketFile={async (bId, file) => {
+                      const compressed = await compressImageFile(file);
+                      const path = `dockets/bilty-${bId}-${Date.now()}.jpg`;
+                      const { data } = await supabase.storage.from("dockets").upload(path, compressed, { upsert: true });
+                      const publicUrl = data ? supabase.storage.from("dockets").getPublicUrl(path).data.publicUrl : URL.createObjectURL(compressed);
+                      state.setBookings(state.bookings.map((b) => b.id === bId ? { ...b, carrier_docket_doc_url: publicUrl } : b));
+                      alert("Bilty uploaded successfully!");
+                    }}
+                    onUpdateShipmentStatus={async (bId) => {
+                      const updateData = state.statusUpdateMap[bId];
+                      if (!updateData) return;
+                      state.setBookings(state.bookings.map((b) => b.id === bId ? { ...b, status: (updateData.status as any) || b.status } : b));
+                      alert("Status updated!");
+                    }}
                   />
                 </div>
               </div>
@@ -8572,7 +6577,12 @@ export default function Page() {
               <div className="space-y-6">
                 <CarrierCreditApprovalSection
                   agreements={state.creditAgreements}
-                  onReviewAgreement={handlers.handleReviewCreditAgreement}
+                  onReviewAgreement={(aId, status, limit, reason) => {
+                    state.setCreditAgreements(state.creditAgreements.map((a) => a.id === aId ? {
+                      ...a, status, approved_limit: limit || a.requested_limit, rejection_reason: reason
+                    } : a));
+                    alert(`Agreement ${status}!`);
+                  }}
                 />
                 <CombinedCreditLedgerSection
                   role="carrier"
@@ -8595,7 +6605,7 @@ export default function Page() {
           </div>
         )}
 
-        {/* VIEW D: ADMIN / EXECUTIVE OVERSIGHT VIEW */}
+        {/* VIEW D: ADMIN SUPERVISORY OVERVIEW */}
         {state.activeRole === "admin" && !isRealAuthLive && (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
             <AdminOverviewSection
@@ -8607,7 +6617,7 @@ export default function Page() {
         )}
       </div>
 
-      {/* 3. Global Modals (Strictly Controlled Visibility) */}
+      {/* 3. Global Modals */}
       {state.selectedQuoteForBooking && (
         <DirectBookingModal
           quote={state.selectedQuoteForBooking}
@@ -8656,7 +6666,25 @@ export default function Page() {
           onClose={() => state.setShowCreditApplyModal(false)}
           carriers={state.vendors}
           currentShipper={state.currentUser}
-          onSubmitApplication={handlers.handleSubmitCreditApplication}
+          onSubmitApplication={(carrierId, limit, termsDays, file, docName, storageUrl) => {
+            const targetCarrier = state.vendors.find((v) => v.id === carrierId);
+            const newAg: CreditAgreement = {
+              id: `ca-${Date.now()}`,
+              shipper_id: state.currentUser.id,
+              shipper_name: state.currentUser.company_name || state.currentUser.full_name,
+              carrier_id: carrierId,
+              carrier_name: targetCarrier?.name || "National Transporter",
+              document_url: storageUrl || URL.createObjectURL(file),
+              document_name: docName,
+              requested_limit: limit,
+              approved_limit: 0,
+              utilized_amount: 0,
+              status: "Pending_Review",
+              payment_terms_days: termsDays,
+              submitted_at: new Date().toISOString()
+            };
+            state.setCreditAgreements([newAg, ...state.creditAgreements]);
+          }}
         />
       )}
 
@@ -8668,7 +6696,15 @@ export default function Page() {
             state.setSelectedInvoiceToPay(null);
           }}
           invoice={state.selectedInvoiceToPay}
-          onPaySuccess={handlers.handlePayInvoiceSuccess}
+          onPaySuccess={(invId, utr, method) => {
+            state.setInvoices(state.invoices.map((inv) => inv.id === invId ? {
+              ...inv,
+              status: "Paid",
+              payment_date: new Date().toISOString().split("T")[0],
+              payment_ref: utr,
+              payment_method: method
+            } : inv));
+          }}
         />
       )}
 
@@ -8712,7 +6748,7 @@ export default function Page() {
         />
       )}
 
-      {/* 4. Global Compliance Footer */}
+      {/* 4. Global Statutory Compliance Footer */}
       <FooterSection
         openLegalModal={(tab) => {
           state.setLegalModalTab(tab);
