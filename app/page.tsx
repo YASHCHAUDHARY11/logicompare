@@ -1,8 +1,19 @@
 "use client";
 
 // ============================================================================
-// PART 1 OF 7 — IMPORTS, TYPES, LOCAL HELPERS (NO NAMED EXPORTS)
+// PART 1 OF 8 — IMPORTS, TYPES, SECURITY HELPERS, QUOTE ENGINE (HARDENED)
 // Requires:  npm install pdf-lib @supabase/supabase-js
+//
+// WHAT CHANGED vs the old Part 1
+//  - safeHttpUrl / safeDocUrl: every URL that comes from the database is checked
+//    before it reaches an <a href> or window.location (blocks javascript: URLs).
+//  - friendlyError: raw database errors are logged, never shown to users.
+//  - validateUploadFile: type + size + magic-byte check for uploads.
+//  - Caps on carton quantity / count / weight (browser DoS + bad data).
+//  - Quote engine in LIVE mode only uses VERIFIED carriers. The result is an
+//    ESTIMATE: the server (create_booking RPC, Part 8) recomputes the real price.
+//  - Storage path builders include the user id (matches the storage policies).
+//  - Postal-API lookups have a timeout and response-shape validation.
 // ============================================================================
 import React, {
   useState,
@@ -16,18 +27,16 @@ import React, {
   type ReactNode
 } from "react";
 import { createClient, type Session, type User as SupabaseUser } from "@supabase/supabase-js";
-// pdf-lib is loaded lazily inside compressAgreementFile() via dynamic import so it
-// never bloats the initial bundle: const { PDFDocument } = await import("pdf-lib");
+// pdf-lib is loaded lazily inside compressAgreementFile() via dynamic import.
 
 // ============================================================================
-// 1. SUPABASE CLIENT (SESSION PERSISTENCE ENABLED)
+// 1. SUPABASE CLIENT
+// Only the public ANON key is used here. Never put a service_role key in the
+// frontend or in any NEXT_PUBLIC_ variable.
 // ============================================================================
 const supabaseUrl: string = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey: string = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// persistSession  -> keeps the JWT in localStorage so a refresh does NOT log the user out
-// autoRefreshToken -> silently renews the access token before it expires
-// detectSessionInUrl -> required so the password-recovery email link can sign the user in
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
@@ -60,7 +69,7 @@ interface CreditAgreement {
   carrier_name: string;
   document_url: string;
   document_name: string;
-  file_path?: string; // Supabase Storage object path inside the 'agreements' bucket
+  file_path?: string; // object path inside the PRIVATE 'agreements' bucket
   original_size_kb?: number;
   compressed_size_kb?: number;
   requested_limit: number;
@@ -141,6 +150,9 @@ interface PlatformInvoice {
   payment_date?: string;
   payment_ref?: string;
   payment_method?: string;
+  // NEW: set when the carrier submits a UTR. The invoice only becomes "Paid"
+  // after YOU verify the bank credit (done from the Supabase dashboard).
+  payment_submitted_at?: string | null;
   is_demo?: boolean;
 }
 
@@ -161,11 +173,14 @@ interface Vendor {
   gstin: string;
   fleet_types: string[];
   upi_id?: string;
+  // Payout details are only ever returned for the carrier's OWN row.
   bank_account?: string;
   ifsc_code?: string;
   beneficiary_name?: string;
   tracking_base_url?: string;
   custom_tracking_url?: string;
+  // NEW: set only by the platform owner. Unverified carriers never appear in quotes.
+  is_verified?: boolean;
   is_demo?: boolean;
 }
 
@@ -220,8 +235,8 @@ interface CalculatedQuote {
 }
 
 interface QuoteEngineOptions {
-  // When true (live mode) the engine NEVER substitutes unrelated/demo cards.
-  // If no verified carrier card matches the lane, it returns an empty array.
+  // When true (live mode) the engine NEVER substitutes unrelated/demo cards and
+  // only uses VERIFIED carriers.
   liveMode: boolean;
 }
 
@@ -238,6 +253,8 @@ interface Booking {
   awb_number: string;
   carrier_docket_no: string;
   carrier_portal_url?: string;
+  // In LIVE mode this holds a private storage PATH (e.g. dockets/<uid>/x.jpg),
+  // opened through a signed URL. In demo mode it can be a blob: URL.
   carrier_docket_doc_url?: string;
   shipper_id?: string;
   vendor_id: string;
@@ -269,6 +286,23 @@ interface Booking {
   is_demo?: boolean;
 }
 
+// NEW: what the browser sends to the create_booking / create_bookings_batch RPCs.
+// It deliberately contains NO prices, fees, status or docket numbers: the server
+// computes all of those itself.
+interface CreateBookingPayload {
+  rate_card_id: string;
+  origin_pin: string;
+  dest_pin: string;
+  pickup_address: string;
+  boxes: BoxItem[];
+  declared_value: number;
+  is_oda: boolean;
+  consignee_name: string;
+  consignee_phone: string;
+  consignee_gstin: string;
+  delivery_address: string;
+}
+
 interface BulkManifestRow {
   rowId: string;
   dest_pin: string;
@@ -290,6 +324,7 @@ interface BulkManifestRow {
 
 interface RfqBid {
   id: string;
+  shipper_id?: string;
   shipper_name: string;
   origin_pin: string;
   dest_pin: string;
@@ -299,6 +334,7 @@ interface RfqBid {
   target_price: number;
   status: "Open" | "Awarded" | "Closed";
   bids: Array<{
+    vendor_id?: string; // set by the place_bid RPC
     vendor_name: string;
     bid_amount: number;
     transit_days: number;
@@ -356,9 +392,18 @@ interface AgreementCompressionResult {
 }
 
 // ============================================================================
-// 3. FEE CONFIG & LOOKUP CACHE (needed by the rate engine below)
+// 3. LIMITS, FEE CONFIG & LOOKUP CACHE
+// The same limits are enforced again in SQL (Part 8). Client checks are only for UX.
 // ============================================================================
-// NOTE: MERCHANT_DETAILS, demo entities and mock data live in PART 2.
+const MAX_BOX_QTY = 500;
+const MAX_BOXES_PER_BOOKING = 100;
+const MAX_BOX_WEIGHT_KG = 100000;
+const MAX_BOX_DIM_CM = 1000;
+const MAX_BULK_ROWS = 50;
+const MAX_CSV_FILE_BYTES = 1024 * 1024; // 1 MB of CSV text is already thousands of rows
+
+// ESTIMATE ONLY. The authoritative values live in the database function
+// _price_booking(). Keep the two in sync if you change the fee model.
 const DEFAULT_FEE_CONFIG: FeeConfig = {
   percentage: 2,
   minFloorINR: 25,
@@ -385,7 +430,112 @@ const clientLocationCache: Record<string, string> = {
 };
 
 // ============================================================================
-// 4. FORMATTING & VALIDATION UTILITIES
+// 4. SECURITY HELPERS
+// ============================================================================
+
+// Only https: links are allowed for anything that came from the database.
+// This blocks javascript:, data: and http: URLs.
+function safeHttpUrl(u?: string | null): string {
+  if (!u) return "#";
+  try {
+    const parsed = new URL(String(u).trim());
+    return parsed.protocol === "https:" ? parsed.href : "#";
+  } catch {
+    return "#";
+  }
+}
+
+// https: plus blob: (blob URLs are created by this very page for demo uploads).
+function safeDocUrl(u?: string | null): string {
+  if (!u) return "#";
+  const s = String(u).trim();
+  if (s.startsWith("blob:")) return s;
+  return safeHttpUrl(s);
+}
+
+// A live document value is a storage PATH, a demo value is a blob:/https: URL.
+function isStoragePath(v?: string | null): boolean {
+  if (!v) return false;
+  return !/^(https?:|blob:|data:|javascript:)/i.test(v.trim());
+}
+
+// A path we are willing to hand to storage.createSignedUrl.
+function isSafeStoragePath(v: string, requiredPrefix: string): boolean {
+  return (
+    typeof v === "string" &&
+    v.startsWith(requiredPrefix) &&
+    !v.includes("..") &&
+    !v.includes("//") &&
+    v.length < 300
+  );
+}
+
+// Database errors can reveal table/column names. Log them, show a safe message.
+// Messages raised by OUR SQL functions start with "LC:" and are safe to show.
+function friendlyError(err: unknown, fallback = "Something went wrong. Please try again."): string {
+  const raw =
+    typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : "";
+  console.warn("[LogiCompare]", err);
+  const m = raw.match(/LC:\s*(.+)$/m);
+  if (m && m[1]) return m[1].trim();
+  if (/network|fetch|Failed to fetch/i.test(raw)) return "Network problem. Check your connection and try again.";
+  if (/row-level security|permission denied|not authorized|JWT/i.test(raw)) {
+    return "You do not have permission to do that. Please sign in again.";
+  }
+  return fallback;
+}
+
+function fetchWithTimeout(url: string, ms = 6000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+function sanitizeFileName(name: string): string {
+  const cleaned = (name || "file").replace(/[^a-zA-Z0-9.-]/g, "_").replace(/\.{2,}/g, ".");
+  return cleaned.slice(-80) || "file";
+}
+
+function randomToken(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID().slice(0, 8);
+  return Math.random().toString(36).slice(2, 10);
+}
+
+type SniffedKind = "pdf" | "jpeg" | "png" | "webp" | null;
+
+// Reads the first bytes of a file so a renamed .exe / .html cannot pass as a PDF.
+async function sniffFileKind(file: File): Promise<SniffedKind> {
+  const buf = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const asText = (from: number, to: number) => String.fromCharCode(...buf.slice(from, to));
+  if (asText(0, 4) === "%PDF") return "pdf";
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpeg";
+  if (buf[0] === 0x89 && asText(1, 4) === "PNG") return "png";
+  if (asText(0, 4) === "RIFF" && asText(8, 12) === "WEBP") return "webp";
+  return null;
+}
+
+// Returns "" when the file is acceptable, otherwise a message for the user.
+async function validateUploadFile(
+  file: File,
+  opts: { maxMB: number; allowPdf: boolean; allowImages: boolean }
+): Promise<string> {
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > opts.maxMB * 1024 * 1024) return `File is larger than ${opts.maxMB} MB.`;
+  const kind = await sniffFileKind(file);
+  if (!kind) return "Unsupported or corrupted file. Upload a PDF or a JPG/PNG/WebP scan.";
+  if (kind === "pdf" && !opts.allowPdf) return "PDF files are not accepted here.";
+  if (kind !== "pdf" && !opts.allowImages) return "Image files are not accepted here.";
+  return "";
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback = min): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+// ============================================================================
+// 5. FORMATTING & VALIDATION UTILITIES
 // ============================================================================
 const formatINR = (val: number): string => {
   return new Intl.NumberFormat("en-IN", {
@@ -404,26 +554,42 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || "").trim());
 }
 
+function isValidGstin(gstin: string): boolean {
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test((gstin || "").trim().toUpperCase());
+}
+
 function hasCompleteDimensions(b: BoxItem): boolean {
-  return Boolean(
-    b.length && b.width && b.height && Number(b.length) > 0 && Number(b.width) > 0 && Number(b.height) > 0
+  const l = Number(b.length);
+  const w = Number(b.width);
+  const h = Number(b.height);
+  return (
+    Number.isFinite(l) && Number.isFinite(w) && Number.isFinite(h) &&
+    l > 0 && w > 0 && h > 0 &&
+    l <= MAX_BOX_DIM_CM && w <= MAX_BOX_DIM_CM && h <= MAX_BOX_DIM_CM
   );
 }
 
-// Builds a "line1, city - pin" string; returns "" if the address is empty so the
-// UI can prompt the shipper instead of showing a dummy address.
+function boxQty(b: BoxItem): number {
+  return Math.floor(clampNumber(b.qty, 1, MAX_BOX_QTY, 1));
+}
+
+function boxWeight(b: BoxItem): number {
+  return clampNumber(b.weight, 0, MAX_BOX_WEIGHT_KG, 0);
+}
+
 function formatPickupAddress(addr: AddressProfile | null | undefined): string {
   if (!addr || !addr.address_line1 || !addr.pincode) return "";
   return `${addr.address_line1}${addr.address_line2 ? `, ${addr.address_line2}` : ""}, ${addr.city} - ${addr.pincode}`;
 }
 
 // ============================================================================
-// 5. CARRIER-SPECIFIC DYNAMIC TRACKING URL RESOLVER
+// 6. CARRIER-SPECIFIC TRACKING URL RESOLVER (https only)
 // ============================================================================
 function appendDocketToBase(base: string, docket: string): string {
+  if (safeHttpUrl(base) === "#") return "#";
   const b = base.trim();
   const d = encodeURIComponent(docket);
-  return b.includes("=") || b.endsWith("/") ? `${b}${d}` : `${b}/${d}`;
+  return safeHttpUrl(b.includes("=") || b.endsWith("/") ? `${b}${d}` : `${b}/${d}`);
 }
 
 function getOfficialCarrierTrackingUrl(carrier: Vendor | string, docketNumber: string): string {
@@ -432,10 +598,12 @@ function getOfficialCarrierTrackingUrl(carrier: Vendor | string, docketNumber: s
 
   if (typeof carrier === "object" && carrier !== null) {
     if (carrier.custom_tracking_url && carrier.custom_tracking_url.trim()) {
-      return appendDocketToBase(carrier.custom_tracking_url, cleanDocket);
+      const u = appendDocketToBase(carrier.custom_tracking_url, cleanDocket);
+      if (u !== "#") return u;
     }
     if (carrier.tracking_base_url && carrier.tracking_base_url.trim()) {
-      return appendDocketToBase(carrier.tracking_base_url, cleanDocket);
+      const u = appendDocketToBase(carrier.tracking_base_url, cleanDocket);
+      if (u !== "#") return u;
     }
   }
 
@@ -449,6 +617,8 @@ function getOfficialCarrierTrackingUrl(carrier: Vendor | string, docketNumber: s
   return `https://www.google.com/search?q=${encodeURIComponent(`${name} consignment tracking ${cleanDocket}`)}`;
 }
 
+// DEMO SANDBOX ONLY. In live mode the server issues a provisional docket
+// (LCD-xxxxxxxx) and the carrier replaces it with the real waybill number.
 function generateCarrierDocket(carrierName: string): string {
   const c = carrierName.toLowerCase();
   if (c.includes("delhivery")) return `14${Math.floor(1000000000 + Math.random() * 9000000000)}`;
@@ -459,7 +629,7 @@ function generateCarrierDocket(carrierName: string): string {
 }
 
 // ============================================================================
-// 6. ZONE / PIN LOOKUP
+// 7. ZONE / PIN LOOKUP
 // ============================================================================
 function getLocalFallbackZone(pin: string): { city: string; state: string; hub: string } {
   if (!pin || pin.length < 3) return { city: "Detecting Location...", state: "India", hub: "HUB-GEN" };
@@ -488,20 +658,24 @@ function getLocalFallbackZone(pin: string): { city: string; state: string; hub: 
   return { city: `Zone ${p2}XX`, state: "Regional District", hub: `HUB-${p2}X` };
 }
 
-// Single resolver used everywhere a 6-digit PIN must become city/state/hub.
-// Tries the public postal API first, then falls back to the local zone table.
+// The postal API is third-party data: validate its shape and strip odd characters
+// before it is stored in state or written to the database.
+function cleanPlaceText(v: unknown, max = 60): string {
+  return String(v ?? "").replace(/[<>"'`]/g, "").slice(0, max);
+}
+
 async function lookupPinZone(pin: string): Promise<{ city: string; state: string; hub: string }> {
   const clean = (pin || "").trim();
   if (clean.length !== 6) return getLocalFallbackZone(clean);
   try {
-    const res = await fetch(`https://api.postalpincode.in/pincode/${clean}`);
+    const res = await fetchWithTimeout(`https://api.postalpincode.in/pincode/${encodeURIComponent(clean)}`);
     const data = await res.json();
-    if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
+    if (Array.isArray(data) && data[0]?.Status === "Success" && Array.isArray(data[0]?.PostOffice) && data[0].PostOffice.length > 0) {
       const po = data[0].PostOffice[0];
-      const city: string = po.District || po.Block || po.Name;
+      const city = cleanPlaceText(po.District || po.Block || po.Name) || "Unknown";
       return {
         city,
-        state: po.State,
+        state: cleanPlaceText(po.State),
         hub: `HUB-${city.substring(0, 3).toUpperCase()}-01`
       };
     }
@@ -513,19 +687,21 @@ async function lookupPinZone(pin: string): Promise<{ city: string; state: string
 
 async function resolveLocationToPrefix(rawInput: string): Promise<string> {
   if (!rawInput) return "%";
-  const clean = rawInput.trim().toLowerCase();
+  const clean = rawInput.trim().toLowerCase().slice(0, 60);
   if (clean === "%") return "%";
   if (/^\d{3,6}$/.test(clean)) return clean.substring(0, 3);
   if (clientLocationCache[clean]) return clientLocationCache[clean];
 
   try {
-    const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(clean)}`);
+    const res = await fetchWithTimeout(`https://api.postalpincode.in/postoffice/${encodeURIComponent(clean)}`);
     const data = await res.json();
-    if (data && data[0]?.Status === "Success" && data[0]?.PostOffice?.length > 0) {
-      const pin: string = data[0].PostOffice[0].Pincode;
-      const prefix = pin.substring(0, 3);
-      clientLocationCache[clean] = prefix;
-      return prefix;
+    if (Array.isArray(data) && data[0]?.Status === "Success" && Array.isArray(data[0]?.PostOffice) && data[0].PostOffice.length > 0) {
+      const pin = String(data[0].PostOffice[0].Pincode || "");
+      if (/^\d{6}$/.test(pin)) {
+        const prefix = pin.substring(0, 3);
+        clientLocationCache[clean] = prefix;
+        return prefix;
+      }
     }
   } catch (err) {
     console.warn("Postal API lookup fallback:", clean, err);
@@ -534,7 +710,7 @@ async function resolveLocationToPrefix(rawInput: string): Promise<string> {
 }
 
 // ============================================================================
-// 7. RATE CALCULATION ENGINE (STRICT LIVE-MODE ISOLATION)
+// 8. RATE CALCULATION ENGINE (ESTIMATE; THE SERVER RE-PRICES EVERY BOOKING)
 // ============================================================================
 function calculatePlatformFee(freightTotal: number, feeConfig: FeeConfig = DEFAULT_FEE_CONFIG): number {
   const dynamicFee = (freightTotal * feeConfig.percentage) / 100;
@@ -544,7 +720,7 @@ function calculatePlatformFee(freightTotal: number, feeConfig: FeeConfig = DEFAU
 function calculateQuotesForShipment(
   originPin: string,
   destPin: string,
-  boxes: BoxItem[],
+  boxesInput: BoxItem[],
   declaredValue: number,
   mode: "all" | TransportMode,
   isOda: boolean,
@@ -556,14 +732,15 @@ function calculateQuotesForShipment(
 ): CalculatedQuote[] {
   if (!isValidPin(originPin) || !isValidPin(destPin)) return [];
 
-  const actualWeight = boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0);
+  const boxes = boxesInput.slice(0, MAX_BOXES_PER_BOOKING);
+  const actualWeight = boxes.reduce((acc, b) => acc + boxWeight(b) * boxQty(b), 0);
   if (actualWeight <= 0) return [];
+  const safeDeclared = clampNumber(declaredValue, 0, 100000000, 0);
 
   const oPrefix = originPin.substring(0, 3);
   const dPrefix = destPin.substring(0, 3);
   const hasDimensions = boxes.some(hasCompleteDimensions);
 
-  // In live mode, strip anything flagged as demo before matching.
   const eligibleCards = options.liveMode ? rateCardsList.filter((c) => !c.is_demo) : rateCardsList;
 
   const matchedCards = eligibleCards.filter((card) => {
@@ -576,8 +753,7 @@ function calculateQuotesForShipment(
     return originMatches && destMatches;
   });
 
-  // LIVE: no fallback whatsoever -> caller shows "No verified carrier rates found for this route yet".
-  // DEMO: preserve the old sandbox behaviour of showing sample cards.
+  // LIVE: no fallback whatsoever. DEMO: sample cards are shown when nothing matches.
   const activeCards =
     matchedCards.length > 0 ? matchedCards : options.liveMode ? [] : eligibleCards.slice(0, 5);
 
@@ -586,9 +762,8 @@ function calculateQuotesForShipment(
   for (const card of activeCards) {
     const v: Vendor | undefined =
       card.vendors || vendorsList.find((vend) => vend.id === card.vendor_id) || (options.liveMode ? undefined : vendorsList[0]);
-    // A card without a resolvable verified carrier is never shown in live mode.
     if (!v) continue;
-    if (options.liveMode && v.is_demo) continue;
+    if (options.liveMode && (v.is_demo || v.is_verified === false)) continue;
 
     const divisor = card.mode === "air" ? 5000 : 4500;
 
@@ -597,18 +772,19 @@ function calculateQuotesForShipment(
       volumetricWeight = boxes.reduce((acc, b) => {
         if (!hasCompleteDimensions(b)) return acc;
         const volKg = (Number(b.length) * Number(b.width) * Number(b.height)) / divisor;
-        return acc + volKg * (Number(b.qty) || 1);
+        return acc + volKg * boxQty(b);
       }, 0);
     }
 
+    const minWt = Number(card.min_weight_kg) || 0;
     const billableWeight = hasDimensions
-      ? Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10, Number(card.min_weight_kg) || 0)
-      : Math.max(actualWeight, Number(card.min_weight_kg) || 0);
+      ? Math.max(actualWeight, Math.round(volumetricWeight * 10) / 10, minWt)
+      : Math.max(actualWeight, minWt);
 
     const baseFreight = Number(card.base_rate) + billableWeight * Number(card.per_kg_rate);
     const fuelSurcharge = (baseFreight * Number(card.fuel_surcharge_pct)) / 100;
     const docket = Number(card.docket_charge);
-    const fov = Math.max(50, (Number(declaredValue) * Number(card.fov_pct || feeConfig.fovPercentage)) / 100);
+    const fov = Math.max(50, (safeDeclared * Number(card.fov_pct || feeConfig.fovPercentage)) / 100);
     const handling = billableWeight * Number(card.handling_per_kg || 0);
     const oda = isOda ? Number(card.oda_charge || feeConfig.odaFlatCharge) : 0;
 
@@ -653,7 +829,7 @@ function calculateQuotesForShipment(
 }
 
 // ============================================================================
-// 8. IN-BROWSER FILE COMPRESSION (IMAGES + CREDIT AGREEMENT PDFs)
+// 9. IN-BROWSER FILE COMPRESSION (IMAGES + CREDIT AGREEMENT PDFs)
 // ============================================================================
 async function compressImageFile(file: File): Promise<File> {
   if (!file.type.startsWith("image/")) return file;
@@ -694,13 +870,8 @@ async function compressImageFile(file: File): Promise<File> {
   });
 }
 
-// Compresses a credit agreement before it is uploaded to the Supabase 'agreements' bucket.
-//  - Files <= 1 MB are returned untouched.
-//  - Images are re-encoded as JPEG (max 1200px wide, quality 0.75).
-//  - PDFs are re-serialised with pdf-lib using object streams.
-// HONEST NOTE: pdf-lib's useObjectStreams repacks the structure (xref + object overhead).
-// It can shrink PDFs with many small objects, but it does NOT downsample embedded
-// images, so a scanned PDF may barely shrink. The original is kept whenever the result isn't smaller.
+// NOTE: pdf-lib only repacks the PDF structure. It does not downsample embedded
+// images, so scanned PDFs may barely shrink. The original is kept unless smaller.
 async function compressAgreementFile(file: File): Promise<AgreementCompressionResult> {
   const originalSizeKB = Math.round(file.size / 1024);
   const untouched: AgreementCompressionResult = {
@@ -729,10 +900,10 @@ async function compressAgreementFile(file: File): Promise<AgreementCompressionRe
     try {
       const { PDFDocument } = await import("pdf-lib");
       const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      // ignoreEncryption removed: an encrypted PDF is uploaded untouched instead.
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
       const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
 
-      // Copy into a plain ArrayBuffer so the Blob constructor is happy under strict TS.
       const plainBuffer = new ArrayBuffer(compressedBytes.byteLength);
       new Uint8Array(plainBuffer).set(compressedBytes);
       const blob = new Blob([plainBuffer], { type: "application/pdf" });
@@ -759,22 +930,48 @@ async function compressAgreementFile(file: File): Promise<AgreementCompressionRe
   return untouched;
 }
 
-// Builds a safe Storage object path: credit-agreements/<shipperId>/<timestamp>-<name>
+// ============================================================================
+// 10. STORAGE PATH BUILDERS (the user id MUST be the 2nd path segment: the
+//     storage policies in Part 8 check it)
+// ============================================================================
+// credit-agreements/<shipperId>/<timestamp>-<random>-<name>
 function buildAgreementStoragePath(shipperId: string, fileName: string): string {
-  const safe = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
-  return `credit-agreements/${shipperId}/${Date.now()}-${safe}`;
+  return `credit-agreements/${shipperId}/${Date.now()}-${randomToken()}-${sanitizeFileName(fileName)}`;
+}
+
+// dockets/<carrierId>/bilty-<bookingId>-<timestamp>-<random>.<ext>
+function buildDocketStoragePath(carrierId: string, bookingId: string, fileName: string): string {
+  const ext = (fileName.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "jpg";
+  const safeBooking = String(bookingId).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 60);
+  return `dockets/${carrierId}/bilty-${safeBooking}-${Date.now()}-${randomToken()}.${ext}`;
 }
 
 // ============================================================================
-// END OF PART 1 OF 7
+// END OF PART 1 OF 8
+// ============================================================================QQ
 // ============================================================================
-// ============================================================================
-// PART 2 OF 7 — GLOBAL CONFIG, DEMO DATA, APP ENGINE (PERSISTENT AUTH), AUTH MODAL
+// PART 2 OF 8 — GLOBAL CONFIG, DEMO DATA, APP ENGINE (SERVER-SIDE BOOKING), AUTH MODAL
 // Paste directly after Part 1. No named exports.
+//
+// WHAT CHANGED vs the old Part 2
+//  - MERCHANT_DETAILS no longer ships your bank account number / IFSC.
+//  - Live bookings, batch bookings, credit review, ledger settlement, invoice
+//    payment and bilty linking now go through the SQL functions from Part 8.
+//    The browser never sends prices, fees, status or docket numbers.
+//  - Profiles/vendor rows are created by a database trigger (no client upsert,
+//    so a user can no longer choose their own role).
+//  - Carrier payout details are only read for the carrier's OWN row; shippers
+//    read the safe `vendors_public` view.
+//  - SIGNED_OUT wipes ALL live data (even if you were previewing the demo).
+//  - Stale async responses from a previous user are ignored (fetch sequence).
+//  - Agreements and bilty scans are opened ONLY through short-lived signed URLs.
+//  - CSV import has size/row/length caps. Bulk credit use is checked in total.
+//  - Auth modal: stronger password rule, GSTIN format check, login throttling
+//    (UX only; also enable CAPTCHA + rate limits in Supabase), generic errors.
 // ============================================================================
 
 // ============================================================================
-// 9. MERCHANT CONFIGURATION
+// 11. MERCHANT CONFIGURATION (PUBLIC — everything here is visible in the browser)
 // ============================================================================
 const MERCHANT_DETAILS: Record<string, any> = {
   proprietor: "Yash Chaudhary",
@@ -783,9 +980,9 @@ const MERCHANT_DETAILS: Record<string, any> = {
   category: "B2B Freight Discovery & Consignment Marketplace",
   email: "yash963957@gmail.com",
   phone: "+91 8194017660",
+  // A UPI handle is meant to be shared. Bank account number / IFSC were REMOVED
+  // from the bundle: share them with carriers by email after login if needed.
   vpa: "yash963957@icici",
-  accountNumber: "50200088910001",
-  ifsc: "HDFC0000240",
   gstin: "07AAACY1234A1Z1",
   address: "House No. S-175/219, B Block, Rangpuri Pahari Nala, New Delhi - 110037, India",
   jurisdiction: "New Delhi, Delhi, India",
@@ -797,8 +994,7 @@ const MERCHANT_DETAILS: Record<string, any> = {
 };
 
 // ============================================================================
-// 10. DEMO SANDBOX DATA (ONLY EVER USED WHEN modeEnv === "demo")
-// Every record is tagged is_demo: true. Live mode never reads these constants.
+// 12. DEMO SANDBOX DATA (ONLY EVER USED WHEN modeEnv === "demo")
 // ============================================================================
 const DEMO_INIT_ORDER_ID = "LC-894210";
 const DEMO_INIT_CARRIER_DOCKET = "148920194821";
@@ -860,6 +1056,7 @@ const DEMO_VENDORS: Vendor[] = [
     beneficiary_name: "Delhivery Limited B2B Logistics",
     tracking_base_url: "https://www.delhivery.com/track/package/",
     custom_tracking_url: "https://www.delhivery.com/track/package/",
+    is_verified: true,
     is_demo: true
   },
   {
@@ -875,6 +1072,7 @@ const DEMO_VENDORS: Vendor[] = [
     beneficiary_name: "Blue Dart Express Limited",
     tracking_base_url: "https://www.bluedart.com/tracking?trackNo=",
     custom_tracking_url: "https://www.bluedart.com/tracking?trackNo=",
+    is_verified: true,
     is_demo: true
   },
   {
@@ -890,6 +1088,7 @@ const DEMO_VENDORS: Vendor[] = [
     beneficiary_name: "Transport Corporation of India Ltd",
     tracking_base_url: "https://www.tcifreight.com/tracking/",
     custom_tracking_url: "https://www.tcifreight.com/tracking/",
+    is_verified: true,
     is_demo: true
   },
   {
@@ -905,6 +1104,7 @@ const DEMO_VENDORS: Vendor[] = [
     beneficiary_name: "Gati-Kintetsu Express Pvt Ltd",
     tracking_base_url: "https://www.gati.com/track-shipment/?docket=",
     custom_tracking_url: "https://www.gati.com/track-shipment/?docket=",
+    is_verified: true,
     is_demo: true
   },
   {
@@ -920,6 +1120,7 @@ const DEMO_VENDORS: Vendor[] = [
     beneficiary_name: "Safexpress Private Limited",
     tracking_base_url: "https://www.safexpress.com/track-waybill?waybill=",
     custom_tracking_url: "https://www.safexpress.com/track-waybill?waybill=",
+    is_verified: true,
     is_demo: true
   }
 ];
@@ -1122,7 +1323,6 @@ const DEMO_CREDIT_LEDGER: CreditLedgerEntry[] = [
   }
 ];
 
-// One sample consignment so the "Sample Tracking Identifiers" on the landing page resolve in demo mode.
 const DEMO_BOOKINGS: Booking[] = [
   {
     id: "book-demo-01",
@@ -1208,7 +1408,7 @@ type StatusUpdateEntry = {
   location: string;
   remarks: string;
   docketNo?: string;
-  docUrl?: string;
+  docUrl?: string; // live: private storage path, demo: blob: URL
   isUploading?: boolean;
 };
 
@@ -1219,14 +1419,38 @@ type CreditApplicationPayload = {
   limit: number;
   termsDays: number;
   docName: string;
-  documentUrl: string; // may be "" for private-bucket uploads; file_path is the source of truth in live mode
+  documentUrl: string; // ignored in live mode: file_path (private bucket) is the source of truth
   filePath?: string;
   originalSizeKB?: number;
   compressedSizeKB?: number;
 };
 
 // ============================================================================
-// 11. LIGHTWEIGHT SESSION-RESTORE LOADER (shown instead of flashing demo/landing)
+// 13. SERVER-SIDE BOOKING HELPERS (used by the engine AND by Part 4's booking modal)
+// ============================================================================
+function attachVendor(b: Booking, vendors: Vendor[]): Booking {
+  return { ...b, vendors: vendors.find((v) => v.id === b.vendor_id) || b.vendors };
+}
+
+// Calls the create_booking SQL function. The server recomputes the price, issues
+// the order ref + provisional docket and (for credit) checks and reserves the limit.
+async function rpcCreateBooking(
+  payload: CreateBookingPayload,
+  settlement: SettlementType,
+  ref: string,
+  vendors: Vendor[]
+): Promise<Booking> {
+  const { data, error } = await supabase.rpc("create_booking", {
+    p: payload,
+    p_settlement: settlement,
+    p_ref: ref
+  });
+  if (error || !data) throw new Error(friendlyError(error, "Booking could not be saved. Nothing was dispatched."));
+  return attachVendor(data as Booking, vendors);
+}
+
+// ============================================================================
+// 14. SESSION-RESTORE LOADER
 // ============================================================================
 const SessionLoadingScreen: FC = () => (
   <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 text-white">
@@ -1243,13 +1467,7 @@ const SessionLoadingScreen: FC = () => (
 );
 
 // ============================================================================
-// 12. APPLICATION STATE ENGINE & HOOK CONTROLLER
-//
-// DATA ISOLATION MODEL
-// Demo data and live data live in SEPARATE state slots (demoX / liveX). The
-// public `vendors`, `rateCards`, `bookings`... values are simply a view onto the
-// slot matching modeEnv, and the matching setter writes to the same slot.
-// Live slots start EMPTY and are filled only from Supabase, scoped per user.
+// 15. APPLICATION STATE ENGINE & HOOK CONTROLLER
 // ============================================================================
 function useAppEngine() {
   // ---- Session / navigation ----
@@ -1270,6 +1488,8 @@ function useAppEngine() {
   const loadedUserRef = useRef<string | null>(null);
   const inflightProfileRef = useRef<Map<string, Promise<void>>>(new Map());
   const liveProfileRef = useRef<UserProfile | null>(null);
+  // Incremented whenever the signed-in user changes, so late responses are dropped.
+  const fetchSeqRef = useRef<number>(0);
 
   // ---- Carrier public tracking URL ----
   const [carrierCustomTrackingUrl, setCarrierCustomTrackingUrl] = useState<string>("");
@@ -1370,6 +1590,21 @@ function useAppEngine() {
 
   const [statusUpdateMap, setStatusUpdateMap] = useState<StatusUpdateMap>({});
 
+  // Wipes every live slot so nothing from a previous account can ever render.
+  const wipeLiveData = useCallback(() => {
+    fetchSeqRef.current += 1; // invalidates any request still in flight
+    setLiveVendors([]);
+    setLiveRateCards([]);
+    setLiveBookings([]);
+    setLiveRfqList([]);
+    setLiveInvoices([]);
+    setLiveAgreements([]);
+    setLiveLedger([]);
+    setStatusUpdateMap({});
+    setBulkManifestList([]);
+    setLiveDataLoading(false);
+  }, []);
+
   // --------------------------------------------------------------------------
   // Origin address application (null => live shipper has no address yet)
   // --------------------------------------------------------------------------
@@ -1392,22 +1627,41 @@ function useAppEngine() {
   }, []);
 
   const handleSaveAddress = async (address: AddressProfile) => {
+    const clean: AddressProfile = {
+      ...address,
+      label: address.label.trim().slice(0, 60),
+      company_name: address.company_name.trim().slice(0, 160),
+      contact_name: address.contact_name.trim().slice(0, 120),
+      phone: address.phone.trim().slice(0, 20),
+      email: address.email.trim().slice(0, 160),
+      gstin: address.gstin.trim().toUpperCase().slice(0, 15),
+      address_line1: address.address_line1.trim().slice(0, 200),
+      address_line2: (address.address_line2 || "").trim().slice(0, 200),
+      city: address.city.trim().slice(0, 80),
+      state: address.state.trim().slice(0, 80),
+      pincode: address.pincode.trim()
+    };
+    if (!isValidPin(clean.pincode) || !clean.address_line1 || !clean.city || !clean.state) {
+      alert("Please provide a valid PIN, address line, city and state.");
+      return;
+    }
+
     let updatedList = [...shipperAddresses];
-    const existingIndex = updatedList.findIndex((a) => a.id === address.id);
-    // First address a live shipper ever saves is always the default.
-    const makeDefault = address.is_default || updatedList.length === 0;
-    const normalized: AddressProfile = { ...address, is_default: makeDefault };
+    const existingIndex = updatedList.findIndex((a) => a.id === clean.id);
+    if (existingIndex < 0 && updatedList.length >= 20) {
+      alert("You can save up to 20 pickup addresses.");
+      return;
+    }
+    const makeDefault = clean.is_default || updatedList.length === 0;
+    const normalized: AddressProfile = { ...clean, is_default: makeDefault };
     if (makeDefault) updatedList = updatedList.map((a) => ({ ...a, is_default: false }));
     if (existingIndex >= 0) updatedList[existingIndex] = normalized;
     else updatedList.push(normalized);
 
     if (isLive && currentUser.isRealUser) {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ saved_addresses: updatedList })
-        .eq("id", currentUser.id);
+      const { error } = await supabase.from("profiles").update({ saved_addresses: updatedList }).eq("id", currentUser.id);
       if (error) {
-        alert(`Could not save address to your account: ${error.message}`);
+        alert(friendlyError(error, "Could not save the address to your account."));
         return;
       }
       setCurrentUser((u) => ({ ...u, saved_addresses: updatedList }));
@@ -1452,7 +1706,6 @@ function useAppEngine() {
       setShipperTab("search");
       setCarrierTab("tracking");
 
-      // REAL ADDRESS ISOLATION: only the user's own saved addresses. Empty => UI prompts to add one.
       const addrs = profile.saved_addresses || [];
       setShipperAddresses(addrs);
       applyOriginAddress(addrs.find((a) => a.is_default) || addrs[0] || null);
@@ -1478,48 +1731,63 @@ function useAppEngine() {
   );
 
   // --------------------------------------------------------------------------
-  // Live data fetch (strictly scoped to the signed-in user)
+  // Live data fetch (the database RLS policies ALSO scope everything to the user)
   // --------------------------------------------------------------------------
   const fetchLiveData = useCallback(async (profile: UserProfile) => {
+    const seq = ++fetchSeqRef.current;
     setLiveDataLoading(true);
     const isCarrierUser = profile.role === "carrier" || profile.role === "vendor";
     const vid = profile.vendor_id || profile.id;
     try {
-      let rateQ = supabase.from("rate_cards").select("*, vendors(*)");
-      rateQ = isCarrierUser ? rateQ.eq("vendor_id", vid) : rateQ.eq("is_active", true);
+      // Public view = verified carriers only, WITHOUT bank details.
+      const pubQ = supabase.from("vendors_public").select("*");
+      // A carrier additionally reads its OWN full row (includes payout details).
+      const ownQ = isCarrierUser
+        ? supabase.from("vendors").select("*").eq("id", vid).maybeSingle()
+        : Promise.resolve({ data: null, error: null });
 
-      let bookQ = supabase.from("bookings").select("*, vendors(*)").order("created_at", { ascending: false });
-      bookQ = isCarrierUser ? bookQ.eq("vendor_id", vid) : bookQ.eq("shipper_id", profile.id);
+      const rateQ = isCarrierUser
+        ? supabase.from("rate_cards").select("*").eq("vendor_id", vid).limit(1000)
+        : supabase.from("rate_cards").select("*").eq("is_active", true).limit(2000);
 
-      let rfqQ = supabase.from("rfq_bids").select("*").order("created_at", { ascending: false });
-      rfqQ = isCarrierUser ? rfqQ.eq("status", "Open") : rfqQ.eq("shipper_name", profile.company_name);
+      const bookQ = (isCarrierUser
+        ? supabase.from("bookings").select("*").eq("vendor_id", vid)
+        : supabase.from("bookings").select("*").eq("shipper_id", profile.id)
+      ).order("created_at", { ascending: false }).limit(500);
 
-      let agrQ = supabase.from("credit_agreements").select("*").order("submitted_at", { ascending: false });
-      agrQ = isCarrierUser ? agrQ.eq("carrier_id", vid) : agrQ.eq("shipper_id", profile.id);
+      const rfqQ = (isCarrierUser
+        ? supabase.from("rfq_bids").select("*").eq("status", "Open")
+        : supabase.from("rfq_bids").select("*").eq("shipper_id", profile.id)
+      ).order("created_at", { ascending: false }).limit(200);
 
-      let ledQ = supabase.from("credit_ledger").select("*").order("created_at", { ascending: false });
-      ledQ = isCarrierUser ? ledQ.eq("carrier_id", vid) : ledQ.eq("shipper_id", profile.id);
+      const agrQ = (isCarrierUser
+        ? supabase.from("credit_agreements").select("*").eq("carrier_id", vid)
+        : supabase.from("credit_agreements").select("*").eq("shipper_id", profile.id)
+      ).order("submitted_at", { ascending: false }).limit(200);
+
+      const ledQ = (isCarrierUser
+        ? supabase.from("credit_ledger").select("*").eq("carrier_id", vid)
+        : supabase.from("credit_ledger").select("*").eq("shipper_id", profile.id)
+      ).order("created_at", { ascending: false }).limit(500);
 
       const invQ = isCarrierUser
-        ? supabase.from("platform_invoices").select("*").eq("carrier_id", vid).order("period_start", { ascending: false })
-        : null;
+        ? supabase.from("platform_invoices").select("*").eq("carrier_id", vid).order("period_start", { ascending: false }).limit(200)
+        : Promise.resolve({ data: [], error: null });
 
-      const [vRes, rRes, bRes, qRes, aRes, lRes, iRes] = await Promise.all([
-        supabase.from("vendors").select("*"),
-        rateQ,
-        bookQ,
-        rfqQ,
-        agrQ,
-        ledQ,
-        invQ ? invQ : Promise.resolve({ data: [] as PlatformInvoice[], error: null })
-      ]);
+      const res: any[] = await Promise.all([pubQ, ownQ, rateQ, bookQ, rfqQ, agrQ, ledQ, invQ]);
+      if (seq !== fetchSeqRef.current) return; // the user changed while we were loading
 
-      const firstError = [vRes, rRes, bRes, qRes, aRes, lRes, iRes].find((r: any) => r && r.error);
-      if (firstError) console.warn("Live data sync warning:", (firstError as any).error?.message);
+      const [pubRes, ownRes, rRes, bRes, qRes, aRes, lRes, iRes] = res;
+      const firstError = res.find((r) => r && r.error);
+      if (firstError) console.warn("Live data sync warning:", firstError.error?.message);
 
-      setLiveVendors((vRes.data || []) as Vendor[]);
-      setLiveRateCards((rRes.data || []) as RateCard[]);
-      setLiveBookings((bRes.data || []) as Booking[]);
+      const pub = (pubRes.data || []) as Vendor[];
+      const own = (ownRes.data || null) as Vendor | null;
+      const vendorList: Vendor[] = own ? [own, ...pub.filter((v) => v.id !== own.id)] : pub;
+
+      setLiveVendors(vendorList);
+      setLiveRateCards(((rRes.data || []) as RateCard[]).map((c) => ({ ...c, vendors: vendorList.find((v) => v.id === c.vendor_id) })));
+      setLiveBookings(((bRes.data || []) as Booking[]).map((b) => attachVendor(b, vendorList)));
       setLiveRfqList((qRes.data || []) as RfqBid[]);
       setLiveAgreements((aRes.data || []) as CreditAgreement[]);
       setLiveLedger((lRes.data || []) as CreditLedgerEntry[]);
@@ -1527,7 +1795,7 @@ function useAppEngine() {
     } catch (err) {
       console.warn("Supabase data synchronization warning:", err);
     } finally {
-      setLiveDataLoading(false);
+      if (seq === fetchSeqRef.current) setLiveDataLoading(false);
     }
   }, []);
 
@@ -1538,7 +1806,8 @@ function useAppEngine() {
   }, [fetchLiveData]);
 
   // --------------------------------------------------------------------------
-  // Profile loading (single source of truth for turning a session into a user)
+  // Profile loading. The profile (and a carrier's vendor row) is created by a
+  // database trigger at signup, so the browser only READS it here.
   // --------------------------------------------------------------------------
   const loadProfile = useCallback(
     (user: SupabaseUser, force: boolean = false): Promise<void> => {
@@ -1548,31 +1817,20 @@ function useAppEngine() {
 
       const task = (async () => {
         try {
-          const { data: row, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-          if (error) console.warn("Profile fetch warning:", error.message);
+          // A different account signed in on the same tab: drop the old data first.
+          if (loadedUserRef.current && loadedUserRef.current !== user.id) wipeLiveData();
 
-          let pData: any = row;
+          let pData: any = null;
+          for (let attempt = 0; attempt < 4 && !pData; attempt++) {
+            const { data: row, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+            if (error) console.warn("Profile fetch warning:", error.message);
+            if (row) pData = row;
+            else await new Promise((r) => setTimeout(r, 500));
+          }
           if (!pData) {
-            // First sign-in after signup (e.g. after email confirmation): build the profile
-            // from the metadata captured at registration. Role is whitelisted, never "admin".
-            const meta = (user.user_metadata || {}) as Record<string, any>;
-            const newRow = {
-              id: user.id,
-              email: user.email || "",
-              full_name: meta.full_name || "",
-              company_name: meta.company_name || "",
-              gstin: meta.gstin || "",
-              phone: meta.phone || "",
-              role: meta.role === "carrier" ? "carrier" : "shipper",
-              saved_addresses: [] as AddressProfile[]
-            };
-            const { data: inserted, error: insErr } = await supabase
-              .from("profiles")
-              .upsert([newRow])
-              .select()
-              .maybeSingle();
-            if (insErr) console.warn("Profile create warning:", insErr.message);
-            pData = inserted || newRow;
+            alert("Your account is still being set up. Please sign in again in a moment.");
+            await supabase.auth.signOut();
+            return;
           }
 
           const isCarrier = pData.role === "carrier" || pData.role === "vendor";
@@ -1591,25 +1849,6 @@ function useAppEngine() {
             custom_tracking_url: pData.custom_tracking_url || ""
           };
 
-          // A carrier needs a vendors row (id = user id) so its rate cards and bookings link up.
-          // ignoreDuplicates keeps any existing/verified row untouched.
-          if (isCarrier) {
-            const { error: vErr } = await supabase.from("vendors").upsert(
-              [
-                {
-                  id: user.id,
-                  name: profile.company_name,
-                  badge: "New Carrier",
-                  rating: 0,
-                  gstin: profile.gstin,
-                  fleet_types: []
-                }
-              ],
-              { onConflict: "id", ignoreDuplicates: true }
-            );
-            if (vErr) console.warn("Vendor row ensure warning:", vErr.message);
-          }
-
           loadedUserRef.current = user.id;
           enterLiveMode(profile);
           await fetchLiveData(profile);
@@ -1623,7 +1862,7 @@ function useAppEngine() {
       inflightProfileRef.current.set(user.id, task);
       return task;
     },
-    [enterLiveMode, fetchLiveData]
+    [enterLiveMode, fetchLiveData, wipeLiveData]
   );
 
   const returnToLoggedOut = useCallback(() => {
@@ -1631,18 +1870,9 @@ function useAppEngine() {
     liveProfileRef.current = null;
     setAuthSession(null);
     setPasswordRecoveryPending(false);
-    // Wipe every live slot so nothing from the previous account can ever render.
-    setLiveVendors([]);
-    setLiveRateCards([]);
-    setLiveBookings([]);
-    setLiveRfqList([]);
-    setLiveInvoices([]);
-    setLiveAgreements([]);
-    setLiveLedger([]);
-    setStatusUpdateMap({});
-    setBulkManifestList([]);
+    wipeLiveData();
     enterDemoMode("landing");
-  }, [enterDemoMode]);
+  }, [enterDemoMode, wipeLiveData]);
 
   // --------------------------------------------------------------------------
   // PERSISTENT AUTH: getSession() on mount + onAuthStateChange (subscribed once)
@@ -1672,12 +1902,11 @@ function useAppEngine() {
       if (event === "PASSWORD_RECOVERY") setPasswordRecoveryPending(true);
 
       if (event === "SIGNED_OUT") {
-        // Only an explicit sign-out (or a revoked/expired refresh token) lands here.
-        if (modeRef.current === "live") returnToLoggedOut();
+        // ALWAYS wipe, even if the person was previewing the demo sandbox at the time.
+        returnToLoggedOut();
         return;
       }
 
-      // TOKEN_REFRESHED only updates the stored session; the user stays logged in untouched.
       if (
         session?.user &&
         (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "PASSWORD_RECOVERY")
@@ -1730,9 +1959,10 @@ function useAppEngine() {
   // --------------------------------------------------------------------------
   const handleGlobalSearch = (e: FormEvent) => {
     e.preventDefault();
-    if (!globalSearchInput.trim()) return;
-    setActiveTrackingAwb(globalSearchInput.trim());
-    setTrackingSearchInput(globalSearchInput.trim());
+    const q = globalSearchInput.trim().slice(0, 60);
+    if (!q) return;
+    setActiveTrackingAwb(q);
+    setTrackingSearchInput(q);
     setActiveRole("shipper");
     setShipperTab("history");
     setGlobalSearchInput("");
@@ -1747,7 +1977,6 @@ function useAppEngine() {
       setActiveRole(role);
       return;
     }
-    // Demo sandbox: free switching between consoles.
     setActiveRole(role);
     if (role === "shipper") setCurrentUser(DEMO_SHIPPER);
     if (role === "carrier" || role === "vendor") setCurrentUser(DEMO_CARRIER);
@@ -1775,7 +2004,7 @@ function useAppEngine() {
   };
 
   // --------------------------------------------------------------------------
-  // Quote calculation (live mode: strictly verified carrier rate cards only)
+  // Quote calculation (ESTIMATE; the server re-prices at booking time)
   // --------------------------------------------------------------------------
   const calculatedQuotes = useMemo(() => {
     return calculateQuotesForShipment(
@@ -1794,9 +2023,10 @@ function useAppEngine() {
   }, [originPin, destPin, boxes, declaredValue, selectedMode, isOda, rateCards, vendors, feeConfig, creditAgreements, isLive]);
 
   // --------------------------------------------------------------------------
-  // Credit utilisation + ledger entries for bookings settled on corporate credit
+  // DEMO ONLY: local credit utilisation. In live mode the database function
+  // create_booking() already reserved the limit and wrote the ledger row.
   // --------------------------------------------------------------------------
-  const applyCreditUtilization = async (saved: Booking[]) => {
+  const applyDemoCreditUtilization = async (saved: Booking[]) => {
     const creditBookings = saved.filter(
       (b) => b.cost_breakdown?.settlement_type === "corporate_credit" && b.cost_breakdown?.credit_agreement_id
     );
@@ -1825,30 +2055,12 @@ function useAppEngine() {
         amount,
         due_date: due.toISOString().split("T")[0],
         status: "Unpaid",
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        is_demo: true
       });
     }
 
-    let ledgerToStore = newEntries;
-    if (isLive) {
-      const payload = newEntries.map(({ id, ...rest }) => rest);
-      const { data, error } = await supabase.from("credit_ledger").insert(payload).select("*");
-      if (error) {
-        alert(`Bookings were created, but the credit ledger could not be updated: ${error.message}`);
-        return;
-      }
-      ledgerToStore = (data || []) as CreditLedgerEntry[];
-      for (const [agreementId, used] of Object.entries(usageByAgreement)) {
-        const agreement = creditAgreements.find((a) => a.id === agreementId);
-        if (!agreement) continue;
-        await supabase
-          .from("credit_agreements")
-          .update({ utilized_amount: agreement.utilized_amount + used })
-          .eq("id", agreementId);
-      }
-    }
-
-    setCreditLedger((prev) => [...ledgerToStore, ...prev]);
+    setCreditLedger((prev) => [...newEntries, ...prev]);
     setCreditAgreements((prev) =>
       prev.map((a) => (usageByAgreement[a.id] ? { ...a, utilized_amount: a.utilized_amount + usageByAgreement[a.id] } : a))
     );
@@ -1857,21 +2069,31 @@ function useAppEngine() {
   // Called by the single-booking modal (Part 4) and the bulk flow below.
   const registerNewBookings = async (saved: Booking[]) => {
     setBookings((prev) => [...saved, ...prev]);
-    await applyCreditUtilization(saved);
+    if (isLive) {
+      // Credit usage + ledger rows were written by the server: just re-read them.
+      if (saved.some((b) => b.cost_breakdown?.settlement_type === "corporate_credit")) await fetchAllData();
+      return;
+    }
+    await applyDemoCreditUtilization(saved);
   };
 
   // --------------------------------------------------------------------------
-  // Bulk CSV upload (semicolon weights, optional dimensions)
+  // Bulk CSV upload (semicolon weights, optional dimensions) — with hard limits
   // --------------------------------------------------------------------------
   const handleBulkCsvUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
 
-    setBulkCsvFileName(file.name);
+    setBulkCsvFileName(file.name.slice(0, 80));
     setBulkUploadError("");
 
     if (!activeOriginAddress) {
       setBulkUploadError("Set your default pickup address under Dispatch Facilities before uploading a bulk manifest.");
+      return;
+    }
+    if (file.size > MAX_CSV_FILE_BYTES) {
+      setBulkUploadError("CSV file is too large (limit 1 MB).");
       return;
     }
     const originAddress = activeOriginAddress;
@@ -1882,7 +2104,7 @@ function useAppEngine() {
         const text = event.target?.result as string;
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
         if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
-        if (lines.length - 1 > 50) throw new Error("Maximum 50 consignments per upload. Please split your file.");
+        if (lines.length - 1 > MAX_BULK_ROWS) throw new Error(`Maximum ${MAX_BULK_ROWS} consignments per upload. Please split your file.`);
 
         const parsedRows: BulkManifestRow[] = [];
 
@@ -1890,17 +2112,17 @@ function useAppEngine() {
           const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
           if (cols.length < 5) continue;
 
-          const dest_pin = cols[0];
-          const consignee_name = cols[1];
-          const consignee_phone = cols[2];
-          const delivery_address = cols[3];
-          const total_boxes = Math.max(1, parseInt(cols[4], 10) || 1);
+          const dest_pin = cols[0].slice(0, 6);
+          const consignee_name = cols[1].slice(0, 120);
+          const consignee_phone = cols[2].slice(0, 20);
+          const delivery_address = cols[3].slice(0, 300);
+          const total_boxes = Math.min(MAX_BOXES_PER_BOOKING, Math.max(1, parseInt(cols[4], 10) || 1));
           const box_weights_str = cols[5] || "";
           const box_dimensions_str = cols[6] || "";
-          const declared_val = parseFloat(cols[7] || "") || 50000;
+          const declared_val = clampNumber(parseFloat(cols[7] || ""), 0, 100000000, 50000) || 50000;
 
           const parsedWeights = box_weights_str
-            ? box_weights_str.split(";").map((w) => parseFloat(w.trim())).filter((n) => !isNaN(n) && n > 0)
+            ? box_weights_str.split(";").map((w) => parseFloat(w.trim())).filter((n) => !isNaN(n) && n > 0 && n <= MAX_BOX_WEIGHT_KG)
             : [];
           const parsedDims = box_dimensions_str
             ? box_dimensions_str.split(";").map((d) => d.trim()).filter((d) => d.length > 0)
@@ -1914,7 +2136,7 @@ function useAppEngine() {
             let h: number | null = null;
             if (parsedDims[b]) {
               const parts = parsedDims[b].toLowerCase().split("x").map((p) => parseFloat(p.trim()));
-              if (parts.length === 3 && !parts.some(isNaN)) {
+              if (parts.length === 3 && !parts.some((n) => isNaN(n) || n <= 0 || n > MAX_BOX_DIM_CM)) {
                 [l, w, h] = parts;
               }
             }
@@ -1967,7 +2189,7 @@ function useAppEngine() {
             quotes,
             selectedQuote: sorted[0] || null,
             validationError: !pinOk
-              ? `Row ${i + 1}: invalid destination PIN "${dest_pin}"`
+              ? `Row ${i + 1}: invalid destination PIN`
               : quotes.length === 0
               ? `Row ${i + 1}: No verified carrier rates found for this route yet`
               : undefined
@@ -1977,16 +2199,14 @@ function useAppEngine() {
         if (parsedRows.length === 0) throw new Error("No valid rows found. Expected at least 5 columns per row.");
         setBulkManifestList(parsedRows);
       } catch (err: any) {
-        setBulkUploadError(err.message || "Failed to process bulk CSV.");
+        setBulkUploadError(err?.message || "Failed to process bulk CSV.");
       }
     };
     reader.readAsText(file);
-    // Allow re-selecting the same file later.
-    e.target.value = "";
   };
 
   // --------------------------------------------------------------------------
-  // Confirm batch booking
+  // Confirm batch booking (live = ONE atomic server call)
   // --------------------------------------------------------------------------
   const handleConfirmBatchBooking = async () => {
     if (bulkManifestList.length === 0 || !activeOriginAddress) return;
@@ -1995,90 +2215,114 @@ function useAppEngine() {
       alert("None of the rows have a verified carrier rate. Nothing to book.");
       return;
     }
-    if (bulkSettlementMethod === "corporate_credit" && bookable.some((r) => !r.selectedQuote?.creditAvailable)) {
-      alert("Corporate credit is not approved (or the limit is exceeded) for one or more selected carriers. Choose another settlement method or carriers.");
-      return;
+
+    // UX pre-check: ADD UP every row per credit agreement (the server re-checks this too).
+    if (bulkSettlementMethod === "corporate_credit") {
+      const need: Record<string, number> = {};
+      for (const r of bookable) {
+        const q = r.selectedQuote as CalculatedQuote;
+        const agrId = q.creditAgreement?.id;
+        if (!agrId) {
+          alert("Corporate credit is not approved for one or more selected carriers. Choose another settlement method.");
+          return;
+        }
+        need[agrId] = (need[agrId] || 0) + q.breakdown.total;
+      }
+      for (const [agrId, amount] of Object.entries(need)) {
+        const a = creditAgreements.find((x) => x.id === agrId);
+        if (!a || a.approved_limit - a.utilized_amount < amount) {
+          alert(`The combined batch (${formatINR(amount)}) exceeds the available credit with ${a?.carrier_name || "a carrier"}.`);
+          return;
+        }
+      }
     }
 
     setIsBatchProcessing(true);
     const origin = activeOriginAddress;
-    const refString =
-      bulkSettlementMethod === "direct_upi"
-        ? bulkConsolidatedUtr
-          ? `BULK-UPI-${bulkConsolidatedUtr}`
-          : "BULK-UPI"
-        : bulkSettlementMethod === "corporate_credit"
-        ? "BULK-CREDIT"
-        : "BULK-TO-PAY";
-
-    const records = bookable.map((row) => {
-      const selected = row.selectedQuote as CalculatedQuote;
-      const carrierVendor = selected.vendor;
-      const officialDocket = generateCarrierDocket(carrierVendor.name);
-      const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
-      return {
-        order_id: platformOrderId,
-        awb_number: officialDocket,
-        carrier_docket_no: officialDocket,
-        carrier_portal_url: getOfficialCarrierTrackingUrl(carrierVendor, officialDocket),
-        shipper_id: currentUser.id,
-        vendor_id: carrierVendor.id,
-        rate_card_id: selected.rateCard.id,
-        shipper_name: currentUser.company_name || currentUser.full_name,
-        shipper_phone: currentUser.phone,
-        shipper_email: currentUser.email,
-        shipper_gstin: currentUser.gstin,
-        pickup_address: formatPickupAddress(origin),
-        pickup_pincode: origin.pincode,
-        consignee_name: row.consignee_name,
-        consignee_phone: row.consignee_phone,
-        consignee_gstin: row.consignee_gstin,
-        delivery_address: row.delivery_address,
-        origin_pin: origin.pincode,
-        dest_pin: row.dest_pin,
-        mode: selected.rateCard.mode,
-        boxes: row.boxes,
-        declared_value: row.declared_value,
-        actual_weight: row.actualWeight,
-        volumetric_weight: row.volumetricWeight,
-        billable_weight: row.billableWeight,
-        cost_breakdown: {
-          ...selected.breakdown,
-          settlement_type: bulkSettlementMethod,
-          payment_ref: refString,
-          carrier_upi: carrierVendor.upi_id,
-          credit_agreement_id: bulkSettlementMethod === "corporate_credit" ? selected.creditAgreement?.id : undefined
-        },
-        final_total: selected.breakdown.total,
-        status: "Booked" as const,
-        tracking_history: [
-          {
-            status: "Booked",
-            location: `${origin.city} Origin Hub (${origin.pincode})`,
-            timestamp: new Date().toISOString(),
-            remarks: `Batch consignment booked. Carrier Waybill ${officialDocket} assigned.`
-          }
-        ]
-      };
-    });
-
     try {
       let savedBookings: Booking[];
+
       if (isLive) {
-        const { data, error } = await supabase.from("bookings").insert(records).select("*, vendors(*)");
-        if (error || !data) {
-          alert(`Bulk booking failed: ${error?.message || "no rows returned"}. Nothing was dispatched.`);
+        const rows: CreateBookingPayload[] = bookable.map((row) => ({
+          rate_card_id: (row.selectedQuote as CalculatedQuote).rateCard.id,
+          origin_pin: origin.pincode,
+          dest_pin: row.dest_pin,
+          pickup_address: formatPickupAddress(origin),
+          boxes: row.boxes,
+          declared_value: row.declared_value,
+          is_oda: false,
+          consignee_name: row.consignee_name,
+          consignee_phone: row.consignee_phone,
+          consignee_gstin: row.consignee_gstin,
+          delivery_address: row.delivery_address
+        }));
+        const { data, error } = await supabase.rpc("create_bookings_batch", {
+          rows,
+          p_settlement: bulkSettlementMethod,
+          p_ref: bulkConsolidatedUtr.trim().slice(0, 40)
+        });
+        if (error || !Array.isArray(data)) {
+          alert(`${friendlyError(error, "Bulk booking failed.")} Nothing was dispatched.`);
           return;
         }
-        savedBookings = data as Booking[];
+        savedBookings = (data as Booking[]).map((b) => attachVendor(b, vendors));
       } else {
-        savedBookings = records.map((b, i) => ({
-          ...b,
-          id: `bulk-${Date.now()}-${i}`,
-          created_at: new Date().toISOString(),
-          vendors: vendors.find((v) => v.id === b.vendor_id) || vendors[0],
-          is_demo: true
-        })) as Booking[];
+        const refString =
+          bulkSettlementMethod === "direct_upi"
+            ? bulkConsolidatedUtr ? `BULK-UPI-${bulkConsolidatedUtr}` : "BULK-UPI"
+            : bulkSettlementMethod === "corporate_credit" ? "BULK-CREDIT" : "BULK-TO-PAY";
+        savedBookings = bookable.map((row, i) => {
+          const selected = row.selectedQuote as CalculatedQuote;
+          const docket = generateCarrierDocket(selected.vendor.name);
+          return {
+            id: `bulk-${Date.now()}-${i}`,
+            order_id: `LC-${Math.floor(100000 + Math.random() * 900000)}`,
+            awb_number: docket,
+            carrier_docket_no: docket,
+            carrier_portal_url: getOfficialCarrierTrackingUrl(selected.vendor, docket),
+            shipper_id: currentUser.id,
+            vendor_id: selected.vendor.id,
+            rate_card_id: selected.rateCard.id,
+            shipper_name: currentUser.company_name || currentUser.full_name,
+            shipper_phone: currentUser.phone,
+            shipper_email: currentUser.email,
+            shipper_gstin: currentUser.gstin,
+            pickup_address: formatPickupAddress(origin),
+            pickup_pincode: origin.pincode,
+            consignee_name: row.consignee_name,
+            consignee_phone: row.consignee_phone,
+            consignee_gstin: row.consignee_gstin,
+            delivery_address: row.delivery_address,
+            origin_pin: origin.pincode,
+            dest_pin: row.dest_pin,
+            mode: selected.rateCard.mode,
+            boxes: row.boxes,
+            declared_value: row.declared_value,
+            actual_weight: row.actualWeight,
+            volumetric_weight: row.volumetricWeight,
+            billable_weight: row.billableWeight,
+            cost_breakdown: {
+              ...selected.breakdown,
+              settlement_type: bulkSettlementMethod,
+              payment_ref: refString,
+              carrier_upi: selected.vendor.upi_id,
+              credit_agreement_id: bulkSettlementMethod === "corporate_credit" ? selected.creditAgreement?.id : undefined
+            },
+            final_total: selected.breakdown.total,
+            status: "Booked" as const,
+            tracking_history: [
+              {
+                status: "Booked",
+                location: `${origin.city} Origin Hub (${origin.pincode})`,
+                timestamp: new Date().toISOString(),
+                remarks: `Batch consignment booked. Carrier Waybill ${docket} assigned.`
+              }
+            ],
+            created_at: new Date().toISOString(),
+            vendors: selected.vendor,
+            is_demo: true
+          } as Booking;
+        });
       }
 
       await registerNewBookings(savedBookings);
@@ -2088,7 +2332,7 @@ function useAppEngine() {
       setShipperTab("shipments");
       const skipped = bulkManifestList.length - bookable.length;
       alert(
-        `Success! Dispatched ${savedBookings.length} consignments.${skipped ? ` ${skipped} row(s) without a verified rate were skipped.` : ""} Continuous 4x6 labels are ready for printing.`
+        `Success! Dispatched ${savedBookings.length} consignments.${skipped ? ` ${skipped} row(s) without a verified rate were skipped.` : ""} Labels are ready for printing. Docket numbers are provisional until each carrier confirms its official waybill.`
       );
     } finally {
       setIsBatchProcessing(false);
@@ -2096,64 +2340,59 @@ function useAppEngine() {
   };
 
   // --------------------------------------------------------------------------
-  // Carrier: Bilty upload + status update
+  // Carrier: Bilty upload (PRIVATE bucket, per-carrier folder) + status update
   // --------------------------------------------------------------------------
   const handleUploadDocketFile = async (bookingId: string, rawFile: File) => {
     if (!rawFile) return;
-    if (rawFile.size > 5 * 1024 * 1024) {
-      alert("File size limit exceeded! Please upload photo/PDF under 5 MB.");
+    const problem = await validateUploadFile(rawFile, { maxMB: 5, allowPdf: true, allowImages: true });
+    if (problem) {
+      alert(problem);
       return;
     }
 
-    setStatusUpdateMap((prev) => ({
-      ...prev,
-      [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), isUploading: true }
-    }));
-
+    const blank: StatusUpdateEntry = { status: "", location: "", remarks: "" };
+    setStatusUpdateMap((prev) => ({ ...prev, [bookingId]: { ...(prev[bookingId] || blank), isUploading: true } }));
     const clearUploading = () =>
-      setStatusUpdateMap((prev) => ({
-        ...prev,
-        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), isUploading: false }
-      }));
+      setStatusUpdateMap((prev) => ({ ...prev, [bookingId]: { ...(prev[bookingId] || blank), isUploading: false } }));
 
     try {
       const fileToUpload = await compressImageFile(rawFile);
-      let publicUrl = "";
+      let stored = "";
 
       if (isLive) {
-        const fileExt = fileToUpload.name.split(".").pop();
-        const filePath = `dockets/bilty-${bookingId}-${Date.now()}.${fileExt}`;
-        const { error } = await supabase.storage.from("dockets").upload(filePath, fileToUpload, {
+        const carrierId = currentUser.vendor_id || currentUser.id;
+        const path = buildDocketStoragePath(carrierId, bookingId, fileToUpload.name);
+        const { error } = await supabase.storage.from("dockets").upload(path, fileToUpload, {
           cacheControl: "3600",
-          upsert: true
+          upsert: false,
+          contentType: fileToUpload.type || "application/octet-stream"
         });
-        if (error) {
-          alert(`Bilty upload failed: ${error.message}`);
-          clearUploading();
-          return;
-        }
-        publicUrl = supabase.storage.from("dockets").getPublicUrl(filePath).data.publicUrl;
-        const { error: updErr } = await supabase.from("bookings").update({ carrier_docket_doc_url: publicUrl }).eq("id", bookingId);
-        if (updErr) {
-          alert(`Bilty uploaded but could not be linked to the booking: ${updErr.message}`);
-          clearUploading();
-          return;
-        }
+        if (error) throw error;
+        const { error: linkErr } = await supabase.rpc("set_booking_bilty", { p_booking: bookingId, p_path: path });
+        if (linkErr) throw linkErr;
+        stored = path;
       } else {
-        publicUrl = URL.createObjectURL(fileToUpload);
+        stored = URL.createObjectURL(fileToUpload);
       }
 
-      setStatusUpdateMap((prev) => ({
-        ...prev,
-        [bookingId]: { ...(prev[bookingId] || { status: "", location: "", remarks: "" }), docUrl: publicUrl, isUploading: false }
-      }));
-      setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: publicUrl } : b)));
+      setStatusUpdateMap((prev) => ({ ...prev, [bookingId]: { ...(prev[bookingId] || blank), docUrl: stored, isUploading: false } }));
+      setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, carrier_docket_doc_url: stored } : b)));
       alert(`Physical Bilty scan uploaded successfully (~${Math.round(fileToUpload.size / 1024)} KB).`);
     } catch (err) {
-      console.error("Bilty upload failure:", err);
-      alert("Bilty upload failed. Please try again.");
+      alert(friendlyError(err, "Bilty upload failed. Please try again."));
       clearUploading();
     }
+  };
+
+  // Opens a bilty scan: live files need a short-lived signed URL (bucket is private).
+  const getBookingDocUrl = async (booking: Booking): Promise<string> => {
+    const v = booking.carrier_docket_doc_url || "";
+    if (!v) return "#";
+    if (!isStoragePath(v)) return safeDocUrl(v);
+    if (!isSafeStoragePath(v, "dockets/")) return "#";
+    const { data, error } = await supabase.storage.from("dockets").createSignedUrl(v, 3600);
+    if (error || !data?.signedUrl) throw error || new Error("Could not create a document link.");
+    return data.signedUrl;
   };
 
   const handleUpdateShipmentStatus = async (bookingId: string) => {
@@ -2162,41 +2401,37 @@ function useAppEngine() {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
 
-    const carrierName = booking.vendors?.name || "Carrier";
     const effectiveDocket =
       updateData.docketNo && updateData.docketNo.trim() !== ""
         ? updateData.docketNo.trim()
         : booking.carrier_docket_no || booking.awb_number;
-    const newPortalUrl = getOfficialCarrierTrackingUrl(booking.vendors || carrierName, effectiveDocket);
-    const effectiveDocUrl = updateData.docUrl || booking.carrier_docket_doc_url || "";
     const newStatus = (updateData.status || booking.status) as Booking["status"];
 
+    if (isLive) {
+      const { data, error } = await supabase.rpc("carrier_update_booking", {
+        p_booking: bookingId,
+        p_docket: effectiveDocket,
+        p_status: newStatus,
+        p_location: (updateData.location || "").slice(0, 120),
+        p_remarks: (updateData.remarks || "").slice(0, 300)
+      });
+      if (error || !data) {
+        alert(friendlyError(error, "Status update failed."));
+        return;
+      }
+      const fresh = attachVendor(data as Booking, vendors);
+      setBookings((prev) => prev.map((b) => (b.id === bookingId ? fresh : b)));
+      alert("Carrier Docket & Status successfully synchronized!");
+      return;
+    }
+
+    // Demo sandbox: local only.
     const newStep: TrackingStep = {
       status: newStatus,
       location: updateData.location || "En-route Hub",
       timestamp: new Date().toISOString(),
       remarks: updateData.remarks || `Carrier updated status with Docket ${effectiveDocket}`
     };
-    const updatedHistory = [...(booking.tracking_history || []), newStep];
-
-    if (isLive) {
-      const { error } = await supabase
-        .from("bookings")
-        .update({
-          awb_number: effectiveDocket,
-          carrier_docket_no: effectiveDocket,
-          carrier_portal_url: newPortalUrl,
-          carrier_docket_doc_url: effectiveDocUrl,
-          status: newStatus,
-          tracking_history: updatedHistory
-        })
-        .eq("id", bookingId);
-      if (error) {
-        alert(`Status update failed: ${error.message}`);
-        return;
-      }
-    }
-
     setBookings((prev) =>
       prev.map((b) =>
         b.id === bookingId
@@ -2204,10 +2439,10 @@ function useAppEngine() {
               ...b,
               awb_number: effectiveDocket,
               carrier_docket_no: effectiveDocket,
-              carrier_portal_url: newPortalUrl,
-              carrier_docket_doc_url: effectiveDocUrl,
+              carrier_portal_url: getOfficialCarrierTrackingUrl(b.vendors || "", effectiveDocket),
+              carrier_docket_doc_url: updateData.docUrl || b.carrier_docket_doc_url,
               status: newStatus,
-              tracking_history: updatedHistory
+              tracking_history: [...(b.tracking_history || []), newStep]
             }
           : b
       )
@@ -2216,96 +2451,116 @@ function useAppEngine() {
   };
 
   // --------------------------------------------------------------------------
-  // Platform fee invoices
+  // Platform fee invoices. LIVE: the carrier only SUBMITS a payment reference;
+  // the invoice becomes "Paid" after YOU verify the bank credit.
+  // The modal in Part 6 awaits this and shows any thrown message.
   // --------------------------------------------------------------------------
   const handlePayInvoiceSuccess = async (invoiceId: string, utr: string, method: string) => {
+    if (isLive) {
+      const { data, error } = await supabase.rpc("submit_invoice_payment", { p_invoice: invoiceId, p_ref: utr, p_method: method });
+      if (error || !data) throw new Error(friendlyError(error, "Could not record the payment reference."));
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? { ...inv, ...(data as Partial<PlatformInvoice>) } : inv)));
+      return;
+    }
     const patch = {
       status: "Paid" as InvoiceStatus,
       payment_date: new Date().toISOString().split("T")[0],
       payment_ref: utr,
       payment_method: method
     };
-    if (isLive) {
-      const { error } = await supabase.from("platform_invoices").update(patch).eq("id", invoiceId);
-      if (error) {
-        alert(`Could not record payment: ${error.message}`);
-        return;
-      }
-    }
     setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? { ...inv, ...patch } : inv)));
   };
 
   // --------------------------------------------------------------------------
-  // Carrier public tracking URL
+  // Carrier public tracking URL (https only)
   // --------------------------------------------------------------------------
   const handleSaveCarrierTrackingUrl = async (customUrl: string) => {
-    const cleanUrl = customUrl.trim();
+    const cleanUrl = customUrl.trim().slice(0, 300);
+    if (safeHttpUrl(cleanUrl) === "#") {
+      alert("The tracking portal URL must start with https://");
+      return;
+    }
     const vendorId = currentUser.vendor_id || currentUser.id;
 
     if (isLive) {
-      const { error } = await supabase
-        .from("vendors")
-        .update({ custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl })
-        .eq("id", vendorId);
+      const { error } = await supabase.from("vendors").update({ custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl }).eq("id", vendorId);
       if (error) {
-        alert(`Could not save tracking URL: ${error.message}`);
+        alert(friendlyError(error, "Could not save the tracking URL."));
         return;
       }
-      await supabase.from("profiles").update({ custom_tracking_url: cleanUrl }).eq("id", currentUser.id);
+      const { error: pErr } = await supabase.from("profiles").update({ custom_tracking_url: cleanUrl }).eq("id", currentUser.id);
+      if (pErr) {
+        alert(friendlyError(pErr, "Could not save the tracking URL."));
+        return;
+      }
       setCurrentUser((u) => ({ ...u, custom_tracking_url: cleanUrl }));
     }
 
     setCarrierCustomTrackingUrl(cleanUrl);
-    setVendors((prev) =>
-      prev.map((v) => (v.id === vendorId ? { ...v, custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl } : v))
-    );
+    setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, custom_tracking_url: cleanUrl, tracking_base_url: cleanUrl } : v)));
     alert("Public Tracking Portal URL updated! Shippers will now be redirected to your tracking portal.");
   };
 
   // --------------------------------------------------------------------------
   // Credit agreements
-  // The modal (Part 4) compresses + uploads the file, then calls this to persist the record.
   // --------------------------------------------------------------------------
   const handleSubmitCreditApplication = async (
     payload: CreditApplicationPayload
   ): Promise<{ ok: boolean; error?: string }> => {
     const targetCarrier = vendors.find((v) => v.id === payload.carrierId);
-    const base = {
+
+    if (isLive) {
+      // Only the fields the database policy allows. Status, limits, names and
+      // timestamps are forced by the server regardless of what is sent.
+      const row = {
+        shipper_id: currentUser.id,
+        carrier_id: payload.carrierId,
+        document_url: "",
+        document_name: payload.docName.slice(0, 120),
+        file_path: payload.filePath,
+        original_size_kb: payload.originalSizeKB,
+        compressed_size_kb: payload.compressedSizeKB,
+        requested_limit: payload.limit,
+        approved_limit: 0,
+        utilized_amount: 0,
+        status: "Pending_Review" as CreditStatus,
+        payment_terms_days: payload.termsDays
+      };
+      const { data, error } = await supabase.from("credit_agreements").insert([row]).select("*").maybeSingle();
+      if (error || !data) return { ok: false, error: friendlyError(error, "Could not submit the application.") };
+      setCreditAgreements((prev) => [data as CreditAgreement, ...prev]);
+      return { ok: true };
+    }
+
+    const base: CreditAgreement = {
+      id: `ca-${Date.now()}`,
       shipper_id: currentUser.id,
       shipper_name: currentUser.company_name || currentUser.full_name,
       carrier_id: payload.carrierId,
       carrier_name: targetCarrier?.name || "National Transporter",
       document_url: payload.documentUrl,
       document_name: payload.docName,
-      file_path: payload.filePath,
-      original_size_kb: payload.originalSizeKB,
-      compressed_size_kb: payload.compressedSizeKB,
       requested_limit: payload.limit,
       approved_limit: 0,
       utilized_amount: 0,
-      status: "Pending_Review" as CreditStatus,
+      status: "Pending_Review",
       payment_terms_days: payload.termsDays,
-      submitted_at: new Date().toISOString()
+      submitted_at: new Date().toISOString(),
+      is_demo: true
     };
-
-    if (isLive) {
-      const { data, error } = await supabase.from("credit_agreements").insert([base]).select("*").maybeSingle();
-      if (error || !data) return { ok: false, error: error?.message || "Insert returned no row." };
-      setCreditAgreements((prev) => [data as CreditAgreement, ...prev]);
-      return { ok: true };
-    }
-
-    setCreditAgreements((prev) => [{ ...base, id: `ca-${Date.now()}`, is_demo: true }, ...prev]);
+    setCreditAgreements((prev) => [base, ...prev]);
     return { ok: true };
   };
 
-  // Private-bucket documents are opened through a short-lived signed URL.
+  // Agreements live in a PRIVATE bucket: always open via a short-lived signed URL.
   const getAgreementViewUrl = async (agreement: CreditAgreement): Promise<string> => {
-    if (agreement.file_path && !agreement.is_demo) {
-      const { data, error } = await supabase.storage.from("agreements").createSignedUrl(agreement.file_path, 3600);
-      if (!error && data?.signedUrl) return data.signedUrl;
+    if (agreement.is_demo) return safeDocUrl(agreement.document_url);
+    if (!agreement.file_path || !isSafeStoragePath(agreement.file_path, "credit-agreements/")) {
+      throw new Error("This agreement has no valid stored document.");
     }
-    return agreement.document_url;
+    const { data, error } = await supabase.storage.from("agreements").createSignedUrl(agreement.file_path, 600);
+    if (error || !data?.signedUrl) throw error || new Error("Could not create a document link.");
+    return data.signedUrl;
   };
 
   const handleReviewCreditAgreement = async (
@@ -2316,19 +2571,29 @@ function useAppEngine() {
   ) => {
     const target = creditAgreements.find((a) => a.id === agreementId);
     if (!target) return;
+
+    if (isLive) {
+      const { data, error } = await supabase.rpc("review_credit_agreement", {
+        p_id: agreementId,
+        p_decision: status,
+        p_limit: status === "Approved" ? approvedLimit || target.requested_limit : 0,
+        p_reason: status === "Rejected" ? reason || "Underwriting criteria not satisfied" : ""
+      });
+      if (error || !data) {
+        alert(friendlyError(error, "Could not record the decision."));
+        return;
+      }
+      setCreditAgreements((prev) => prev.map((a) => (a.id === agreementId ? { ...a, ...(data as Partial<CreditAgreement>) } : a)));
+      alert(`Application has been marked as ${status.toUpperCase()}.`);
+      return;
+    }
+
     const patch = {
       status,
       approved_limit: status === "Approved" ? approvedLimit || target.requested_limit : 0,
       reviewed_at: new Date().toISOString(),
       rejection_reason: status === "Rejected" ? reason || "Underwriting criteria not satisfied" : undefined
     };
-    if (isLive) {
-      const { error } = await supabase.from("credit_agreements").update(patch).eq("id", agreementId);
-      if (error) {
-        alert(`Could not record decision: ${error.message}`);
-        return;
-      }
-    }
     setCreditAgreements((prev) => prev.map((a) => (a.id === agreementId ? { ...a, ...patch } : a)));
     alert(`Agreement ${agreementId} has been marked as ${status.toUpperCase()}!`);
   };
@@ -2336,25 +2601,25 @@ function useAppEngine() {
   const handleSettleLedgerEntry = async (entryId: string, ref: string) => {
     const entry = creditLedger.find((e) => e.id === entryId);
     if (!entry) return;
-    const patch = { status: "Settled" as const, settled_at: new Date().toISOString(), payment_ref: ref };
     const agreement = creditAgreements.find(
       (a) => a.carrier_id === entry.carrier_id && a.shipper_id === entry.shipper_id && a.status === "Approved"
     );
 
     if (isLive) {
-      const { error } = await supabase.from("credit_ledger").update(patch).eq("id", entryId);
-      if (error) {
-        alert(`Could not settle ledger entry: ${error.message}`);
+      const { data, error } = await supabase.rpc("settle_ledger_entry", { p_id: entryId, p_ref: ref });
+      if (error || !data) {
+        alert(friendlyError(error, "Could not settle the ledger entry."));
         return;
       }
-      if (agreement) {
-        await supabase
-          .from("credit_agreements")
-          .update({ utilized_amount: Math.max(0, agreement.utilized_amount - entry.amount) })
-          .eq("id", agreement.id);
+      const result = data as { entry: CreditLedgerEntry; utilized: number | null };
+      setCreditLedger((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...result.entry } : e)));
+      if (agreement && typeof result.utilized === "number") {
+        setCreditAgreements((prev) => prev.map((a) => (a.id === agreement.id ? { ...a, utilized_amount: result.utilized as number } : a)));
       }
+      return;
     }
 
+    const patch = { status: "Settled" as const, settled_at: new Date().toISOString(), payment_ref: ref };
     setCreditLedger((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e)));
     if (agreement) {
       setCreditAgreements((prev) =>
@@ -2441,6 +2706,7 @@ function useAppEngine() {
       handleReviewCreditAgreement,
       handleSettleLedgerEntry,
       getAgreementViewUrl,
+      getBookingDocUrl,
       registerNewBookings,
       enterDemoMode,
       fetchAllData
@@ -2449,9 +2715,9 @@ function useAppEngine() {
 }
 
 // ============================================================================
-// 13. AUTH MODAL — LOGIN, SIGNUP, FORGOT PASSWORD, SET-NEW-PASSWORD (RECOVERY)
-// The modal only talks to supabase.auth. The engine's onAuthStateChange listener
-// turns the resulting session into a profile, so there is a single code path.
+// 16. AUTH MODAL — LOGIN, SIGNUP, FORGOT PASSWORD, SET-NEW-PASSWORD (RECOVERY)
+// All real protection (CAPTCHA, rate limits, email confirmation, password rules)
+// must ALSO be switched on in Supabase > Authentication. The checks below are UX.
 // ============================================================================
 type AuthModalView = AuthViewMode | "recovery";
 
@@ -2460,6 +2726,14 @@ interface AuthModalProps {
   onClose: () => void;
   initialView?: AuthModalView;
   onRecoveryComplete?: () => void;
+}
+
+const MIN_PASSWORD_LENGTH = 10;
+
+function passwordProblem(pw: string): string {
+  if (pw.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return "Password must contain both letters and numbers.";
+  return "";
 }
 
 const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login", onRecoveryComplete }) => {
@@ -2475,8 +2749,8 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const loginGuard = useRef({ count: 0, lockUntil: 0 });
 
-  // Follow the parent when it forces a view (e.g. PASSWORD_RECOVERY redirect).
   useEffect(() => {
     if (isOpen) setView(initialView);
   }, [initialView, isOpen]);
@@ -2493,31 +2767,46 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setErrorMsg("");
     setSuccessMsg("");
 
     try {
       if (view === "login") {
+        const now = Date.now();
+        if (now < loginGuard.current.lockUntil) {
+          throw new Error(`LC: Too many attempts. Try again in ${Math.ceil((loginGuard.current.lockUntil - now) / 1000)} seconds.`);
+        }
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
+        if (error) {
+          loginGuard.current.count += 1;
+          if (loginGuard.current.count >= 5) {
+            loginGuard.current = { count: 0, lockUntil: Date.now() + 30000 };
+          }
+          if (/not confirmed/i.test(error.message)) throw new Error("LC: Please confirm your email address first, then sign in.");
+          throw new Error("LC: Invalid email or password.");
+        }
+        loginGuard.current = { count: 0, lockUntil: 0 };
         onClose();
       } else if (view === "signup") {
-        if (password.length < 8) throw new Error("Password must be at least 8 characters.");
-        if (password !== confirmPassword) throw new Error("Passwords do not match.");
+        if (!isValidEmail(email)) throw new Error("LC: Please enter a valid email address.");
+        const pwProblem = passwordProblem(password);
+        if (pwProblem) throw new Error(`LC: ${pwProblem}`);
+        if (password !== confirmPassword) throw new Error("LC: Passwords do not match.");
         const cleanGstin = gstin.trim().toUpperCase();
-        if (cleanGstin && cleanGstin.length !== 15) throw new Error("GSTIN must be exactly 15 characters.");
+        if (cleanGstin && !isValidGstin(cleanGstin)) throw new Error("LC: GSTIN format looks invalid. Check it or leave it blank.");
+        if (!/^[0-9+() -]{7,20}$/.test(phone.trim())) throw new Error("LC: Enter a valid phone number.");
 
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
             emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
-            // Stored with the auth user so the profile can be created on first sign-in,
-            // even when email confirmation means there is no session yet.
+            // A database trigger turns this into the profile (role is whitelisted there).
             data: {
-              full_name: fullName.trim(),
-              company_name: companyName.trim(),
+              full_name: fullName.trim().slice(0, 120),
+              company_name: companyName.trim().slice(0, 160),
               gstin: cleanGstin,
               phone: phone.trim(),
               role
@@ -2527,28 +2816,35 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
         if (error) throw error;
 
         if (data.session) {
-          onClose(); // confirmation disabled: signed in immediately
+          onClose();
         } else {
           switchView("login");
           setSuccessMsg("Account created. Check your inbox and confirm your email, then sign in.");
         }
       } else if (view === "forgot") {
-        if (!isValidEmail(email)) throw new Error("Please enter a valid registered email address.");
+        if (!isValidEmail(email)) throw new Error("LC: Please enter a valid registered email address.");
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: window.location.origin
         });
-        if (error) throw error;
+        if (error) console.warn("Reset email warning:", error.message);
+        // Same message whether or not the address exists (prevents account probing).
         setSuccessMsg("If that email is registered, a password reset link has been sent. Check your inbox (and spam folder).");
       } else if (view === "recovery") {
-        if (password.length < 8) throw new Error("New password must be at least 8 characters.");
-        if (password !== confirmPassword) throw new Error("Passwords do not match.");
+        const pwProblem = passwordProblem(password);
+        if (pwProblem) throw new Error(`LC: ${pwProblem}`);
+        if (password !== confirmPassword) throw new Error("LC: Passwords do not match.");
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
         onRecoveryComplete?.();
         onClose();
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "Authentication error occurred.");
+      const raw = String(err?.message || "");
+      if (!raw.startsWith("LC:") && /password/i.test(raw)) {
+        setErrorMsg(`Password is too weak. Use at least ${MIN_PASSWORD_LENGTH} characters with letters and numbers.`);
+      } else {
+        setErrorMsg(friendlyError(err, "Authentication failed. Check your details and try again."));
+      }
     } finally {
       setLoading(false);
     }
@@ -2595,6 +2891,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
               <input
                 type="email"
                 required
+                maxLength={160}
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -2611,11 +2908,15 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
               <input
                 type="password"
                 required
+                maxLength={128}
                 autoComplete={view === "login" ? "current-password" : "new-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={inputCls}
               />
+              {(view === "signup" || view === "recovery") && (
+                <p className="text-[10px] text-slate-500 mt-1">At least {MIN_PASSWORD_LENGTH} characters, with letters and numbers.</p>
+              )}
             </div>
           )}
 
@@ -2625,6 +2926,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
               <input
                 type="password"
                 required
+                maxLength={128}
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -2649,11 +2951,11 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
             <>
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Full Name</label>
-                <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
+                <input type="text" required maxLength={120} value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Company / Organization</label>
-                <input type="text" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} className={inputCls} />
+                <input type="text" required maxLength={160} value={companyName} onChange={(e) => setCompanyName(e.target.value)} className={inputCls} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -2672,6 +2974,7 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
                   <input
                     type="tel"
                     required
+                    maxLength={20}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+91 98XXX XXXXX"
@@ -2689,6 +2992,11 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
                   <option value="shipper">Shipper (Manufacturer / Retailer / Trader)</option>
                   <option value="carrier">Carrier (Transporter / Fleet Operator)</option>
                 </select>
+                {role === "carrier" && (
+                  <p className="text-[10px] text-amber-700 mt-1 font-bold">
+                    New carriers are reviewed before their rates become visible to shippers.
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -2727,16 +3035,25 @@ const AuthModal: FC<AuthModalProps> = ({ isOpen, onClose, initialView = "login",
 };
 
 // ============================================================================
-// END OF PART 2 OF 7
+// END OF PART 2 OF 8
 // ============================================================================
 // ============================================================================
-// PART 3 OF 7 — ICONS, TOP NAVIGATION HEADER, PICKUP ADDRESS SETUP,
+// PART 3 OF 8 — ICONS, TOP NAVIGATION HEADER, PICKUP ADDRESS SETUP,
 //               SHIPPER SINGLE BOOKING FORM (OPTIONAL L x W x H)
 // Paste directly after Part 2. No named exports.
+//
+// WHAT CHANGED vs the old Part 3
+//  - Header badge says "Signed In" (not "Verified Session": signing in does not
+//    prove the business is verified).
+//  - AddressModal validates phone + GSTIN format and caps every field length.
+//  - Booking form clamps carton qty / weight / dimensions / count to the same
+//    limits the database enforces, and uses the shared boxQty()/boxWeight()
+//    helpers so the on-screen totals match the quote engine.
+//  - A visible note that rates are estimates and dockets are provisional.
 // ============================================================================
 
 // ============================================================================
-// 14. INLINE VECTOR ICONS
+// 17. INLINE VECTOR ICONS
 // ============================================================================
 interface IconProps {
   className?: string;
@@ -2810,7 +3127,7 @@ const UserCircleIcon: FC<IconProps> = (p) => (
 );
 
 // ============================================================================
-// 15. TOP NAVIGATION HEADER (REAL IDENTITY IN LIVE MODE — ZERO DEMO LEAK)
+// 18. TOP NAVIGATION HEADER
 // ============================================================================
 interface AppHeaderProps {
   activeRole: RoleType | "landing";
@@ -2854,7 +3171,6 @@ const AppHeader: FC<AppHeaderProps> = ({
   const userIsShipper = currentUser.role === "shipper";
   const userIsCarrier = currentUser.role === "carrier" || currentUser.role === "vendor";
 
-  // Display identity: in live mode ONLY the account's own data is ever shown.
   const displayName = currentUser.company_name || currentUser.full_name || currentUser.email;
   const initials = (displayName || "?")
     .split(/\s+/)
@@ -2890,6 +3206,7 @@ const AppHeader: FC<AppHeaderProps> = ({
           <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
           <input
             type="text"
+            maxLength={60}
             value={globalSearchInput}
             onChange={(e) => setGlobalSearchInput(e.target.value)}
             placeholder="Search Order Ref (LC-...) or Docket..."
@@ -2933,7 +3250,6 @@ const AppHeader: FC<AppHeaderProps> = ({
 
         {/* Identity / auth area */}
         <div className="flex items-center space-x-2.5 shrink-0">
-          {/* Mode badge */}
           {isRealAuthLive ? (
             <span className="hidden sm:inline-flex items-center space-x-1.5 text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -2945,7 +3261,6 @@ const AppHeader: FC<AppHeaderProps> = ({
             </span>
           )}
 
-          {/* Demo switcher: ONLY outside live mode */}
           {!isRealAuthLive && (
             <div className="hidden lg:flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
               <span className="text-[10px] uppercase font-black px-1.5 text-amber-400">Sandbox:</span>
@@ -2970,7 +3285,6 @@ const AppHeader: FC<AppHeaderProps> = ({
             </div>
           )}
 
-          {/* Logged in but browsing the sandbox: offer a one-click return to the live account */}
           {!isRealAuthLive && hasLiveSession && (
             <button
               type="button"
@@ -3022,7 +3336,7 @@ const AppHeader: FC<AppHeaderProps> = ({
                     </div>
                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
                       <span className="block text-[10px] font-bold text-slate-500 uppercase">Status</span>
-                      <strong className="text-emerald-700">Verified Session</strong>
+                      <strong className="text-emerald-700">Signed In</strong>
                     </div>
                     <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-lg p-2">
                       <span className="block text-[10px] font-bold text-slate-500 uppercase">GSTIN</span>
@@ -3075,14 +3389,13 @@ const AppHeader: FC<AppHeaderProps> = ({
 };
 
 // ============================================================================
-// 16. PICKUP ADDRESS: SETUP MODAL (NO DUMMY FALLBACKS — EVERY FIELD IS REAL INPUT)
+// 19. PICKUP ADDRESS: SETUP MODAL
 // ============================================================================
 interface AddressModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (address: AddressProfile) => void | Promise<void>;
   initialAddress?: AddressProfile | null;
-  // The signed-in user's OWN details, used only to pre-fill a brand-new address.
   userDefaults?: { company_name?: string; contact_name?: string; phone?: string; email?: string; gstin?: string };
 }
 
@@ -3110,7 +3423,6 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
     if (!isValidPin(cleanPin)) return;
     setIsLookingUpPin(true);
     const zone = await lookupPinZone(cleanPin);
-    // Only fill blanks so we never overwrite what the user typed.
     if (!city.trim()) setCity(zone.city);
     if (!stateName.trim()) setStateName(zone.state);
     setIsLookingUpPin(false);
@@ -3118,11 +3430,14 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setErrorMsg("");
     if (!isValidPin(pincode)) return setErrorMsg("Please provide a valid 6-digit Indian PIN code.");
     if (!line1.trim()) return setErrorMsg("Address Line 1 is required.");
     if (!city.trim() || !stateName.trim()) return setErrorMsg("City and State are required.");
-    if (gstin.trim() && gstin.trim().length !== 15) return setErrorMsg("GSTIN must be exactly 15 characters (or leave it blank).");
+    if (!/^[0-9+() -]{7,20}$/.test(phone.trim())) return setErrorMsg("Enter a valid phone number (digits, +, spaces).");
+    if (email.trim() && !isValidEmail(email)) return setErrorMsg("Contact email looks invalid.");
+    if (gstin.trim() && !isValidGstin(gstin)) return setErrorMsg("GSTIN format looks invalid. Check it or leave it blank.");
 
     const updated: AddressProfile = {
       id: initialAddress?.id || `addr-${Date.now()}`,
@@ -3173,22 +3488,22 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-bold mb-1">Facility Label *</label>
-              <input type="text" required placeholder="e.g. Okhla Warehouse" value={label} onChange={(e) => setLabel(e.target.value)} className={`${inputCls} font-bold`} />
+              <input type="text" required maxLength={60} placeholder="e.g. Okhla Warehouse" value={label} onChange={(e) => setLabel(e.target.value)} className={`${inputCls} font-bold`} />
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Company / Facility Name</label>
-              <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className={inputCls} />
+              <input type="text" maxLength={160} value={companyName} onChange={(e) => setCompanyName(e.target.value)} className={inputCls} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-slate-700 font-bold mb-1">Dispatch Contact *</label>
-              <input type="text" required value={contactName} onChange={(e) => setContactName(e.target.value)} className={inputCls} />
+              <input type="text" required maxLength={120} value={contactName} onChange={(e) => setContactName(e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Phone *</label>
-              <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
+              <input type="tel" required maxLength={20} value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">GSTIN</label>
@@ -3198,17 +3513,17 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
 
           <div>
             <label className="block text-slate-700 font-bold mb-1">Contact Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+            <input type="email" maxLength={160} value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
           </div>
 
           <div>
             <label className="block text-slate-700 font-bold mb-1">Address Line 1 (Street / Plot No.) *</label>
-            <input type="text" required value={line1} onChange={(e) => setLine1(e.target.value)} className={inputCls} />
+            <input type="text" required maxLength={200} value={line1} onChange={(e) => setLine1(e.target.value)} className={inputCls} />
           </div>
 
           <div>
             <label className="block text-slate-700 font-bold mb-1">Address Line 2 (Landmark / Gate / Yard)</label>
-            <input type="text" value={line2} onChange={(e) => setLine2(e.target.value)} className={inputCls} />
+            <input type="text" maxLength={200} value={line2} onChange={(e) => setLine2(e.target.value)} className={inputCls} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -3229,11 +3544,11 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">City / District *</label>
-              <input type="text" required value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} />
+              <input type="text" required maxLength={80} value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">State *</label>
-              <input type="text" required value={stateName} onChange={(e) => setStateName(e.target.value)} className={inputCls} />
+              <input type="text" required maxLength={80} value={stateName} onChange={(e) => setStateName(e.target.value)} className={inputCls} />
             </div>
           </div>
 
@@ -3259,7 +3574,7 @@ const AddressModal: FC<AddressModalProps> = ({ isOpen, onClose, onSave, initialA
 };
 
 // ============================================================================
-// 17. "SET YOUR PICKUP LOCATION" PROMPT (reused by calculator + bulk console)
+// 20. "SET YOUR PICKUP LOCATION" PROMPT
 // ============================================================================
 const PickupAddressRequiredBanner: FC<{ onSetup: () => void }> = ({ onSetup }) => (
   <div className="bg-amber-50 border-2 border-amber-300 p-4 sm:p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -3283,7 +3598,7 @@ const PickupAddressRequiredBanner: FC<{ onSetup: () => void }> = ({ onSetup }) =
 );
 
 // ============================================================================
-// 18. PICKUP WAREHOUSE MANAGER (SHIPPER "DISPATCH FACILITIES" TAB)
+// 21. PICKUP WAREHOUSE MANAGER (SHIPPER "DISPATCH FACILITIES" TAB)
 // ============================================================================
 interface ShipperAddressSectionProps {
   addresses: AddressProfile[];
@@ -3383,7 +3698,7 @@ const ShipperAddressSection: FC<ShipperAddressSectionProps> = ({
 };
 
 // ============================================================================
-// 19. 3D VISUAL ENGINES (only mounted when High-Volume 60FPS mode is OFF)
+// 22. 3D VISUAL ENGINES (only mounted when High-Volume 60FPS mode is OFF)
 // ============================================================================
 interface Interactive3DBoxProps {
   length?: number | null;
@@ -3616,8 +3931,7 @@ const RouteTrajectory3D: FC<RouteTrajectory3DProps> = ({ originHub, destHub }) =
 };
 
 // ============================================================================
-// 20. SHIPPER SINGLE BOOKING FORM (STRICTLY OPTIONAL L x W x H)
-// Part 4 composes this with the live rate matrix inside ShipperSingleCalculatorSection.
+// 23. SHIPPER SINGLE BOOKING FORM (STRICTLY OPTIONAL L x W x H)
 // ============================================================================
 interface ShipperSingleBookingFormProps {
   highVolumeMode: boolean;
@@ -3664,10 +3978,7 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
 }) => {
   const hasDimensions = useMemo(() => boxes.some(hasCompleteDimensions), [boxes]);
 
-  const totalActualWeight = useMemo(
-    () => boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0),
-    [boxes]
-  );
+  const totalActualWeight = useMemo(() => boxes.reduce((acc, b) => acc + boxWeight(b) * boxQty(b), 0), [boxes]);
 
   const volumetricDivisor = selectedMode === "air" ? 5000 : 4500;
 
@@ -3675,7 +3986,7 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
     if (!hasDimensions) return 0;
     return boxes.reduce((acc, b) => {
       if (!hasCompleteDimensions(b)) return acc;
-      return acc + ((Number(b.length) * Number(b.width) * Number(b.height)) / volumetricDivisor) * (Number(b.qty) || 1);
+      return acc + ((Number(b.length) * Number(b.width) * Number(b.height)) / volumetricDivisor) * boxQty(b);
     }, 0);
   }, [boxes, hasDimensions, volumetricDivisor]);
 
@@ -3684,7 +3995,6 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
     return Math.max(totalActualWeight, Math.round(totalVolumetricWeight * 10) / 10);
   }, [totalActualWeight, totalVolumetricWeight, hasDimensions]);
 
-  // A box with SOME but not ALL dimensions is ignored for volumetric weight; tell the user.
   const partialDimBoxes = useMemo(
     () =>
       boxes.filter((b) => {
@@ -3694,8 +4004,10 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
     [boxes]
   );
 
-  const addBox = () =>
+  const addBox = () => {
+    if (boxes.length >= MAX_BOXES_PER_BOOKING) return;
     setBoxes([...boxes, { id: `box-${Date.now()}`, qty: 1, weight: 10, length: null, width: null, height: null }]);
+  };
 
   const removeBox = (id: string) => {
     if (boxes.length <= 1) return;
@@ -3705,10 +4017,10 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
   };
 
   const updateQty = (id: string, raw: string) =>
-    setBoxes(boxes.map((b) => (b.id === id ? { ...b, qty: Math.max(1, parseInt(raw, 10) || 1) } : b)));
+    setBoxes(boxes.map((b) => (b.id === id ? { ...b, qty: Math.floor(clampNumber(parseInt(raw, 10), 1, MAX_BOX_QTY, 1)) } : b)));
 
   const updateWeight = (id: string, raw: string) =>
-    setBoxes(boxes.map((b) => (b.id === id ? { ...b, weight: Math.max(0, parseFloat(raw) || 0) } : b)));
+    setBoxes(boxes.map((b) => (b.id === id ? { ...b, weight: clampNumber(parseFloat(raw), 0, MAX_BOX_WEIGHT_KG, 0) } : b)));
 
   // Dimensions are optional: an empty field is stored as null, never 0.
   const updateDimension = (id: string, field: "length" | "width" | "height", raw: string) =>
@@ -3716,7 +4028,8 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
       boxes.map((b) => {
         if (b.id !== id) return b;
         const n = raw === "" ? null : Number(raw);
-        return { ...b, [field]: n !== null && n > 0 ? n : null };
+        const value = n !== null && Number.isFinite(n) && n > 0 ? Math.min(MAX_BOX_DIM_CM, n) : null;
+        return { ...b, [field]: value };
       })
     );
 
@@ -3727,7 +4040,6 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Active pickup facility, or a prompt when none exists */}
       {activeOriginAddress ? (
         <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
           <div className="space-y-1">
@@ -3749,7 +4061,6 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
         <PickupAddressRequiredBanner onSetup={onManageFacilities} />
       )}
 
-      {/* Lane + value + mode */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200">
           <label className="block text-xs font-black text-indigo-950 uppercase tracking-wider mb-1">Origin PIN</label>
@@ -3799,8 +4110,9 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
           <input
             type="number"
             min={0}
+            max={100000000}
             value={declaredValue}
-            onChange={(e) => setDeclaredValue(Math.max(0, Number(e.target.value) || 0))}
+            onChange={(e) => setDeclaredValue(clampNumber(e.target.value, 0, 100000000, 0))}
             className="w-full bg-white border-2 border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none"
           />
           <p className="text-[11px] text-slate-500 mt-2 font-medium">Freight-on-value cargo risk coverage</p>
@@ -3833,7 +4145,6 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
         </div>
       )}
 
-      {/* Cartons */}
       <div className="border border-slate-200 rounded-2xl p-5 bg-slate-50/70 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -3844,7 +4155,12 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
               Length, width and height are <strong>optional</strong>. Leave them blank and the quote uses dead weight only.
             </p>
           </div>
-          <button type="button" onClick={addBox} className="text-xs text-indigo-600 hover:text-indigo-800 font-black flex items-center space-x-1">
+          <button
+            type="button"
+            onClick={addBox}
+            disabled={boxes.length >= MAX_BOXES_PER_BOOKING}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-black flex items-center space-x-1 disabled:opacity-40"
+          >
             <PlusIcon className="w-4 h-4" />
             <span>Add Another Carton</span>
           </button>
@@ -3862,28 +4178,28 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
               >
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Box #{idx + 1} Qty</span>
-                  <input type="number" min={1} value={box.qty} onChange={(e) => updateQty(box.id, e.target.value)} className={`${numCls} font-bold`} />
+                  <input type="number" min={1} max={MAX_BOX_QTY} value={box.qty} onChange={(e) => updateQty(box.id, e.target.value)} className={`${numCls} font-bold`} />
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Weight (Kg/box) *</span>
-                  <input type="number" min={0.5} step={0.5} value={box.weight} onChange={(e) => updateWeight(box.id, e.target.value)} className={`${numCls} font-bold`} />
+                  <input type="number" min={0.5} max={MAX_BOX_WEIGHT_KG} step={0.5} value={box.weight} onChange={(e) => updateWeight(box.id, e.target.value)} className={`${numCls} font-bold`} />
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Length (cm)</span>
-                  <input type="number" min={1} placeholder="Optional" value={box.length ?? ""} onChange={(e) => updateDimension(box.id, "length", e.target.value)} className={numCls} />
+                  <input type="number" min={1} max={MAX_BOX_DIM_CM} placeholder="Optional" value={box.length ?? ""} onChange={(e) => updateDimension(box.id, "length", e.target.value)} className={numCls} />
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Width (cm)</span>
-                  <input type="number" min={1} placeholder="Optional" value={box.width ?? ""} onChange={(e) => updateDimension(box.id, "width", e.target.value)} className={numCls} />
+                  <input type="number" min={1} max={MAX_BOX_DIM_CM} placeholder="Optional" value={box.width ?? ""} onChange={(e) => updateDimension(box.id, "width", e.target.value)} className={numCls} />
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Height (cm)</span>
-                  <input type="number" min={1} placeholder="Optional" value={box.height ?? ""} onChange={(e) => updateDimension(box.id, "height", e.target.value)} className={numCls} />
+                  <input type="number" min={1} max={MAX_BOX_DIM_CM} placeholder="Optional" value={box.height ?? ""} onChange={(e) => updateDimension(box.id, "height", e.target.value)} className={numCls} />
                 </div>
                 <div className="flex items-center justify-between sm:justify-end space-x-2 pt-2 sm:pt-0">
                   <span className="text-[10px] text-slate-500 font-mono">
                     {hasCompleteDimensions(box)
-                      ? `${(((Number(box.length) * Number(box.width) * Number(box.height)) / volumetricDivisor) * box.qty).toFixed(1)}kg vol`
+                      ? `${(((Number(box.length) * Number(box.width) * Number(box.height)) / volumetricDivisor) * boxQty(box)).toFixed(1)}kg vol`
                       : "Dead wt"}
                   </span>
                   {boxes.length > 1 && (
@@ -3917,7 +4233,6 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
           </p>
         )}
 
-        {/* Summary ribbon */}
         <div className="flex flex-wrap items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-xs gap-3">
           <div className="flex flex-wrap gap-6 font-medium">
             <div>
@@ -3940,24 +4255,36 @@ const ShipperSingleBookingForm: FC<ShipperSingleBookingFormProps> = ({
         {totalActualWeight <= 0 && (
           <p className="text-[11px] text-rose-700 font-bold">Enter a weight greater than 0 kg to see rates.</p>
         )}
+        <p className="text-[10px] text-slate-500 font-medium">
+          Rates shown are estimates. The final price is calculated and confirmed by the platform when you book. Docket numbers are provisional until the carrier confirms its official waybill.
+        </p>
       </div>
     </div>
   );
 };
 
 // ============================================================================
-// END OF PART 3 OF 7
+// END OF PART 3 OF 8
 // ============================================================================
 // ============================================================================
-// PART 4 OF 7 — SHIPPER MODULE B
-//   Live rate matrix (strict demo isolation), single-booking checkout modal,
-//   Credit Agreement application with client-side PDF compression -> Supabase
-//   Storage 'agreements', shipper credit status, and the shared credit ledger.
+// PART 4 OF 8 — SHIPPER MODULE B
+//   Live rate matrix, single-booking checkout modal, Credit Agreement
+//   application (private upload), shipper credit status, shared credit ledger.
 // Paste directly after Part 3. No named exports.
+//
+// WHAT CHANGED vs the old Part 4
+//  - DirectBookingModal no longer builds the booking record. In LIVE mode it
+//    sends only the choices (rate card id, boxes, consignee, settlement) to the
+//    create_booking SQL function; the SERVER sets price, fee, status, docket
+//    and credit usage. If the server price differs from the estimate you see it.
+//  - Credit application: file type/size/magic-byte validation, upload to the
+//    PRIVATE 'agreements' bucket under your own user folder, no public URL.
+//  - Documents open ONLY through signed URLs, and the returned link is checked.
+//  - Ledger reference input is length-limited and sanitised.
 // ============================================================================
 
 // ============================================================================
-// 21. LIVE RATE COMPARISON MATRIX
+// 24. LIVE RATE COMPARISON MATRIX
 // ============================================================================
 type CreditBadgeState =
   | { kind: "approved"; available: number }
@@ -3990,7 +4317,7 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
 }) => {
   const [sortKey, setSortKey] = useState<"price" | "sla">("price");
 
-  // Defence in depth: even if a demo card slipped through, it is never rendered in live mode.
+  // Defence in depth: demo cards are never rendered in live mode.
   const visibleQuotes = useMemo(() => {
     const safe = isLive ? quotes.filter((q) => !q.rateCard.is_demo && !q.vendor.is_demo) : quotes;
     return [...safe].sort((a, b) =>
@@ -4011,7 +4338,6 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
     return { kind: "none" };
   };
 
-  // ---- Empty states (never fall back to dummy rates) ----
   if (visibleQuotes.length === 0) {
     let title = "No verified carrier rates found for this route yet";
     let body = "No active carrier tariff covers this lane and weight right now. Try another transport mode, or post the load for reverse-auction bidding under Load Auction (RFQ).";
@@ -4124,7 +4450,6 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
                     )}
                   </div>
 
-                  {/* Credit facility status with THIS carrier */}
                   <div className="pt-1">
                     {credit.kind === "approved" ? (
                       <span
@@ -4159,7 +4484,6 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
                   </div>
                 </div>
 
-                {/* Line-item breakdown */}
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs grid grid-cols-3 sm:grid-cols-5 gap-3 text-center sm:text-left">
                   <div>
                     <span className="text-[10px] text-slate-500 font-bold block">Base Freight</span>
@@ -4185,7 +4509,7 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
 
                 <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0">
                   <div className="text-left sm:text-right">
-                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Total Consignment Cost</span>
+                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Estimated Total</span>
                     <span className="text-xl font-black text-emerald-700">{formatINR(quote.breakdown.total)}</span>
                   </div>
                   <button
@@ -4207,7 +4531,7 @@ const ShipperRateMatrix: FC<ShipperRateMatrixProps> = ({
 };
 
 // ============================================================================
-// 22. SINGLE CALCULATOR = BOOKING FORM (Part 3) + RATE MATRIX
+// 25. SINGLE CALCULATOR = BOOKING FORM (Part 3) + RATE MATRIX
 // ============================================================================
 interface ShipperSingleCalculatorSectionProps extends ShipperSingleBookingFormProps {
   isLive: boolean;
@@ -4226,7 +4550,7 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
   ...formProps
 }) => {
   const totalWeight = useMemo(
-    () => formProps.boxes.reduce((acc, b) => acc + (Number(b.weight) || 0) * (Number(b.qty) || 1), 0),
+    () => formProps.boxes.reduce((acc, b) => acc + boxWeight(b) * boxQty(b), 0),
     [formProps.boxes]
   );
 
@@ -4249,9 +4573,8 @@ const ShipperSingleCalculatorSection: FC<ShipperSingleCalculatorSectionProps> = 
 };
 
 // ============================================================================
-// 23. SINGLE DIRECT BOOKING CHECKOUT MODAL
-// The parent must call handlers.registerNewBookings([booking]) in onSuccess so
-// bookings state AND the credit ledger/utilisation stay in sync (see Part 7).
+// 26. SINGLE DIRECT BOOKING CHECKOUT MODAL (LIVE = SERVER-SIDE BOOKING)
+// The parent must call handlers.registerNewBookings([booking]) in onSuccess.
 // ============================================================================
 interface DirectBookingModalProps {
   quote: CalculatedQuote;
@@ -4280,7 +4603,6 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
   onSuccess,
   onOpenCreditApplyModal
 }) => {
-  // Demo sandbox gets sample consignee data; a live account starts with blank fields.
   const [consigneeName, setConsigneeName] = useState(isLive ? "" : "Prime Electronics Retail");
   const [consigneePhone, setConsigneePhone] = useState(isLive ? "" : "+91 98200 44556");
   const [consigneeGstin, setConsigneeGstin] = useState(isLive ? "" : "27AAACP9988G1ZK");
@@ -4304,89 +4626,97 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
     if (!consigneeName.trim() || !consigneePhone.trim() || !deliveryAddress.trim()) {
       return setErrorMsg("Consignee name, phone and destination address are required.");
     }
-    if (consigneeGstin.trim() && consigneeGstin.trim().length !== 15) return setErrorMsg("Consignee GSTIN must be 15 characters (or leave it blank).");
+    if (!/^[0-9+() -]{7,20}$/.test(consigneePhone.trim())) return setErrorMsg("Enter a valid consignee phone number.");
+    if (consigneeGstin.trim() && !isValidGstin(consigneeGstin)) return setErrorMsg("Consignee GSTIN format looks invalid (or leave it blank).");
 
     setIsSubmitting(true);
-
-    const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
-    const initialCarrierDocket = generateCarrierDocket(quote.vendor.name);
-    const portalUrl = getOfficialCarrierTrackingUrl(quote.vendor, initialCarrierDocket);
-
-    let refString = "DIRECT-TO-PAY-POD";
-    if (settlementType === "direct_upi") {
-      refString = directPaymentUtr.trim() ? `UPI-UTR-${directPaymentUtr.trim()}` : `DIRECT-UPI-${quote.vendor.upi_id || "PENDING"}`;
-    } else if (settlementType === "corporate_credit") {
-      refString = `CORP-CREDIT-FACILITY-${quote.creditAgreement?.id || "APPROVED"}`;
-    }
-
-    const enhancedBreakdown: CostBreakdown = {
-      ...quote.breakdown,
-      settlement_type: settlementType,
-      payment_method:
-        settlementType === "direct_upi" ? "Direct Carrier UPI" : settlementType === "corporate_credit" ? "B2B Monthly Credit" : "Direct To-Pay POD",
-      payment_ref: refString,
-      carrier_upi: quote.vendor.upi_id,
-      credit_agreement_id: settlementType === "corporate_credit" ? quote.creditAgreement?.id : undefined
-    };
-
-    const record = {
-      order_id: platformOrderId,
-      awb_number: initialCarrierDocket,
-      carrier_docket_no: initialCarrierDocket,
-      carrier_portal_url: portalUrl,
-      shipper_id: currentUser.id,
-      vendor_id: quote.vendor.id,
-      rate_card_id: quote.rateCard.id,
-      shipper_name: currentUser.company_name || currentUser.full_name,
-      shipper_phone: currentUser.phone,
-      shipper_email: currentUser.email,
-      shipper_gstin: currentUser.gstin,
-      pickup_address: pickupAddress,
-      pickup_pincode: originPin,
-      consignee_name: consigneeName.trim(),
-      consignee_phone: consigneePhone.trim(),
-      consignee_gstin: consigneeGstin.trim().toUpperCase(),
-      delivery_address: deliveryAddress.trim(),
-      origin_pin: originPin,
-      dest_pin: destPin,
-      mode: quote.rateCard.mode,
-      boxes,
-      declared_value: declaredValue,
-      actual_weight: quote.actualWeight,
-      volumetric_weight: quote.volumetricWeight,
-      billable_weight: quote.billableWeight,
-      cost_breakdown: enhancedBreakdown,
-      final_total: quote.breakdown.total,
-      status: "Booked" as const,
-      tracking_history: [
-        {
-          status: "Booked",
-          location: `Origin Hub (${originPin})`,
-          timestamp: new Date().toISOString(),
-          remarks: `Order Ref ${platformOrderId} generated. Carrier Docket ${initialCarrierDocket} assigned. Direct freight (${formatINR(
-            enhancedBreakdown.freightSubtotal
-          )}) payable to ${quote.vendor.name} [Ref: ${refString}]. Platform fee (${formatINR(enhancedBreakdown.platformConvenienceFee)}) recorded.`
-        }
-      ]
-    };
-
     try {
       if (isLive) {
-        const { data, error } = await supabase.from("bookings").insert([record]).select("*, vendors(*)").maybeSingle();
-        if (error || !data) {
-          setErrorMsg(`Booking could not be saved: ${error?.message || "no row returned"}. Nothing was dispatched.`);
-          return;
+        // Only CHOICES are sent. The server recomputes the price and fee, issues the
+        // order ref + provisional docket, and checks/reserves the credit limit.
+        const payload: CreateBookingPayload = {
+          rate_card_id: quote.rateCard.id,
+          origin_pin: originPin,
+          dest_pin: destPin,
+          pickup_address: pickupAddress,
+          boxes,
+          declared_value: declaredValue,
+          is_oda: quote.breakdown.oda > 0,
+          consignee_name: consigneeName.trim(),
+          consignee_phone: consigneePhone.trim(),
+          consignee_gstin: consigneeGstin.trim().toUpperCase(),
+          delivery_address: deliveryAddress.trim()
+        };
+        const booking = await rpcCreateBooking(payload, settlementType, directPaymentUtr.trim(), [quote.vendor]);
+        if (Math.abs(booking.final_total - quote.breakdown.total) > 1) {
+          alert(
+            `Booked. Note: the final confirmed total is ${formatINR(booking.final_total)} (the on-screen estimate was ${formatINR(quote.breakdown.total)}).`
+          );
         }
-        onSuccess(data as Booking);
-      } else {
-        onSuccess({
-          ...record,
-          id: `book-${Date.now()}`,
-          created_at: new Date().toISOString(),
-          vendors: quote.vendor,
-          is_demo: true
-        } as Booking);
+        onSuccess(booking);
+        return;
       }
+
+      // ---- Demo sandbox: everything stays local ----
+      const platformOrderId = `LC-${Math.floor(100000 + Math.random() * 900000)}`;
+      const docket = generateCarrierDocket(quote.vendor.name);
+      let refString = "DIRECT-TO-PAY-POD";
+      if (settlementType === "direct_upi") {
+        refString = directPaymentUtr.trim() ? `UPI-UTR-${directPaymentUtr.trim()}` : `DIRECT-UPI-${quote.vendor.upi_id || "PENDING"}`;
+      } else if (settlementType === "corporate_credit") {
+        refString = `CORP-CREDIT-FACILITY-${quote.creditAgreement?.id || "APPROVED"}`;
+      }
+      const breakdown: CostBreakdown = {
+        ...quote.breakdown,
+        settlement_type: settlementType,
+        payment_method:
+          settlementType === "direct_upi" ? "Direct Carrier UPI" : settlementType === "corporate_credit" ? "B2B Monthly Credit" : "Direct To-Pay POD",
+        payment_ref: refString,
+        carrier_upi: quote.vendor.upi_id,
+        credit_agreement_id: settlementType === "corporate_credit" ? quote.creditAgreement?.id : undefined
+      };
+      onSuccess({
+        id: `book-${Date.now()}`,
+        order_id: platformOrderId,
+        awb_number: docket,
+        carrier_docket_no: docket,
+        carrier_portal_url: getOfficialCarrierTrackingUrl(quote.vendor, docket),
+        shipper_id: currentUser.id,
+        vendor_id: quote.vendor.id,
+        rate_card_id: quote.rateCard.id,
+        shipper_name: currentUser.company_name || currentUser.full_name,
+        shipper_phone: currentUser.phone,
+        shipper_email: currentUser.email,
+        shipper_gstin: currentUser.gstin,
+        pickup_address: pickupAddress,
+        pickup_pincode: originPin,
+        consignee_name: consigneeName.trim(),
+        consignee_phone: consigneePhone.trim(),
+        consignee_gstin: consigneeGstin.trim().toUpperCase(),
+        delivery_address: deliveryAddress.trim(),
+        origin_pin: originPin,
+        dest_pin: destPin,
+        mode: quote.rateCard.mode,
+        boxes,
+        declared_value: declaredValue,
+        actual_weight: quote.actualWeight,
+        volumetric_weight: quote.volumetricWeight,
+        billable_weight: quote.billableWeight,
+        cost_breakdown: breakdown,
+        final_total: quote.breakdown.total,
+        status: "Booked",
+        tracking_history: [
+          {
+            status: "Booked",
+            location: `Origin Hub (${originPin})`,
+            timestamp: new Date().toISOString(),
+            remarks: `Order Ref ${platformOrderId} generated. Carrier Docket ${docket} assigned (demo).`
+          }
+        ],
+        created_at: new Date().toISOString(),
+        vendors: quote.vendor,
+        is_demo: true
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || "Unexpected error while booking.");
     } finally {
@@ -4400,7 +4730,7 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
         settlementType === id ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200" : "bg-white border-slate-200"
       }`}
     >
-      <input type="radio" name="settlement_type" checked={settlementType === id} onChange={() => setSettlementType(id)} className="text-emerald-600" />
+      <input type="radio" name="settlement_type" disabled={disabled} checked={settlementType === id} onChange={() => setSettlementType(id)} className="text-emerald-600" />
       <span className="font-bold block mt-1 text-slate-900">{title}</span>
       <p className="text-[10px] text-slate-500">{sub}</p>
     </label>
@@ -4425,7 +4755,7 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
 
         <div className="bg-slate-950 text-white p-4 rounded-2xl shadow-inner space-y-2 text-xs">
           <div className="flex justify-between items-center text-slate-300">
-            <span>Direct Freight (Payable to {quote.vendor.name}):</span>
+            <span>Estimated Freight (Payable to {quote.vendor.name}):</span>
             <strong className="text-base text-white font-mono">{formatINR(quote.breakdown.freightSubtotal)}</strong>
           </div>
           <div className="flex justify-between items-center text-indigo-300">
@@ -4433,9 +4763,10 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
             <strong className="font-mono">{formatINR(quote.breakdown.platformConvenienceFee)}</strong>
           </div>
           <div className="border-t border-slate-800 pt-2 flex justify-between items-center text-sm font-black text-emerald-400">
-            <span>Total Consignment Outlay:</span>
+            <span>Estimated Total Outlay:</span>
             <span className="font-mono text-base">{formatINR(quote.breakdown.total)}</span>
           </div>
+          {isLive && <p className="text-[10px] text-slate-400">The final amount is confirmed by the platform when you press Confirm.</p>}
         </div>
 
         <div className="space-y-3 text-xs">
@@ -4469,8 +4800,10 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
                 <span className="text-emerald-950 font-bold">Carrier UPI Handle:</span>
                 <span className="bg-white px-2 py-0.5 rounded font-black text-slate-900 border border-emerald-200 select-text">{quote.vendor.upi_id}</span>
               </div>
+              <p className="text-[10px] text-amber-800 font-sans font-bold">Double-check the UPI handle with the carrier before paying.</p>
               <input
                 type="text"
+                maxLength={40}
                 placeholder="Payment Reference / UTR Number (Optional)"
                 value={directPaymentUtr}
                 onChange={(e) => setDirectPaymentUtr(e.target.value)}
@@ -4483,11 +4816,11 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Consignee Name *</label>
-                <input type="text" value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} className={inputCls} />
+                <input type="text" maxLength={120} value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="block text-slate-700 font-bold mb-1">Consignee Phone *</label>
-                <input type="tel" value={consigneePhone} onChange={(e) => setConsigneePhone(e.target.value)} className={inputCls} />
+                <input type="tel" maxLength={20} value={consigneePhone} onChange={(e) => setConsigneePhone(e.target.value)} className={inputCls} />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -4502,7 +4835,7 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Destination Address *</label>
-              <input type="text" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputCls} />
+              <input type="text" maxLength={300} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputCls} />
             </div>
           </div>
 
@@ -4524,7 +4857,7 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
             onClick={handleConfirm}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl text-xs shadow-md transition disabled:opacity-50"
           >
-            {isSubmitting ? "Assigning Docket..." : "Confirm Booking & Assign Carrier Docket"}
+            {isSubmitting ? "Confirming with platform..." : "Confirm Booking"}
           </button>
         </div>
       </div>
@@ -4533,10 +4866,10 @@ const DirectBookingModal: FC<DirectBookingModalProps> = ({
 };
 
 // ============================================================================
-// 24. CREDIT AGREEMENT APPLICATION — CLIENT-SIDE COMPRESSION -> SUPABASE STORAGE
-// Flow: validate -> compressAgreementFile (pdf-lib useObjectStreams / JPEG re-encode)
-//       -> upload to bucket 'agreements' -> persist path/URL via
-//       handlers.handleSubmitCreditApplication (inserts into credit_agreements).
+// 27. CREDIT AGREEMENT APPLICATION — VALIDATE -> COMPRESS -> PRIVATE STORAGE
+// Flow: validate (type, size, magic bytes) -> compressAgreementFile -> upload to
+//       the PRIVATE 'agreements' bucket under credit-agreements/<your user id>/
+//       -> insert the application row (server forces status, limits, names).
 // ============================================================================
 interface CreditApplyModalProps {
   isOpen: boolean;
@@ -4570,7 +4903,6 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
   const [statusText, setStatusText] = useState("");
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Carriers may finish loading after the modal mounts, or a carrier may be preselected.
   useEffect(() => {
     if (defaultCarrierId) setSelectedCarrierId(defaultCarrierId);
     else if (!selectedCarrierId && carriers[0]) setSelectedCarrierId(carriers[0].id);
@@ -4589,18 +4921,15 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
     (a) => a.carrier_id === selectedCarrierId && (a.status === "Pending_Review" || a.status === "Approved")
   );
 
-  const handleFilePick = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFilePick = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    const okType = file.type === "application/pdf" || file.type.startsWith("image/") || file.name.toLowerCase().endsWith(".pdf");
-    if (!okType) {
+    const problem = await validateUploadFile(file, { maxMB: MAX_AGREEMENT_UPLOAD_MB, allowPdf: true, allowImages: true });
+    if (problem) {
+      setSelectedFile(null);
       setStatusType("error");
-      setStatusText("Only PDF or image scans are accepted.");
-      return;
-    }
-    if (file.size > MAX_AGREEMENT_UPLOAD_MB * 1024 * 1024) {
-      setStatusType("error");
-      setStatusText(`File is larger than ${MAX_AGREEMENT_UPLOAD_MB} MB. Please scan at a lower resolution.`);
+      setStatusText(problem);
       return;
     }
     setSelectedFile(file);
@@ -4621,9 +4950,9 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
       setStatusText("Select a carrier to apply to.");
       return;
     }
-    if (requestedLimit <= 0) {
+    if (!Number.isFinite(requestedLimit) || requestedLimit < 10000 || requestedLimit > 100000000) {
       setStatusType("error");
-      setStatusText("Please provide a valid requested credit limit.");
+      setStatusText("Requested limit must be between ₹10,000 and ₹10,00,00,000.");
       return;
     }
     if (blockingAgreement) {
@@ -4633,14 +4962,13 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
     }
 
     setIsSubmitting(true);
+    let uploadedPath: string | undefined;
     try {
-      // 1. Compress in the browser (no-op for files <= 1 MB; original kept if not smaller)
       setStatusType("optimizing");
       setStatusText("Optimizing document...");
       const result = await compressAgreementFile(selectedFile);
       const fileToUpload = result.file;
 
-      // 2. Upload to Supabase Storage (live accounts only; the sandbox never writes to storage)
       let filePath: string | undefined;
       let documentUrl = "";
       if (isLive) {
@@ -4652,14 +4980,15 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
           upsert: false,
           contentType: fileToUpload.type || "application/pdf"
         });
-        if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
-        // Works if the bucket is public; for a private bucket the app opens documents via signed URL using file_path.
-        documentUrl = supabase.storage.from("agreements").getPublicUrl(filePath).data.publicUrl;
+        if (upErr) throw upErr;
+        uploadedPath = filePath;
+        // The bucket is PRIVATE: no public URL exists. The document is opened later
+        // through a short-lived signed URL built from file_path.
+        documentUrl = "";
       } else {
         documentUrl = URL.createObjectURL(fileToUpload);
       }
 
-      // 3. Persist the application record
       setStatusType("saving");
       setStatusText("Submitting application...");
       const saved = await onSubmitApplication({
@@ -4673,8 +5002,8 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
         compressedSizeKB: result.compressedSizeKB
       });
       if (!saved.ok) {
-        // Do not leave an orphaned file behind if the record could not be created.
-        if (isLive && filePath) await supabase.storage.from("agreements").remove([filePath]);
+        // Remove the orphaned file (allowed because no agreement row references it).
+        if (isLive && uploadedPath) await supabase.storage.from("agreements").remove([uploadedPath]);
         throw new Error(saved.error || "Could not save the application.");
       }
 
@@ -4692,9 +5021,8 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
         onClose();
       }, 1600);
     } catch (err: any) {
-      console.error("Credit application failed:", err);
       setStatusType("error");
-      setStatusText(err?.message || "Failed to process document. Please try again.");
+      setStatusText(friendlyError(err, "Failed to process document. Please try again."));
       setIsSubmitting(false);
     }
   };
@@ -4723,7 +5051,7 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
 
         {carriers.length === 0 ? (
           <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-300 rounded-xl">
-            No carriers are onboarded on the platform yet, so there is no one to apply to.
+            No verified carriers are onboarded on the platform yet, so there is no one to apply to.
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 text-xs">
@@ -4755,6 +5083,7 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
                 <input
                   type="number"
                   min={10000}
+                  max={100000000}
                   step={10000}
                   required
                   disabled={isSubmitting}
@@ -4781,7 +5110,7 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
             <div>
               <label className="block text-slate-700 font-bold mb-1">Upload Signed Agreement / GST KYC (PDF or Scan) *</label>
               <div className="border-2 border-dashed border-indigo-300 rounded-2xl p-4 bg-indigo-50/40 text-center space-y-2">
-                <input type="file" id="credit_agreement_doc" accept=".pdf,application/pdf,image/*" disabled={isSubmitting} onChange={handleFilePick} className="hidden" />
+                <input type="file" id="credit_agreement_doc" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" disabled={isSubmitting} onChange={handleFilePick} className="hidden" />
                 <label
                   htmlFor="credit_agreement_doc"
                   className={`bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 shadow-xs ${
@@ -4800,7 +5129,9 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
                     </span>
                   </div>
                 )}
-                <p className="text-[10px] text-slate-500">Documents over 1 MB are compressed in your browser before upload (max {MAX_AGREEMENT_UPLOAD_MB} MB).</p>
+                <p className="text-[10px] text-slate-500">
+                  PDF, JPG, PNG or WebP. Documents over 1 MB are compressed in your browser before upload (max {MAX_AGREEMENT_UPLOAD_MB} MB). Stored privately.
+                </p>
               </div>
             </div>
 
@@ -4835,26 +5166,25 @@ const CreditApplyModal: FC<CreditApplyModalProps> = ({
 };
 
 // ============================================================================
-// 25. SHIPPER CREDIT AGREEMENT STATUS DASHBOARD
+// 28. SHIPPER CREDIT AGREEMENT STATUS DASHBOARD
 // ============================================================================
 // Opens a private document via a signed URL. The blank tab is opened synchronously
 // (inside the click) so popup blockers don't swallow it after the async call.
+// The returned link is validated: only https: / blob: links are ever navigated to.
 async function openAgreementDocument(
   agreement: CreditAgreement,
   getUrl: (a: CreditAgreement) => Promise<string>
 ): Promise<void> {
   const win = window.open("", "_blank");
+  if (win) win.opener = null;
   try {
-    const url = await getUrl(agreement);
-    if (win) {
-      win.opener = null;
-      win.location.href = url;
-    } else {
-      window.location.href = url;
-    }
+    const safe = safeDocUrl(await getUrl(agreement));
+    if (safe === "#") throw new Error("Unsafe or missing document link.");
+    if (win) win.location.href = safe;
+    else window.location.href = safe;
   } catch (err) {
     if (win) win.close();
-    alert("Could not open the document. Please try again.");
+    alert(friendlyError(err, "Could not open the document. Please try again."));
   }
 }
 
@@ -4981,7 +5311,7 @@ const ShipperCreditStatusSection: FC<ShipperCreditStatusSectionProps> = ({ agree
 };
 
 // ============================================================================
-// 26. SHARED CREDIT LEDGER (SHIPPER: dues view | CARRIER: receivables + settle)
+// 29. SHARED CREDIT LEDGER (SHIPPER: dues view | CARRIER: receivables + settle)
 // ============================================================================
 type LedgerEffectiveStatus = "Unpaid" | "Settled" | "Overdue";
 
@@ -5012,7 +5342,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
   const [settlingId, setSettlingId] = useState<string | null>(null);
 
   const isShipper = role === "shipper";
-  // Only the carrier (the party being paid) can confirm receipt; a shipper cannot mark its own dues settled.
+  // Only the carrier (the party being paid) can confirm receipt.
   const canSettle = !isShipper && Boolean(onSettleLedgerEntry);
   const myCarrierId = currentUser.vendor_id || currentUser.id;
 
@@ -5043,8 +5373,8 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
   }, [creditAgreements, relevantLedger, isShipper, currentUser.id, myCarrierId]);
 
   const handleSettle = async (entryId: string) => {
-    if (!onSettleLedgerEntry) return;
-    const ref = (settleRefInput[entryId] || "").trim() || `UTR-RECON-${Date.now().toString().slice(-6)}`;
+    if (!onSettleLedgerEntry || settlingId) return;
+    const ref = (settleRefInput[entryId] || "").trim().replace(/[^A-Za-z0-9_/-]/g, "").slice(0, 40) || `UTR-RECON-${Date.now().toString().slice(-6)}`;
     setSettlingId(entryId);
     try {
       await onSettleLedgerEntry(entryId, ref);
@@ -5159,6 +5489,7 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
                           <div className="inline-flex items-center space-x-1.5">
                             <input
                               type="text"
+                              maxLength={40}
                               placeholder="UTR Ref"
                               value={settleRefInput[entry.id] || ""}
                               onChange={(e) => setSettleRefInput({ ...settleRefInput, [entry.id]: e.target.value })}
@@ -5192,19 +5523,61 @@ const CombinedCreditLedgerSection: FC<CombinedCreditLedgerSectionProps> = ({
 };
 
 // ============================================================================
-// END OF PART 4 OF 7
+// END OF PART 4 OF 8
 // ============================================================================
 // ============================================================================
-// PART 5 OF 7 — CARRIER MODULE A
+// PART 5 OF 8 — CARRIER MODULE A
 //   Shipper RFQ poster, Available Loads board + Bid modal, public tracking URL
 //   config, fleet tracking & bilty console, commercial rate cards (+ CSV and
 //   manual modal), settlement bank/UPI profile.
 // Paste directly after Part 4. No named exports.
+//
+// WHAT CHANGED vs the old Part 5
+//  - Bids go through the place_bid() SQL function: the server sets the carrier's
+//    name/id, enforces the shipper ceiling, and a carrier can no longer rewrite
+//    the whole RFQ row or other carriers' bids.
+//  - RFQ form: strict ranges, truck type whitelist, shipper_id sent explicitly.
+//  - Bilty scans open through signed URLs (openBookingDocument, used by Part 6 too).
+//    CarrierOrdersSection now needs the new prop `getBookingDocUrl`.
+//  - Docket / location / remarks validated and length-limited before saving.
+//  - Closed consignments (Delivered/Cancelled) can no longer be edited.
+//  - Rate-card CSV: file size cap, numeric range checks, and a cap on how many
+//    city names are looked up on the third-party postal API per upload.
+//  - Tracking URL must be https. UPI / bank / IFSC formats validated.
+//  - Carriers see a banner when they are not yet verified (rates hidden from shippers).
 // ============================================================================
 
 // ============================================================================
-// 27. SHIPPER: POST HEAVY / FTL LOAD FOR REVERSE AUCTION (RFQ)
+// 30. SHARED: OPEN A PRIVATE BILTY / POD SCAN VIA SIGNED URL
 // ============================================================================
+async function openBookingDocument(
+  booking: Booking,
+  getUrl: (b: Booking) => Promise<string>
+): Promise<void> {
+  const win = window.open("", "_blank");
+  if (win) win.opener = null;
+  try {
+    const safe = safeDocUrl(await getUrl(booking));
+    if (safe === "#") throw new Error("Missing or unsafe document link.");
+    if (win) win.location.href = safe;
+    else window.location.href = safe;
+  } catch (err) {
+    if (win) win.close();
+    alert(friendlyError(err, "Could not open the document. Please try again."));
+  }
+}
+
+// ============================================================================
+// 31. SHIPPER: POST HEAVY / FTL LOAD FOR REVERSE AUCTION (RFQ)
+// ============================================================================
+const RFQ_TRUCK_TYPES = [
+  "32ft Multi-Axle Trailer (MXL)",
+  "24ft Container Truck",
+  "Taurus 21-Tonner (10-Tyre)",
+  "19ft Open Body Truck",
+  "Tata 407 (3.5T)"
+];
+
 interface ShipperRfqSectionProps {
   currentUser: UserProfile;
   isLive: boolean;
@@ -5214,18 +5587,16 @@ interface ShipperRfqSectionProps {
 }
 
 const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, defaultOriginPin, rfqList, setRfqList }) => {
-  // Live accounts start blank; the sandbox gets realistic sample values.
   const [origin, setOrigin] = useState(isLive ? defaultOriginPin : "110001");
   const [dest, setDest] = useState(isLive ? "" : "560001");
   const [desc, setDesc] = useState(isLive ? "" : "Industrial Gearboxes and Heavy Machinery Parts");
   const [weight, setWeight] = useState<number>(isLive ? 0 : 8500);
-  const [truck, setTruck] = useState("32ft Multi-Axle Trailer (MXL)");
+  const [truck, setTruck] = useState(RFQ_TRUCK_TYPES[0]);
   const [budget, setBudget] = useState<number>(isLive ? 0 : 65000);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [okMsg, setOkMsg] = useState("");
 
-  // Pre-fill origin once the saved pickup address finishes loading.
   useEffect(() => {
     if (isLive && defaultOriginPin && !origin) setOrigin(defaultOriginPin);
   }, [isLive, defaultOriginPin, origin]);
@@ -5235,18 +5606,22 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
 
   const handleCreateRfq = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg("");
     setOkMsg("");
     if (!isValidPin(origin) || !isValidPin(dest)) return setErrorMsg("Enter valid 6-digit origin and destination PIN codes.");
-    if (weight <= 0) return setErrorMsg("Cargo weight must be greater than 0 kg.");
-    if (budget <= 0) return setErrorMsg("Ceiling target budget must be greater than ₹0.");
+    if (!desc.trim()) return setErrorMsg("Describe the cargo.");
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 1000000) return setErrorMsg("Cargo weight must be between 1 and 10,00,000 kg.");
+    if (!Number.isFinite(budget) || budget <= 0 || budget > 100000000) return setErrorMsg("Ceiling budget must be between ₹1 and ₹10,00,00,000.");
+    if (!RFQ_TRUCK_TYPES.includes(truck)) return setErrorMsg("Choose a vehicle type from the list.");
 
     setIsSubmitting(true);
     const record = {
-      shipper_name: currentUser.company_name || currentUser.full_name,
+      shipper_id: currentUser.id,
+      shipper_name: (currentUser.company_name || currentUser.full_name).slice(0, 160),
       origin_pin: origin.trim(),
       dest_pin: dest.trim(),
-      cargo_description: desc.trim(),
+      cargo_description: desc.trim().slice(0, 200),
       total_weight_kg: Number(weight),
       truck_type: truck,
       target_price: Number(budget),
@@ -5258,7 +5633,7 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
       if (isLive) {
         const { data, error } = await supabase.from("rfq_bids").insert([record]).select("*").maybeSingle();
         if (error || !data) {
-          setErrorMsg(`Load could not be posted: ${error?.message || "no row returned"}.`);
+          setErrorMsg(friendlyError(error, "Load could not be posted."));
           return;
         }
         setRfqList((prev) => [data as RfqBid, ...prev]);
@@ -5298,25 +5673,25 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
           </div>
           <div>
             <label className="block text-slate-800 font-bold mb-1">Cargo Description *</label>
-            <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Electrical Panels / Steel Coils" className={inputCls} required />
+            <input type="text" maxLength={200} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Electrical Panels / Steel Coils" className={inputCls} required />
           </div>
           <div>
             <label className="block text-slate-800 font-bold mb-1">Total Cargo Weight (Kg) *</label>
-            <input type="number" min={1} value={weight || ""} onChange={(e) => setWeight(Number(e.target.value))} className={`${inputCls} font-mono font-bold`} required />
+            <input type="number" min={1} max={1000000} value={weight || ""} onChange={(e) => setWeight(Number(e.target.value))} className={`${inputCls} font-mono font-bold`} required />
           </div>
           <div>
             <label className="block text-slate-800 font-bold mb-1">Required Vehicle / Truck Body</label>
             <select value={truck} onChange={(e) => setTruck(e.target.value)} className={`${inputCls} font-bold`}>
-              <option value="32ft Multi-Axle Trailer (MXL)">32ft Multi-Axle Trailer (MXL)</option>
-              <option value="24ft Container Truck">24ft Container Truck</option>
-              <option value="Taurus 21-Tonner (10-Tyre)">Taurus 21-Tonner (10-Tyre)</option>
-              <option value="19ft Open Body Truck">19ft Open Body Truck</option>
-              <option value="Tata 407 (3.5T)">Tata 407 (3.5T)</option>
+              {RFQ_TRUCK_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
             </select>
           </div>
           <div>
             <label className="block text-slate-800 font-bold mb-1">Ceiling Target Budget (₹) *</label>
-            <input type="number" min={1} value={budget || ""} onChange={(e) => setBudget(Number(e.target.value))} className={`${inputCls} font-mono font-bold`} required />
+            <input type="number" min={1} max={100000000} value={budget || ""} onChange={(e) => setBudget(Number(e.target.value))} className={`${inputCls} font-mono font-bold`} required />
           </div>
           <div className="md:col-span-3 flex justify-end pt-2">
             <button type="submit" disabled={isSubmitting} className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-7 py-3 rounded-xl text-xs transition shadow-md disabled:opacity-50">
@@ -5348,7 +5723,7 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
                         <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold uppercase">{rfq.status}</span>
                       </div>
                       <h4 className="text-base font-black text-slate-900 mt-1.5">{rfq.cargo_description}</h4>
-                      <p className="text-xs text-slate-500 font-medium">Cargo Weight: {rfq.total_weight_kg.toLocaleString("en-IN")} kg</p>
+                      <p className="text-xs text-slate-500 font-medium">Cargo Weight: {Number(rfq.total_weight_kg).toLocaleString("en-IN")} kg</p>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Ceiling Target Budget</span>
@@ -5363,7 +5738,7 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
                     ) : (
                       <div className="space-y-2">
                         {bids.map((bid, bIdx) => (
-                          <div key={`${bid.vendor_name}-${bIdx}`} className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${bIdx === 0 ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
+                          <div key={`${bid.vendor_id || bid.vendor_name}-${bIdx}`} className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${bIdx === 0 ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
                             <div>
                               <span className="font-black text-slate-900 block">
                                 {bid.vendor_name} {bIdx === 0 && <em className="not-italic text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded ml-1">LOWEST</em>}
@@ -5390,7 +5765,7 @@ const ShipperRfqSection: FC<ShipperRfqSectionProps> = ({ currentUser, isLive, de
 };
 
 // ============================================================================
-// 28. CARRIER: AVAILABLE LOADS BOARD + LOAD BIDDING MODAL
+// 32. CARRIER: AVAILABLE LOADS BOARD + LOAD BIDDING MODAL
 // ============================================================================
 interface LoadBidModalProps {
   rfq: RfqBid;
@@ -5408,11 +5783,14 @@ const LoadBidModal: FC<LoadBidModalProps> = ({ rfq, existingBid, onClose, onSubm
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg("");
-    if (amount <= 0 || days <= 0) return setErrorMsg("Enter both a quote price and transit SLA days.");
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(days) || days < 1 || days > 365) {
+      return setErrorMsg("Enter a quote price and transit SLA days between 1 and 365.");
+    }
     if (amount > rfq.target_price) return setErrorMsg(`Your quote must be at or below the shipper's ceiling of ${formatINR(rfq.target_price)}.`);
     setIsSubmitting(true);
-    const res = await onSubmit(amount, days, notes.trim());
+    const res = await onSubmit(amount, Math.floor(days), notes.trim());
     setIsSubmitting(false);
     if (!res.ok) return setErrorMsg(res.error || "Bid could not be placed.");
     onClose();
@@ -5427,7 +5805,7 @@ const LoadBidModal: FC<LoadBidModalProps> = ({ rfq, existingBid, onClose, onSubm
           <div>
             <h3 className="text-base font-black text-slate-900">{existingBid ? "Revise Your Bid" : "Place Competitive Bid"}</h3>
             <p className="text-xs text-slate-500 font-medium">
-              PIN {rfq.origin_pin} → {rfq.dest_pin} • {rfq.total_weight_kg.toLocaleString("en-IN")} kg • {rfq.truck_type}
+              PIN {rfq.origin_pin} → {rfq.dest_pin} • {Number(rfq.total_weight_kg).toLocaleString("en-IN")} kg • {rfq.truck_type}
             </p>
           </div>
           <button type="button" onClick={onClose} disabled={isSubmitting} className="text-slate-400 hover:text-slate-700 p-1" aria-label="Close">
@@ -5446,16 +5824,16 @@ const LoadBidModal: FC<LoadBidModalProps> = ({ rfq, existingBid, onClose, onSubm
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-700 font-bold mb-1">Quoted Price (₹) *</label>
-              <input type="number" min={1} value={amount || ""} onChange={(e) => setAmount(Number(e.target.value))} placeholder="e.g. 58000" className={`${inputCls} font-mono font-bold`} />
+              <input type="number" min={1} max={rfq.target_price} value={amount || ""} onChange={(e) => setAmount(Number(e.target.value))} placeholder="e.g. 58000" className={`${inputCls} font-mono font-bold`} />
             </div>
             <div>
               <label className="block text-slate-700 font-bold mb-1">Transit SLA (Days) *</label>
-              <input type="number" min={1} value={days || ""} onChange={(e) => setDays(Number(e.target.value))} placeholder="e.g. 3" className={`${inputCls} font-mono font-bold`} />
+              <input type="number" min={1} max={365} value={days || ""} onChange={(e) => setDays(Number(e.target.value))} placeholder="e.g. 3" className={`${inputCls} font-mono font-bold`} />
             </div>
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Fleet / Driver Notes</label>
-            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Dedicated trailer ready at hub" className={inputCls} />
+            <input type="text" maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Dedicated trailer ready at hub" className={inputCls} />
           </div>
           <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
             <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 text-slate-600 font-bold hover:text-slate-900">
@@ -5481,7 +5859,10 @@ interface CarrierBidsSectionProps {
 const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, rfqList, setRfqList }) => {
   const [activeRfq, setActiveRfq] = useState<RfqBid | null>(null);
   const [search, setSearch] = useState("");
+  const myId = currentUser.vendor_id || currentUser.id;
   const bidderName = currentUser.company_name || currentUser.full_name;
+
+  const isMine = (b: RfqBid["bids"][number]) => (b.vendor_id ? b.vendor_id === myId : b.vendor_name === bidderName);
 
   const openLoads = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -5491,27 +5872,28 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
   }, [rfqList, search]);
 
   const submitBid = async (rfq: RfqBid, amount: number, days: number, notes: string): Promise<{ ok: boolean; error?: string }> => {
+    if (isLive) {
+      // The server sets the bidder identity, checks the ceiling and locks the row.
+      const { data, error } = await supabase.rpc("place_bid", {
+        p_rfq: rfq.id,
+        p_amount: amount,
+        p_days: days,
+        p_notes: notes
+      });
+      if (error || !Array.isArray(data)) return { ok: false, error: friendlyError(error, "Bid could not be placed.") };
+      setRfqList((prev) => prev.map((r) => (r.id === rfq.id ? { ...r, bids: data as RfqBid["bids"] } : r)));
+      return { ok: true };
+    }
+
     const newBid = {
+      vendor_id: myId,
       vendor_name: bidderName,
       bid_amount: amount,
       transit_days: days,
       notes: notes || "Fleet available for immediate dispatch.",
       created_at: new Date().toISOString()
     };
-
-    if (isLive) {
-      // Re-read the latest bids first so a concurrent bid from another carrier isn't overwritten.
-      const { data: fresh, error: readErr } = await supabase.from("rfq_bids").select("bids, status").eq("id", rfq.id).maybeSingle();
-      if (readErr || !fresh) return { ok: false, error: readErr?.message || "This load is no longer available." };
-      if (fresh.status !== "Open") return { ok: false, error: "This load is no longer open for bidding." };
-      const merged = [...((fresh.bids as RfqBid["bids"]) || []).filter((b) => b.vendor_name !== bidderName), newBid];
-      const { error } = await supabase.from("rfq_bids").update({ bids: merged }).eq("id", rfq.id);
-      if (error) return { ok: false, error: error.message };
-      setRfqList((prev) => prev.map((r) => (r.id === rfq.id ? { ...r, bids: merged } : r)));
-      return { ok: true };
-    }
-
-    const merged = [...(rfq.bids || []).filter((b) => b.vendor_name !== bidderName), newBid];
+    const merged = [...(rfq.bids || []).filter((b) => !isMine(b)), newBid];
     setRfqList((prev) => prev.map((r) => (r.id === rfq.id ? { ...r, bids: merged } : r)));
     return { ok: true };
   };
@@ -5527,6 +5909,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
           <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
+            maxLength={60}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by PIN, cargo, truck..."
@@ -5542,7 +5925,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
           </div>
         ) : (
           openLoads.map((rfq) => {
-            const mine = (rfq.bids || []).find((b) => b.vendor_name === bidderName);
+            const mine = (rfq.bids || []).find(isMine);
             return (
               <div key={rfq.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -5556,7 +5939,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
                     </div>
                     <h4 className="text-base font-black text-slate-900">{rfq.cargo_description}</h4>
                     <p className="text-xs text-slate-500 font-medium">
-                      Shipper: {rfq.shipper_name} • Weight: {rfq.total_weight_kg.toLocaleString("en-IN")} kg • {(rfq.bids || []).length} bid(s) so far
+                      Shipper: {rfq.shipper_name} • Weight: {Number(rfq.total_weight_kg).toLocaleString("en-IN")} kg • {(rfq.bids || []).length} bid(s) so far
                     </p>
                     {mine && (
                       <p className="text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg px-2.5 py-1 inline-block mt-1">
@@ -5587,7 +5970,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
       {activeRfq && (
         <LoadBidModal
           rfq={activeRfq}
-          existingBid={(activeRfq.bids || []).find((b) => b.vendor_name === bidderName)}
+          existingBid={(activeRfq.bids || []).find(isMine)}
           onClose={() => setActiveRfq(null)}
           onSubmit={(amount, days, notes) => submitBid(activeRfq, amount, days, notes)}
         />
@@ -5597,7 +5980,7 @@ const CarrierBidsSection: FC<CarrierBidsSectionProps> = ({ currentUser, isLive, 
 };
 
 // ============================================================================
-// 29. CARRIER-SPECIFIC PUBLIC TRACKING PORTAL URL
+// 33. CARRIER-SPECIFIC PUBLIC TRACKING PORTAL URL (https only)
 // ============================================================================
 interface CarrierTrackingUrlConfigProps {
   currentUrl: string;
@@ -5610,25 +5993,23 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({ cu
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // The saved URL may arrive after mount (profile load) or change with the mode.
   useEffect(() => {
     setUrlInput(currentUrl || "");
   }, [currentUrl]);
 
   const previewResolvedUrl = useMemo(() => {
     if (!urlInput.trim()) return "Configure a tracking URL to see the live resolution preview";
-    return appendDocketToBase(urlInput, testDocket.trim() || "DOCKET");
+    const resolved = appendDocketToBase(urlInput, testDocket.trim() || "DOCKET");
+    return resolved === "#" ? "The URL must start with https://" : resolved;
   }, [urlInput, testDocket]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setErrorMsg("");
     const clean = urlInput.trim();
-    try {
-      const parsed = new URL(clean);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
-    } catch {
-      return setErrorMsg("Tracking portal URL must be a valid address starting with http:// or https://");
+    if (safeHttpUrl(clean) === "#") {
+      return setErrorMsg("Tracking portal URL must be a valid address starting with https://");
     }
     setIsSaving(true);
     try {
@@ -5654,10 +6035,11 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({ cu
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
         <div>
-          <label className="block text-slate-700 font-bold mb-1">Tracking Endpoint Base URL *</label>
+          <label className="block text-slate-700 font-bold mb-1">Tracking Endpoint Base URL (https only) *</label>
           <input
             type="url"
             required
+            maxLength={300}
             placeholder="e.g. https://www.yourdomain.com/track?awb= or https://tracking.carrier.in/"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
@@ -5674,6 +6056,7 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({ cu
             <span className="text-xs text-slate-400 shrink-0">Sample Docket:</span>
             <input
               type="text"
+              maxLength={40}
               value={testDocket}
               onChange={(e) => setTestDocket(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded px-2.5 py-1 text-xs font-mono font-bold text-white max-w-xs focus:outline-none"
@@ -5696,7 +6079,7 @@ const CarrierTrackingUrlConfigSection: FC<CarrierTrackingUrlConfigProps> = ({ cu
 };
 
 // ============================================================================
-// 30. CARRIER FLEET TRACKING & PHYSICAL BILTY DISPATCH CONSOLE
+// 34. CARRIER FLEET TRACKING & PHYSICAL BILTY DISPATCH CONSOLE
 // ============================================================================
 interface CarrierOrdersSectionProps {
   currentUser: UserProfile;
@@ -5705,6 +6088,8 @@ interface CarrierOrdersSectionProps {
   setStatusUpdateMap: React.Dispatch<React.SetStateAction<StatusUpdateMap>>;
   onUploadDocketFile: (bookingId: string, file: File) => Promise<void>;
   onUpdateShipmentStatus: (bookingId: string) => Promise<void>;
+  // NEW: opens a bilty scan through a signed URL (handlers.getBookingDocUrl from Part 2).
+  getBookingDocUrl: (b: Booking) => Promise<string>;
 }
 
 const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
@@ -5713,7 +6098,8 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
   statusUpdateMap,
   setStatusUpdateMap,
   onUploadDocketFile,
-  onUpdateShipmentStatus
+  onUpdateShipmentStatus,
+  getBookingDocUrl
 }) => {
   const [search, setSearch] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -5733,10 +6119,15 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
   const patchRow = (booking: Booking, rowForm: StatusUpdateEntry, patch: Partial<StatusUpdateEntry>) =>
     setStatusUpdateMap((prev) => ({ ...prev, [booking.id]: { ...rowForm, ...patch } }));
 
-  const save = async (id: string) => {
-    setSavingId(id);
+  const save = async (booking: Booking, docketValue: string) => {
+    if (savingId) return;
+    if (!/^[A-Za-z0-9/-]{4,40}$/.test(docketValue.trim())) {
+      alert("Docket / LR number must be 4-40 characters: letters, digits, - or /.");
+      return;
+    }
+    setSavingId(booking.id);
     try {
-      await onUpdateShipmentStatus(id);
+      await onUpdateShipmentStatus(booking.id);
     } finally {
       setSavingId(null);
     }
@@ -5756,6 +6147,7 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
             <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
+              maxLength={60}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Order ref, docket or consignee..."
@@ -5784,6 +6176,7 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
             };
             const docketValue = rowForm.docketNo ?? (booking.carrier_docket_no || booking.awb_number);
             const attached = rowForm.docUrl || booking.carrier_docket_doc_url;
+            const closed = booking.status === "Delivered" || booking.status === "Cancelled";
 
             return (
               <div key={booking.id} className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -5807,16 +6200,24 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                   <strong className="text-slate-800">{booking.consignee_name}</strong> • {booking.delivery_address} • {booking.boxes?.length || 1} box(es), {booking.billable_weight} kg billable
                 </p>
 
+                {/^LCD-/.test(booking.carrier_docket_no || "") && !closed && (
+                  <p className="text-[11px] bg-amber-50 text-amber-900 border border-amber-300 rounded-lg px-3 py-1.5 font-bold">
+                    This docket is a provisional platform number. Enter your official LR / waybill number below and save.
+                  </p>
+                )}
+
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                     <div className="md:col-span-4">
                       <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Carrier Docket / LR No.</label>
                       <input
                         type="text"
+                        maxLength={40}
+                        disabled={closed}
                         placeholder="Enter Physical Bilty No."
                         value={docketValue}
                         onChange={(e) => patchRow(booking, rowForm, { docketNo: e.target.value })}
-                        className="w-full bg-white border-2 border-indigo-300 font-mono font-black text-indigo-950 rounded-xl px-3 py-1.5 text-xs shadow-sm focus:border-indigo-600 focus:outline-none"
+                        className="w-full bg-white border-2 border-indigo-300 font-mono font-black text-indigo-950 rounded-xl px-3 py-1.5 text-xs shadow-sm focus:border-indigo-600 focus:outline-none disabled:opacity-60"
                       />
                     </div>
 
@@ -5826,26 +6227,33 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                         <input
                           type="file"
                           id={`file-upload-${booking.id}`}
-                          accept="image/*,application/pdf"
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          disabled={closed || rowForm.isUploading}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            if (file) onUploadDocketFile(booking.id, file);
+                            if (file) void onUploadDocketFile(booking.id, file);
                             e.target.value = "";
                           }}
                           className="hidden"
                         />
                         <label
                           htmlFor={`file-upload-${booking.id}`}
-                          className="bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center space-x-1.5"
+                          className={`bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5 ${
+                            closed ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                          }`}
                         >
                           <UploadIcon className="w-3.5 h-3.5 text-indigo-600" />
                           <span>{rowForm.isUploading ? "Compressing & Uploading..." : "📷 Upload Bilty Scan"}</span>
                         </label>
                         {attached && (
-                          <a href={attached} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:text-emerald-800 font-black text-xs flex items-center space-x-1 underline truncate max-w-[150px]">
+                          <button
+                            type="button"
+                            onClick={() => openBookingDocument({ ...booking, carrier_docket_doc_url: attached }, getBookingDocUrl)}
+                            className="text-emerald-700 hover:text-emerald-800 font-black text-xs flex items-center space-x-1 underline truncate max-w-[150px]"
+                          >
                             <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" />
                             <span>Attached Scan</span>
-                          </a>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -5854,8 +6262,9 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                       <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Transit Milestone Status</label>
                       <select
                         value={rowForm.status}
+                        disabled={closed}
                         onChange={(e) => patchRow(booking, rowForm, { status: e.target.value })}
-                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:border-indigo-600 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 font-bold focus:border-indigo-600 focus:outline-none disabled:opacity-60"
                       >
                         <option value="">Update Status...</option>
                         <option value="Picked Up">Picked Up</option>
@@ -5869,26 +6278,30 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
                   <div className="flex flex-col md:flex-row items-center gap-2.5 pt-2 border-t border-slate-200">
                     <input
                       type="text"
+                      maxLength={120}
+                      disabled={closed}
                       placeholder="Current Hub / City (e.g. Bilaspur Linehaul Gateway)"
                       value={rowForm.location}
                       onChange={(e) => patchRow(booking, rowForm, { location: e.target.value })}
-                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none disabled:opacity-60"
                     />
                     <input
                       type="text"
+                      maxLength={300}
+                      disabled={closed}
                       placeholder="Remarks (optional)"
                       value={rowForm.remarks}
                       onChange={(e) => patchRow(booking, rowForm, { remarks: e.target.value })}
-                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none"
+                      className="w-full md:flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-medium focus:border-indigo-600 focus:outline-none disabled:opacity-60"
                     />
                     <button
                       type="button"
-                      disabled={savingId === booking.id}
-                      onClick={() => save(booking.id)}
+                      disabled={savingId === booking.id || closed}
+                      onClick={() => save(booking, docketValue)}
                       className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2 rounded-xl transition shadow-sm flex items-center justify-center space-x-1.5 shrink-0 disabled:opacity-50"
                     >
                       <CheckCircleIcon className="w-4 h-4" />
-                      <span>{savingId === booking.id ? "Saving..." : "Save & Dispatch Docket Update"}</span>
+                      <span>{closed ? "Consignment Closed" : savingId === booking.id ? "Saving..." : "Save & Dispatch Docket Update"}</span>
                     </button>
                   </div>
                 </div>
@@ -5902,7 +6315,7 @@ const CarrierOrdersSection: FC<CarrierOrdersSectionProps> = ({
 };
 
 // ============================================================================
-// 31. CARRIER COMMERCIAL RATE CARD MASTER (LIST + BULK CSV)
+// 35. CARRIER COMMERCIAL RATE CARD MASTER (LIST + BULK CSV)
 // ============================================================================
 interface CarrierRatesSectionProps {
   currentUser: UserProfile;
@@ -5914,6 +6327,26 @@ interface CarrierRatesSectionProps {
 }
 
 const MAX_CSV_RATE_ROWS = 500;
+const MAX_CITY_LOOKUPS_PER_UPLOAD = 25;
+
+function validateRateCardNumbers(c: {
+  min_weight_kg: number; base_rate: number; per_kg_rate: number; fuel_surcharge_pct: number;
+  docket_charge: number; sla_days: number; fov_pct?: number; oda_charge?: number; handling_per_kg?: number;
+}): string {
+  if ([c.min_weight_kg, c.base_rate, c.per_kg_rate, c.fuel_surcharge_pct, c.docket_charge, c.sla_days].some((n) => !Number.isFinite(n))) {
+    return "Numeric fields contain invalid values.";
+  }
+  if (c.min_weight_kg < 0 || c.min_weight_kg > 100000) return "Minimum weight must be between 0 and 100000 kg.";
+  if (c.base_rate < 0 || c.base_rate > 10000000) return "Base rate is out of range.";
+  if (c.per_kg_rate < 0 || c.per_kg_rate > 100000) return "Per-kg rate is out of range.";
+  if (c.docket_charge < 0 || c.docket_charge > 100000) return "Docket charge is out of range.";
+  if (c.fuel_surcharge_pct < 0 || c.fuel_surcharge_pct > 100) return "Fuel surcharge must be 0-100%.";
+  if (!Number.isInteger(c.sla_days) || c.sla_days < 1 || c.sla_days > 60) return "Transit SLA must be a whole number of days from 1 to 60.";
+  if (c.fov_pct !== undefined && (c.fov_pct < 0 || c.fov_pct > 100)) return "FOV % must be 0-100.";
+  if (c.oda_charge !== undefined && (c.oda_charge < 0 || c.oda_charge > 1000000)) return "ODA charge is out of range.";
+  if (c.handling_per_kg !== undefined && (c.handling_per_kg < 0 || c.handling_per_kg > 100000)) return "Handling per kg is out of range.";
+  return "";
+}
 
 const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive, rateCards, setRateCards, vendors, onOpenAddRateModal }) => {
   const [csvFileName, setCsvFileName] = useState("");
@@ -5925,6 +6358,7 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const vendorId = currentUser.vendor_id || currentUser.id;
+  const myVendor = vendors.find((v) => v.id === vendorId);
   const myCards = useMemo(() => rateCards.filter((c) => c.vendor_id === vendorId), [rateCards, vendorId]);
 
   const handleDownloadSampleCsv = () => {
@@ -5949,10 +6383,17 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    setCsvFileName(file.name);
+    setCsvFileName(file.name.slice(0, 80));
     setCsvUploadStatus(null);
     setCsvErrors([]);
+    setParsedCsvRows([]);
+
+    if (file.size > MAX_CSV_FILE_BYTES) {
+      setCsvUploadStatus({ type: "error", message: "CSV file is too large (limit 1 MB)." });
+      return;
+    }
     setIsParsing(true);
 
     const reader = new FileReader();
@@ -5963,6 +6404,19 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
         if (lines.length <= 1) throw new Error("CSV file must contain a header row and data rows.");
         if (lines.length - 1 > MAX_CSV_RATE_ROWS) throw new Error(`Maximum ${MAX_CSV_RATE_ROWS} routes per upload.`);
+
+        // Protect the third-party postal API: only a few distinct city names may need a network lookup.
+        const needLookup = new Set<string>();
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+          for (const raw of [cols[0], cols[1]]) {
+            const k = (raw || "").toLowerCase();
+            if (k && k !== "%" && !/^\d{3,6}$/.test(k) && !clientLocationCache[k]) needLookup.add(k);
+          }
+        }
+        if (needLookup.size > MAX_CITY_LOOKUPS_PER_UPLOAD) {
+          throw new Error(`Too many different city names (${needLookup.size}). Use 3-digit PIN prefixes instead (limit ${MAX_CITY_LOOKUPS_PER_UPLOAD} city names per upload).`);
+        }
 
         const rows: ParsedCsvRateCard[] = [];
         const errors: string[] = [];
@@ -5976,36 +6430,34 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
           const [origRaw, destRaw, modeRaw, minWtRaw, baseRateRaw, perKgRaw, fuelRaw, docketRaw, slaRaw] = cols;
           const modeClean = modeRaw.toLowerCase();
           if (!["surface", "air", "ftl"].includes(modeClean)) {
-            errors.push(`Row ${i + 1}: Invalid transport mode '${modeRaw}'. Must be surface, air, or ftl.`);
+            errors.push(`Row ${i + 1}: Invalid transport mode. Must be surface, air, or ftl.`);
             continue;
           }
-          const min_weight_kg = parseFloat(minWtRaw);
-          const base_rate = parseFloat(baseRateRaw);
-          const per_kg_rate = parseFloat(perKgRaw);
-          const fuel_surcharge_pct = parseFloat(fuelRaw);
-          const docket_charge = parseFloat(docketRaw);
-          const sla_days = parseInt(slaRaw, 10);
-          if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days].some(isNaN)) {
-            errors.push(`Row ${i + 1}: Numeric fields contain invalid values.`);
-            continue;
-          }
-          if ([min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge].some((n) => n < 0) || sla_days < 1) {
-            errors.push(`Row ${i + 1}: Rates cannot be negative and SLA must be at least 1 day.`);
+          const nums = {
+            min_weight_kg: parseFloat(minWtRaw),
+            base_rate: parseFloat(baseRateRaw),
+            per_kg_rate: parseFloat(perKgRaw),
+            fuel_surcharge_pct: parseFloat(fuelRaw),
+            docket_charge: parseFloat(docketRaw),
+            sla_days: parseInt(slaRaw, 10)
+          };
+          const numProblem = validateRateCardNumbers(nums);
+          if (numProblem) {
+            errors.push(`Row ${i + 1}: ${numProblem}`);
             continue;
           }
 
           const origin_prefix = await resolveLocationToPrefix(origRaw);
           const dest_prefix = await resolveLocationToPrefix(destRaw);
+          if (!/^(%|\d{3})$/.test(origin_prefix) || !/^(%|\d{3})$/.test(dest_prefix)) {
+            errors.push(`Row ${i + 1}: Could not resolve the origin/destination to a 3-digit PIN prefix. Use PIN prefixes.`);
+            continue;
+          }
           rows.push({
             origin_prefix,
             dest_prefix,
             mode: modeClean as TransportMode,
-            min_weight_kg,
-            base_rate,
-            per_kg_rate,
-            fuel_surcharge_pct,
-            docket_charge,
-            sla_days,
+            ...nums,
             fov_pct: 0.2,
             oda_charge: 450,
             handling_per_kg: 2,
@@ -6015,7 +6467,7 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
         setParsedCsvRows(rows);
         setCsvErrors(errors);
       } catch (err: any) {
-        setCsvUploadStatus({ type: "error", message: err.message || "Failed to parse CSV." });
+        setCsvUploadStatus({ type: "error", message: err?.message || "Failed to parse CSV." });
         setParsedCsvRows([]);
       } finally {
         setIsParsing(false);
@@ -6032,19 +6484,20 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
   };
 
   const handleBatchInsertRateCards = async () => {
-    if (parsedCsvRows.length === 0) return;
+    if (parsedCsvRows.length === 0 || isUploadingCsv) return;
     setIsUploadingCsv(true);
     setCsvUploadStatus(null);
     const payload = parsedCsvRows.map((r) => ({ ...r, vendor_id: vendorId }));
 
     try {
       if (isLive) {
-        const { data, error } = await supabase.from("rate_cards").insert(payload).select("*, vendors(*)");
+        const { data, error } = await supabase.from("rate_cards").insert(payload).select("*");
         if (error || !data) {
-          setCsvUploadStatus({ type: "error", message: `Could not publish routes: ${error?.message || "no rows returned"}.` });
+          setCsvUploadStatus({ type: "error", message: friendlyError(error, "Could not publish routes.") });
           return;
         }
-        setRateCards((prev) => [...(data as RateCard[]), ...prev]);
+        const vendor = vendors.find((v) => v.id === vendorId);
+        setRateCards((prev) => [...(data as RateCard[]).map((c) => ({ ...c, vendors: vendor })), ...prev]);
       } else {
         const localCards: RateCard[] = payload.map((p, idx) => ({
           ...(p as unknown as RateCard),
@@ -6066,7 +6519,7 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
     if (isLive) {
       const { error } = await supabase.from("rate_cards").update({ is_active: next }).eq("id", card.id);
       if (error) {
-        alert(`Could not update tariff: ${error.message}`);
+        alert(friendlyError(error, "Could not update the tariff."));
         return;
       }
     }
@@ -6075,6 +6528,12 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
 
   return (
     <div className="space-y-6">
+      {isLive && myVendor && myVendor.is_verified === false && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-xs text-amber-950 font-bold">
+          Your carrier account is awaiting verification. You can publish tariffs now, but shippers will only see them after the platform verifies your business.
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-black text-slate-900">Commercial Rate Card Master</h2>
@@ -6097,7 +6556,7 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
           <div>
             <h3 className="text-sm font-black text-slate-900 flex items-center space-x-2">
               <UploadIcon className="w-4 h-4 text-indigo-600" />
-              <span>Bulk Upload Rate Cards via CSV (City Names or PIN Prefixes)</span>
+              <span>Bulk Upload Rate Cards via CSV (PIN Prefixes preferred)</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               Columns: <code className="font-mono text-indigo-700 font-bold text-[11px]">origin, dest, mode, min_weight_kg, base_rate, per_kg_rate, fuel_surcharge_pct, docket_charge, sla_days</code>
@@ -6146,7 +6605,6 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
         )}
       </div>
 
-      {/* Existing tariffs */}
       <div className="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden space-y-4 p-5">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">Your Published Tariffs</h3>
@@ -6206,7 +6664,7 @@ const CarrierRatesSection: FC<CarrierRatesSectionProps> = ({ currentUser, isLive
 };
 
 // ============================================================================
-// 32. MANUAL LANE RATE CARD PUBLISHER MODAL
+// 36. MANUAL LANE RATE CARD PUBLISHER MODAL
 // ============================================================================
 interface AddRateCardModalProps {
   currentUser: UserProfile;
@@ -6240,11 +6698,12 @@ const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, isLive, vend
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg("");
     if (!prefixOk(card.origin_prefix) || !prefixOk(card.dest_prefix)) return setErrorMsg("Origin and destination must be a 3-digit PIN prefix (e.g. 110) or % for any.");
-    if (card.base_rate < 0 || card.per_kg_rate < 0 || card.docket_charge < 0 || card.min_weight_kg < 0) return setErrorMsg("Rates and weights cannot be negative.");
     if (card.per_kg_rate === 0 && card.base_rate === 0) return setErrorMsg("Set a base rate or a per-kg rate.");
-    if (card.sla_days < 1) return setErrorMsg("Transit SLA must be at least 1 day.");
+    const problem = validateRateCardNumbers(card);
+    if (problem) return setErrorMsg(problem);
 
     setIsSubmitting(true);
     const vendorId = currentUser.vendor_id || currentUser.id;
@@ -6252,12 +6711,12 @@ const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, isLive, vend
 
     try {
       if (isLive) {
-        const { data, error } = await supabase.from("rate_cards").insert([payload]).select("*, vendors(*)").maybeSingle();
+        const { data, error } = await supabase.from("rate_cards").insert([payload]).select("*").maybeSingle();
         if (error || !data) {
-          setErrorMsg(`Tariff could not be published: ${error?.message || "no row returned"}.`);
+          setErrorMsg(friendlyError(error, "Tariff could not be published."));
           return;
         }
-        onSuccess(data as RateCard);
+        onSuccess({ ...(data as RateCard), vendors: vendors.find((v) => v.id === vendorId) });
       } else {
         onSuccess({ ...(payload as RateCard), id: `rc-${Date.now()}`, is_demo: true, vendors: vendors.find((v) => v.id === vendorId) });
       }
@@ -6297,40 +6756,40 @@ const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, isLive, vend
             </select>
           </div>
           <div>
-            <label className="block text-slate-700 font-bold mb-1">Transit SLA (Days)</label>
-            <input type="number" min={1} value={card.sla_days} onChange={(e) => num("sla_days", e.target.value)} className={inputCls} required />
+            <label className="block text-slate-700 font-bold mb-1">Transit SLA (Days, 1-60)</label>
+            <input type="number" min={1} max={60} value={card.sla_days} onChange={(e) => num("sla_days", e.target.value)} className={inputCls} required />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Min Chargeable Weight (kg)</label>
-            <input type="number" min={0} value={card.min_weight_kg} onChange={(e) => num("min_weight_kg", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100000} value={card.min_weight_kg} onChange={(e) => num("min_weight_kg", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Base Rate (₹)</label>
-            <input type="number" min={0} value={card.base_rate || ""} onChange={(e) => num("base_rate", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={10000000} value={card.base_rate || ""} onChange={(e) => num("base_rate", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Rate Per Kg (₹)</label>
-            <input type="number" min={0} step={0.1} value={card.per_kg_rate || ""} onChange={(e) => num("per_kg_rate", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100000} step={0.1} value={card.per_kg_rate || ""} onChange={(e) => num("per_kg_rate", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Fuel Surcharge (%)</label>
-            <input type="number" min={0} step={0.5} value={card.fuel_surcharge_pct} onChange={(e) => num("fuel_surcharge_pct", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100} step={0.5} value={card.fuel_surcharge_pct} onChange={(e) => num("fuel_surcharge_pct", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Docket / AWB Charge (₹)</label>
-            <input type="number" min={0} value={card.docket_charge || ""} onChange={(e) => num("docket_charge", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100000} value={card.docket_charge || ""} onChange={(e) => num("docket_charge", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">Handling Per Kg (₹)</label>
-            <input type="number" min={0} step={0.1} value={card.handling_per_kg} onChange={(e) => num("handling_per_kg", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100000} step={0.1} value={card.handling_per_kg} onChange={(e) => num("handling_per_kg", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">FOV (% of declared value)</label>
-            <input type="number" min={0} step={0.05} value={card.fov_pct} onChange={(e) => num("fov_pct", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={100} step={0.05} value={card.fov_pct} onChange={(e) => num("fov_pct", e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="block text-slate-700 font-bold mb-1">ODA Charge (₹)</label>
-            <input type="number" min={0} value={card.oda_charge} onChange={(e) => num("oda_charge", e.target.value)} className={inputCls} />
+            <input type="number" min={0} max={1000000} value={card.oda_charge} onChange={(e) => num("oda_charge", e.target.value)} className={inputCls} />
           </div>
 
           <div className="col-span-2 flex justify-end space-x-2 pt-3 border-t border-slate-200">
@@ -6348,7 +6807,9 @@ const AddRateCardModal: FC<AddRateCardModalProps> = ({ currentUser, isLive, vend
 };
 
 // ============================================================================
-// 33. CARRIER DIRECT FREIGHT SETTLEMENT PROFILE (BANK & UPI) — NO PRE-FILLED DEMO DATA
+// 37. CARRIER DIRECT FREIGHT SETTLEMENT PROFILE (BANK & UPI)
+// Bank account + IFSC are private to the carrier. The UPI handle is shown to
+// shippers (through the vendors_public view) so they can pay you directly.
 // ============================================================================
 interface CarrierBankSectionProps {
   currentUser: UserProfile;
@@ -6368,7 +6829,6 @@ const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, isLive, 
   const [isSaving, setIsSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
-  // Vendors load asynchronously in live mode; sync the form once the real row arrives.
   useEffect(() => {
     setUpi(currentVendor?.upi_id || "");
     setBankAcc(currentVendor?.bank_account || "");
@@ -6378,20 +6838,21 @@ const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, isLive, 
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setMsg(null);
     const cleanIfsc = ifsc.trim().toUpperCase();
-    if (!/^[^\s@]+@[^\s@]+$/.test(upi.trim())) return setMsg({ type: "err", text: "Enter a valid UPI ID, e.g. yourbusiness@icici." });
+    if (!/^[a-zA-Z0-9._-]{2,64}@[a-zA-Z][a-zA-Z0-9]{1,31}$/.test(upi.trim())) return setMsg({ type: "err", text: "Enter a valid UPI ID, e.g. yourbusiness@icici." });
     if (!/^\d{9,18}$/.test(bankAcc.trim())) return setMsg({ type: "err", text: "Bank account number must be 9–18 digits." });
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanIfsc)) return setMsg({ type: "err", text: "IFSC must look like HDFC0000240." });
     if (!beneficiary.trim()) return setMsg({ type: "err", text: "Beneficiary name is required." });
 
     setIsSaving(true);
-    const payload = { upi_id: upi.trim(), bank_account: bankAcc.trim(), ifsc_code: cleanIfsc, beneficiary_name: beneficiary.trim() };
+    const payload = { upi_id: upi.trim(), bank_account: bankAcc.trim(), ifsc_code: cleanIfsc, beneficiary_name: beneficiary.trim().slice(0, 160) };
 
     try {
       if (isLive) {
         const { data, error } = await supabase.from("vendors").update(payload).eq("id", vendorId).select("id");
-        if (error) return setMsg({ type: "err", text: `Could not save settlement details: ${error.message}` });
+        if (error) return setMsg({ type: "err", text: friendlyError(error, "Could not save settlement details.") });
         if (!data || data.length === 0) return setMsg({ type: "err", text: "Your carrier record was not found, so nothing was saved. Sign out and back in, then try again." });
       }
       setVendors((prev) => prev.map((v) => (v.id === vendorId ? { ...v, ...payload } : v)));
@@ -6423,17 +6884,17 @@ const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, isLive, 
       <form onSubmit={handleSave} className="space-y-4 text-xs">
         <div>
           <label className="block text-slate-800 font-bold mb-1">Official Transporter UPI ID (VPA) *</label>
-          <input type="text" required value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="e.g. yourbusiness@icici" className={inputCls} />
-          <p className="text-[11px] text-slate-500 mt-1 font-medium">Shippers who choose &quot;Direct Carrier UPI&quot; at checkout will see this handle.</p>
+          <input type="text" required maxLength={100} value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="e.g. yourbusiness@icici" className={inputCls} />
+          <p className="text-[11px] text-slate-500 mt-1 font-medium">Shippers who choose &quot;Direct Carrier UPI&quot; at checkout will see this handle. Double-check it.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank Account Number *</label>
-            <input type="text" required inputMode="numeric" value={bankAcc} onChange={(e) => setBankAcc(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 50200088910234" className={inputCls} />
+            <label className="block text-slate-800 font-bold mb-1">Bank Account Number * <span className="text-slate-400 font-normal">(private)</span></label>
+            <input type="text" required inputMode="numeric" maxLength={18} value={bankAcc} onChange={(e) => setBankAcc(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 50200088910234" className={inputCls} />
           </div>
           <div>
-            <label className="block text-slate-800 font-bold mb-1">Bank IFSC Code *</label>
+            <label className="block text-slate-800 font-bold mb-1">Bank IFSC Code * <span className="text-slate-400 font-normal">(private)</span></label>
             <input type="text" required maxLength={11} value={ifsc} onChange={(e) => setIfsc(e.target.value.toUpperCase())} placeholder="e.g. HDFC0000240" className={`${inputCls} uppercase`} />
           </div>
         </div>
@@ -6443,6 +6904,7 @@ const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, isLive, 
           <input
             type="text"
             required
+            maxLength={160}
             value={beneficiary}
             onChange={(e) => setBeneficiary(e.target.value)}
             placeholder="Registered business name"
@@ -6462,19 +6924,30 @@ const CarrierBankSection: FC<CarrierBankSectionProps> = ({ currentUser, isLive, 
 };
 
 // ============================================================================
-// END OF PART 5 OF 7
+// END OF PART 5 OF 8
 // ============================================================================
 // ============================================================================
-// PART 6 OF 7 — CARRIER MODULE B + SHARED SHIPPER/PLATFORM VIEWS
+// PART 6 OF 8 — CARRIER MODULE B + SHARED SHIPPER/PLATFORM VIEWS
 //   Carrier credit approval console, weekly/monthly platform-fee billing ledger
 //   + payment modal, shipper active shipments, universal tracker, legal modal,
 //   footer, PIN city search modal, admin overview.
-// The carrier credit LEDGER summary is CombinedCreditLedgerSection (Part 4, role="carrier").
 // Paste directly after Part 5. No named exports.
+//
+// WHAT CHANGED vs the old Part 6
+//  - Payment modal: your bank account / IFSC are no longer shown. A carrier now
+//    SUBMITS a payment reference; the invoice shows "Verifying" until YOU mark
+//    it Paid after checking the bank credit (demo mode still marks Paid at once).
+//  - Shipments + tracker: bilty scans open through signed URLs, and every link
+//    from the database (carrier portal) is checked with safeHttpUrl().
+//    ShipperShipmentsSection and ShipperTrackerSection now need the new prop
+//    `getBookingDocUrl`.
+//  - Credit approval: limit clamped to the same range the database enforces.
+//  - PIN directory: timeout, response validation, text cleaning, result cap.
+//  - Shipments list marks provisional (LCD-...) dockets.
 // ============================================================================
 
 // ============================================================================
-// 34. CARRIER: CREDIT AGREEMENT APPROVAL & UNDERWRITING CONSOLE
+// 38. CARRIER: CREDIT AGREEMENT APPROVAL & UNDERWRITING CONSOLE
 // ============================================================================
 interface CarrierCreditApprovalSectionProps {
   agreements: CreditAgreement[];
@@ -6505,19 +6978,20 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({ a
   const pendingCount = useMemo(() => agreements.filter((a) => a.status === "Pending_Review").length, [agreements]);
 
   const decide = async (agreement: CreditAgreement, decision: "Approved" | "Rejected") => {
+    if (busyId) return;
     const limit = approvalLimitInput[agreement.id] ?? agreement.requested_limit;
     const reason = (rejectionReasonInput[agreement.id] || "").trim();
     setErrors((e) => ({ ...e, [agreement.id]: "" }));
 
-    if (decision === "Approved" && (!limit || limit <= 0)) {
-      return setErrors((e) => ({ ...e, [agreement.id]: "Enter an approved credit limit greater than ₹0." }));
+    if (decision === "Approved" && (!Number.isFinite(limit) || limit <= 0 || limit > 100000000)) {
+      return setErrors((e) => ({ ...e, [agreement.id]: "Enter an approved credit limit between ₹1 and ₹10,00,00,000." }));
     }
     if (decision === "Rejected" && !reason) {
       return setErrors((e) => ({ ...e, [agreement.id]: "Please give a rejection reason so the shipper knows what to fix." }));
     }
     setBusyId(agreement.id);
     try {
-      await onReviewAgreement(agreement.id, decision, decision === "Approved" ? limit : 0, decision === "Rejected" ? reason : undefined);
+      await onReviewAgreement(agreement.id, decision, decision === "Approved" ? limit : 0, decision === "Rejected" ? reason.slice(0, 300) : undefined);
     } finally {
       setBusyId(null);
     }
@@ -6649,6 +7123,7 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({ a
                         <input
                           type="number"
                           min={0}
+                          max={100000000}
                           step={10000}
                           value={currentLimit}
                           onChange={(e) => setApprovalLimitInput({ ...approvalLimitInput, [agreement.id]: Number(e.target.value) })}
@@ -6659,6 +7134,7 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({ a
                         <label className="block text-slate-700 font-bold mb-1">Rejection Reason (required to reject)</label>
                         <input
                           type="text"
+                          maxLength={300}
                           placeholder="e.g. Incomplete GST filing history"
                           value={currentReason}
                           onChange={(e) => setRejectionReasonInput({ ...rejectionReasonInput, [agreement.id]: e.target.value })}
@@ -6697,10 +7173,10 @@ const CarrierCreditApprovalSection: FC<CarrierCreditApprovalSectionProps> = ({ a
 };
 
 // ============================================================================
-// 35. PLATFORM FEE SETTLEMENT / INVOICE PAYMENT MODAL
-// NOTE: the payment reference is entered by the carrier. For production, confirm
-// it against your bank statement or a payment gateway webhook before treating the
-// invoice as truly settled.
+// 39. PLATFORM FEE PAYMENT-REFERENCE MODAL
+// LIVE: the carrier pays by UPI/bank transfer outside the app, then SUBMITS the
+// reference here. The platform owner verifies the credit in the bank statement
+// and marks the invoice Paid. DEMO: the invoice is marked Paid immediately.
 // ============================================================================
 interface PayPlatformFeeModalProps {
   isOpen: boolean;
@@ -6725,22 +7201,27 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
   );
 
   if (!isOpen || !invoice) return null;
+  const isDemoInvoice = Boolean(invoice.is_demo);
 
   const handlePay = async (e: FormEvent) => {
     e.preventDefault();
     if (isProcessing || doneMsg) return;
     setErrorMsg("");
     const ref = utrNumber.trim();
-    if (!/^[A-Za-z0-9\-_/]{6,40}$/.test(ref)) {
-      return setErrorMsg("Enter a valid transaction / UTR reference (6–40 letters, digits or dashes).");
+    if (!/^[A-Za-z0-9_/-]{6,40}$/.test(ref)) {
+      return setErrorMsg("Enter a valid transaction / UTR reference (6–40 letters, digits, - _ or /).");
     }
     setIsProcessing(true);
     try {
       await onPaySuccess(invoice.id, ref, method === "upi" ? "UPI VPA" : method === "netbanking" ? "Corporate NetBanking" : "Corporate Debit Card");
-      setDoneMsg(`Payment of ${formatINR(invoice.platform_fee_total)} recorded against ${invoice.invoice_number}.`);
-      closeTimer.current = setTimeout(onClose, 1500);
+      setDoneMsg(
+        isDemoInvoice
+          ? `Payment of ${formatINR(invoice.platform_fee_total)} recorded against ${invoice.invoice_number}.`
+          : `Reference submitted for ${invoice.invoice_number}. The invoice will show Paid after the platform verifies the payment.`
+      );
+      closeTimer.current = setTimeout(onClose, 2200);
     } catch (err: any) {
-      setErrorMsg(err?.message || "Could not record the payment.");
+      setErrorMsg(err?.message || "Could not record the payment reference.");
     } finally {
       setIsProcessing(false);
     }
@@ -6761,7 +7242,7 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
       <div className="bg-white border border-slate-300 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl my-8">
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
-            <h3 className="text-base font-black text-slate-900">Settle Platform Commission Fee</h3>
+            <h3 className="text-base font-black text-slate-900">Pay Platform Commission Fee</h3>
             <p className="text-xs text-slate-500 font-medium">
               Invoice: <span className="font-mono font-bold text-indigo-700">{invoice.invoice_number}</span>
             </p>
@@ -6801,7 +7282,7 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
 
         <form onSubmit={handlePay} className="space-y-4 text-xs">
           <div>
-            <label className="block text-slate-800 font-bold mb-1">Select Payment Mode</label>
+            <label className="block text-slate-800 font-bold mb-1">Payment Mode Used</label>
             <div className="grid grid-cols-3 gap-2">
               {modeBtn("upi", "📲 UPI Transfer")}
               {modeBtn("netbanking", "🏦 NetBanking")}
@@ -6811,9 +7292,9 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
 
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px] select-text">
             <p className="text-slate-600"><strong>Beneficiary:</strong> {MERCHANT_DETAILS.beneficiaryName}</p>
-            <p className="text-slate-600"><strong>Platform VPA:</strong> {MERCHANT_DETAILS.vpa}</p>
-            <p className="text-slate-600">
-              <strong>Bank Account:</strong> {MERCHANT_DETAILS.accountNumber} (IFSC: {MERCHANT_DETAILS.ifsc})
+            <p className="text-slate-600"><strong>Platform UPI (VPA):</strong> {MERCHANT_DETAILS.vpa}</p>
+            <p className="text-slate-500 font-sans">
+              For NEFT/RTGS bank details, email <a href={`mailto:${MERCHANT_DETAILS.email}`} className="text-indigo-600 underline">{MERCHANT_DETAILS.email}</a>.
             </p>
           </div>
 
@@ -6822,11 +7303,15 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
             <input
               type="text"
               required
+              maxLength={40}
               placeholder="e.g. UTR-998124018274 or CMS-Ref"
               value={utrNumber}
               onChange={(e) => setUtrNumber(e.target.value)}
               className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl p-2.5 font-mono font-bold text-slate-900 focus:bg-white focus:border-indigo-600 focus:outline-none"
             />
+            {!isDemoInvoice && (
+              <p className="text-[10px] text-slate-500 mt-1">Pay first, then enter the reference. The platform checks it against its bank statement before marking the invoice Paid.</p>
+            )}
           </div>
 
           <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-200">
@@ -6834,7 +7319,7 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
               Cancel
             </button>
             <button type="submit" disabled={isProcessing || Boolean(doneMsg)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl shadow-md transition disabled:opacity-50">
-              {isProcessing ? "Recording..." : `Confirm Payment (${formatINR(invoice.platform_fee_total)})`}
+              {isProcessing ? "Submitting..." : isDemoInvoice ? `Confirm Payment (${formatINR(invoice.platform_fee_total)})` : "Submit Payment Reference"}
             </button>
           </div>
         </form>
@@ -6844,10 +7329,14 @@ const PayPlatformFeeModal: FC<PayPlatformFeeModalProps> = ({ isOpen, onClose, in
 };
 
 // ============================================================================
-// 36. CARRIER: PLATFORM FEE COMMISSION BILLING LEDGER (WEEKLY / MONTHLY)
+// 40. CARRIER: PLATFORM FEE COMMISSION BILLING LEDGER (WEEKLY / MONTHLY)
 // ============================================================================
-function invoiceEffectiveStatus(inv: PlatformInvoice): InvoiceStatus {
+type InvoiceDisplayStatus = InvoiceStatus | "Verifying";
+
+function invoiceEffectiveStatus(inv: PlatformInvoice): InvoiceDisplayStatus {
   if (inv.status === "Paid") return "Paid";
+  // A reference was submitted and is waiting for the platform owner to verify it.
+  if (inv.payment_submitted_at && inv.payment_ref) return "Verifying";
   const today = new Date().toISOString().split("T")[0];
   return inv.status === "Overdue" || (inv.due_date && inv.due_date < today) ? "Overdue" : "Pending";
 }
@@ -6908,12 +7397,12 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({ currentUser, in
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Pending Platform Dues</span>
           <span className="text-2xl font-black text-rose-600 font-mono">{formatINR(totalOutstanding)}</span>
-          <p className="text-[10px] text-slate-400">Unpaid and overdue commission</p>
+          <p className="text-[10px] text-slate-400">Unpaid, overdue and awaiting verification</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Total Settled Fees</span>
           <span className="text-2xl font-black text-emerald-600 font-mono">{formatINR(totalPaid)}</span>
-          <p className="text-[10px] text-slate-400">Reconciled platform payouts</p>
+          <p className="text-[10px] text-slate-400">Verified platform payouts</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-1">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Commission Structure</span>
@@ -6969,6 +7458,8 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({ currentUser, in
                               ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                               : eff === "Overdue"
                               ? "bg-rose-100 text-rose-800 border-rose-300"
+                              : eff === "Verifying"
+                              ? "bg-sky-100 text-sky-800 border-sky-300"
                               : "bg-amber-100 text-amber-800 border-amber-300"
                           }`}
                         >
@@ -6976,12 +7467,14 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({ currentUser, in
                         </span>
                       </td>
                       <td className="py-3 px-3.5 text-right">
-                        {eff !== "Paid" ? (
-                          <button type="button" onClick={() => onOpenPayFeeModal(inv)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1.5 rounded-lg text-xs shadow-sm transition">
-                            Settle Dues
-                          </button>
-                        ) : (
+                        {eff === "Paid" ? (
                           <span className="text-[11px] font-mono text-slate-500 font-bold">Paid ({inv.payment_ref ? inv.payment_ref.substring(0, 12) : "UTR Reconciled"})</span>
+                        ) : eff === "Verifying" ? (
+                          <span className="text-[11px] font-bold text-sky-700">Ref {inv.payment_ref?.substring(0, 12)} awaiting verification</span>
+                        ) : (
+                          <button type="button" onClick={() => onOpenPayFeeModal(inv)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1.5 rounded-lg text-xs shadow-sm transition">
+                            Pay / Submit Reference
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -6997,7 +7490,7 @@ const CarrierBillingSection: FC<CarrierBillingSectionProps> = ({ currentUser, in
 };
 
 // ============================================================================
-// 37. SHIPPER: ACTIVE SHIPMENTS & PRINT ALL LABELS
+// 41. SHIPPER: ACTIVE SHIPMENTS & PRINT ALL LABELS
 // ============================================================================
 interface ShipperShipmentsSectionProps {
   bookings: Booking[];
@@ -7005,9 +7498,18 @@ interface ShipperShipmentsSectionProps {
   onOpenLabelModal: (b: Booking) => void;
   onOpenTrackerTab: (orderRef: string) => void;
   onBatchPrintLabels: () => void;
+  // NEW: opens a bilty scan through a signed URL (handlers.getBookingDocUrl).
+  getBookingDocUrl: (b: Booking) => Promise<string>;
 }
 
-const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, onRefresh, onOpenLabelModal, onOpenTrackerTab, onBatchPrintLabels }) => {
+const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({
+  bookings,
+  onRefresh,
+  onOpenLabelModal,
+  onOpenTrackerTab,
+  onBatchPrintLabels,
+  getBookingDocUrl
+}) => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | Booking["status"]>("All");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -7027,6 +7529,7 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
   }, [bookings, search, statusFilter]);
 
   const refresh = async () => {
+    if (isRefreshing) return;
     setIsRefreshing(true);
     try {
       await onRefresh();
@@ -7072,6 +7575,7 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
             <SearchIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
+              maxLength={60}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Order ref, docket, consignee or PIN..."
@@ -7123,7 +7627,8 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
                 const carrierName = booking.vendors?.name || "Carrier Partner";
                 const docketNo = booking.carrier_docket_no || booking.awb_number;
                 const orderRef = booking.order_id || booking.id.slice(0, 8);
-                const portalUrl = booking.carrier_portal_url || getOfficialCarrierTrackingUrl(booking.vendors || carrierName, docketNo);
+                const portalUrl = safeHttpUrl(booking.carrier_portal_url || getOfficialCarrierTrackingUrl(booking.vendors || carrierName, docketNo));
+                const provisional = /^LCD-/.test(docketNo || "");
 
                 return (
                   <tr key={booking.id} className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/60 transition" : "bg-slate-50 hover:bg-indigo-50/60 transition"}>
@@ -7131,6 +7636,7 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
                       <span className="font-mono font-black text-indigo-700 block text-xs">{orderRef}</span>
                       <span className="font-mono text-[11px] text-slate-600 block mt-0.5">
                         Docket: <strong className="text-slate-900">{docketNo}</strong>
+                        {provisional && <em className="not-italic text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded ml-1 font-black">PROVISIONAL</em>}
                       </span>
                     </td>
                     <td className="py-3.5 px-4">
@@ -7150,10 +7656,14 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
                     <td className="py-3.5 px-4 font-mono font-black text-slate-900 text-sm">{formatINR(booking.cost_breakdown?.freightSubtotal || booking.final_total)}</td>
                     <td className="py-3.5 px-4">
                       {booking.carrier_docket_doc_url ? (
-                        <a href={booking.carrier_docket_doc_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 underline text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => openBookingDocument(booking, getBookingDocUrl)}
+                          className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-1 underline text-[11px]"
+                        >
                           <DocumentIcon className="w-3.5 h-3.5" />
                           <span>View Bilty Scan</span>
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-slate-400 text-[10px] font-semibold bg-slate-100 px-2 py-0.5 rounded">Pending Upload</span>
                       )}
@@ -7162,16 +7672,18 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${statusPill(booking.status)}`}>{booking.status}</span>
                     </td>
                     <td className="py-3.5 px-4 text-right space-x-2 whitespace-nowrap">
-                      <a
-                        href={portalUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
-                        title="Open Carrier Public Tracking Portal"
-                      >
-                        <span>Carrier Portal</span>
-                        <ExternalLinkIcon className="w-3 h-3" />
-                      </a>
+                      {portalUrl !== "#" && (
+                        <a
+                          href={portalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center space-x-1 shadow-xs transition"
+                          title="Open Carrier Public Tracking Portal"
+                        >
+                          <span>Carrier Portal</span>
+                          <ExternalLinkIcon className="w-3 h-3" />
+                        </a>
+                      )}
                       <button type="button" onClick={() => onOpenLabelModal(booking)} className="bg-white hover:bg-slate-100 text-slate-800 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 inline-flex items-center space-x-1 shadow-xs transition">
                         <PrinterIcon className="w-3.5 h-3.5 text-slate-600" />
                         <span>Label</span>
@@ -7192,7 +7704,8 @@ const ShipperShipmentsSection: FC<ShipperShipmentsSectionProps> = ({ bookings, o
 };
 
 // ============================================================================
-// 38. SHIPPER: UNIVERSAL DUAL-ID TRACKER (ORDER REF OR CARRIER DOCKET)
+// 42. SHIPPER: UNIVERSAL DUAL-ID TRACKER (ORDER REF OR CARRIER DOCKET)
+// Only the user's OWN bookings are searched (the database also enforces this).
 // ============================================================================
 interface ShipperTrackerSectionProps {
   isLive: boolean;
@@ -7201,6 +7714,8 @@ interface ShipperTrackerSectionProps {
   setActiveTrackingAwb: (val: string) => void;
   trackingSearchInput: string;
   setTrackingSearchInput: (val: string) => void;
+  // NEW: opens a bilty scan through a signed URL (handlers.getBookingDocUrl).
+  getBookingDocUrl: (b: Booking) => Promise<string>;
 }
 
 const TRACKING_STAGES = ["Booked", "Picked Up", "In Transit", "Out for Delivery", "Delivered"];
@@ -7211,7 +7726,8 @@ const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
   activeTrackingAwb,
   setActiveTrackingAwb,
   trackingSearchInput,
-  setTrackingSearchInput
+  setTrackingSearchInput,
+  getBookingDocUrl
 }) => {
   const activeTrackBooking = useMemo(() => {
     const input = activeTrackingAwb.trim().toLowerCase();
@@ -7238,8 +7754,15 @@ const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    setActiveTrackingAwb(trackingSearchInput.trim());
+    setActiveTrackingAwb(trackingSearchInput.trim().slice(0, 60));
   };
+
+  const portalHref = activeTrackBooking
+    ? safeHttpUrl(
+        activeTrackBooking.carrier_portal_url ||
+          getOfficialCarrierTrackingUrl(activeTrackBooking.vendors || "", activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number)
+      )
+    : "#";
 
   return (
     <div className="space-y-6">
@@ -7256,6 +7779,7 @@ const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
         <form onSubmit={submit} className="flex gap-2 max-w-md">
           <input
             type="text"
+            maxLength={60}
             value={trackingSearchInput}
             onChange={(e) => setTrackingSearchInput(e.target.value)}
             placeholder="Enter Order Ref or Docket..."
@@ -7290,23 +7814,26 @@ const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
             <div className="flex flex-col sm:items-end gap-2.5">
               <div className="flex items-center space-x-2">
                 {activeTrackBooking.carrier_docket_doc_url && (
-                  <a href={activeTrackBooking.carrier_docket_doc_url} target="_blank" rel="noopener noreferrer" className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openBookingDocument(activeTrackBooking, getBookingDocUrl)}
+                    className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold text-xs px-3.5 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5"
+                  >
                     <DocumentIcon className="w-3.5 h-3.5" />
                     <span>View Physical Bilty Scan</span>
+                  </button>
+                )}
+                {portalHref !== "#" && (
+                  <a
+                    href={portalHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5"
+                  >
+                    <span>Carrier Portal</span>
+                    <ExternalLinkIcon className="w-3.5 h-3.5" />
                   </a>
                 )}
-                <a
-                  href={
-                    activeTrackBooking.carrier_portal_url ||
-                    getOfficialCarrierTrackingUrl(activeTrackBooking.vendors || "", activeTrackBooking.carrier_docket_no || activeTrackBooking.awb_number)
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition shadow-sm flex items-center space-x-1.5"
-                >
-                  <span>Carrier Portal</span>
-                  <ExternalLinkIcon className="w-3.5 h-3.5" />
-                </a>
               </div>
               <span className="text-xs text-slate-600">
                 Route:{" "}
@@ -7382,7 +7909,7 @@ const ShipperTrackerSection: FC<ShipperTrackerSectionProps> = ({
 };
 
 // ============================================================================
-// 39. LEGAL, GOVERNANCE & COMPLIANCE MODAL
+// 43. LEGAL, GOVERNANCE & COMPLIANCE MODAL
 // ============================================================================
 interface LegalModalProps {
   tab: LegalTab;
@@ -7486,6 +8013,9 @@ const LegalModal: FC<LegalModalProps> = ({ tab, setTab, onClose }) => {
               <p>
                 <strong>2. Estimated Transit SLAs:</strong> Transit times are set by each carrier&apos;s tariff and shown on every quote. They are estimates and not guarantees.
               </p>
+              <p>
+                <strong>3. Docket Numbers:</strong> A provisional platform docket (LCD-…) is issued at booking. The carrier replaces it with its official waybill number once the consignment is accepted.
+              </p>
             </div>
           )}
 
@@ -7528,7 +8058,7 @@ const LegalModal: FC<LegalModalProps> = ({ tab, setTab, onClose }) => {
 };
 
 // ============================================================================
-// 40. COMPLIANCE & LEGAL FOOTER
+// 44. COMPLIANCE & LEGAL FOOTER
 // ============================================================================
 interface FooterSectionProps {
   openLegalModal: (tab: LegalTab) => void;
@@ -7610,7 +8140,7 @@ const FooterSection: FC<FooterSectionProps> = ({ openLegalModal }) => {
 };
 
 // ============================================================================
-// 41. POSTAL PIN DIRECTORY SEARCH MODAL
+// 45. POSTAL PIN DIRECTORY SEARCH MODAL (third-party data: validated + cleaned)
 // ============================================================================
 interface CitySearchModalProps {
   target: "origin" | "dest";
@@ -7627,16 +8157,24 @@ const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClos
 
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
-    if (query.trim().length < 3) return;
+    if (loading || query.trim().length < 3) return;
     setLoading(true);
     setHasSearched(true);
     setFailed(false);
     try {
-      const res = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query.trim())}`);
+      const res = await fetchWithTimeout(`https://api.postalpincode.in/postoffice/${encodeURIComponent(query.trim().slice(0, 60))}`);
       const data = await res.json();
-      if (data && data[0]?.Status === "Success" && data[0]?.PostOffice) {
+      if (Array.isArray(data) && data[0]?.Status === "Success" && Array.isArray(data[0]?.PostOffice)) {
         setResults(
-          data[0].PostOffice.map((item: any) => ({ name: item.Name, district: item.District, state: item.State, pincode: item.Pincode }))
+          (data[0].PostOffice as any[])
+            .filter((item) => /^[1-9][0-9]{5}$/.test(String(item?.Pincode || "")))
+            .slice(0, 50)
+            .map((item) => ({
+              name: cleanPlaceText(item.Name),
+              district: cleanPlaceText(item.District),
+              state: cleanPlaceText(item.State),
+              pincode: String(item.Pincode)
+            }))
         );
       } else {
         setResults([]);
@@ -7665,6 +8203,7 @@ const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClos
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
             type="text"
+            maxLength={60}
             placeholder="e.g. Ludhiana, Meerut, Panipat, Bhiwandi..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -7714,7 +8253,9 @@ const CitySearchModal: FC<CitySearchModalProps> = ({ target, onSelectPin, onClos
 };
 
 // ============================================================================
-// 42. SYSTEM ADMINISTRATION & AUDIT OVERSIGHT (DEMO SANDBOX ONLY)
+// 46. SYSTEM ADMINISTRATION & AUDIT OVERSIGHT (DEMO SANDBOX ONLY)
+// Never mounted for a live account. Real admin work (verifying carriers,
+// marking invoices Paid) is done in the Supabase dashboard with SQL.
 // ============================================================================
 interface AdminOverviewSectionProps {
   bookings: Booking[];
@@ -7790,16 +8331,27 @@ const AdminOverviewSection: FC<AdminOverviewSectionProps> = ({ bookings, vendors
 };
 
 // ============================================================================
-// END OF PART 6 OF 7
+// END OF PART 6 OF 8
 // ============================================================================
 // ============================================================================
-// PART 7 OF 7 — BULK ORDER MANAGER, THERMAL LABELS + PRINT ALL, LANDING PAGE,
-//               DEMO-SWITCHER ISOLATION, ROOT `export default function Page()`
+// PART 7 OF 8 — BULK ORDER MANAGER, THERMAL LABELS + PRINT ALL, LANDING PAGE,
+//               ROOT `export default function Page()`
 // Paste directly after Part 6. This is the ONLY export in the file.
+//
+// WHAT CHANGED vs the old Part 7
+//  - Page wires the NEW props: getBookingDocUrl -> ShipperShipmentsSection,
+//    ShipperTrackerSection, CarrierOrdersSection.
+//  - Page is wrapped in an error boundary so a crash never shows a stack trace.
+//  - Label printing: carton quantity and total label count are capped (a huge
+//    qty can no longer freeze the browser); provisional dockets are marked.
+//  - Landing hero no longer loads a third-party (Unsplash) background image:
+//    one less external request and a tighter Content-Security-Policy.
+//  - Marketing copy no longer promises "official carrier dockets" at booking
+//    (the docket is provisional until the carrier confirms the waybill).
 // ============================================================================
 
 // ============================================================================
-// 43. SHIPPER BULK CSV DISPATCH MATRIX (UP TO 50 CONSIGNMENTS)
+// 47. SHIPPER BULK CSV DISPATCH MATRIX (UP TO 50 CONSIGNMENTS)
 // ============================================================================
 interface ShipperBulkCsvSectionProps {
   isLive: boolean;
@@ -7913,11 +8465,11 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
             className={`bg-indigo-600 text-white font-black px-6 py-3 rounded-xl text-xs inline-flex items-center space-x-2 shadow-md transition ${activeOriginAddress ? "hover:bg-indigo-700 cursor-pointer" : "cursor-not-allowed"}`}
           >
             <UploadIcon className="w-4 h-4" />
-            <span>{bulkCsvFileName ? `Replace File (${bulkCsvFileName})` : "Select Bulk Consignment CSV (up to 50 locations)"}</span>
+            <span>{bulkCsvFileName ? `Replace File (${bulkCsvFileName})` : `Select Bulk Consignment CSV (up to ${MAX_BULK_ROWS} locations)`}</span>
           </label>
           <p className="text-xs text-slate-600 font-medium">
             The dimensions column is optional. Weights use semicolons, e.g.{" "}
-            <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>.
+            <code className="bg-indigo-50 text-indigo-900 border border-indigo-200 px-1.5 py-0.5 rounded font-mono font-bold">25; 10; 10</code>. Max 1 MB.
           </p>
         </div>
         {bulkUploadError && <div className="text-xs text-rose-800 bg-rose-50 border border-rose-300 p-3 rounded-xl font-bold max-w-lg mx-auto">{bulkUploadError}</div>}
@@ -7932,7 +8484,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                 <span className="bg-indigo-600 text-white text-xs px-3 py-0.5 rounded-full font-bold">{bulkManifestList.length} Destinations</span>
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Quotes are calculated in your browser from {isLive ? "verified carrier tariffs" : "sample tariffs"}.
+                Estimates are calculated in your browser from {isLive ? "verified carrier tariffs" : "sample tariffs"}; the platform confirms the final price when you book.
                 {skippedCount > 0 && <strong className="text-rose-700"> {skippedCount} row(s) have no rate and will be skipped.</strong>}
               </p>
             </div>
@@ -7961,7 +8513,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                   <th className="py-3 px-3.5">Carrier</th>
                   <th className="py-3 px-3.5">Freight</th>
                   <th className="py-3 px-3.5">Fee</th>
-                  <th className="py-3 px-3.5 text-right">Total Outlay</th>
+                  <th className="py-3 px-3.5 text-right">Est. Outlay</th>
                   <th className="py-3 px-3.5"></th>
                 </tr>
               </thead>
@@ -8042,6 +8594,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                 <label className="font-bold text-slate-300 shrink-0">Payment Reference (optional):</label>
                 <input
                   type="text"
+                  maxLength={40}
                   value={bulkConsolidatedUtr}
                   onChange={(e) => setBulkConsolidatedUtr(e.target.value)}
                   placeholder="e.g. 409827104928"
@@ -8058,9 +8611,9 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
               <div className="text-xs">
-                <span className="text-slate-400">Total Manifest Outlay: </span>
+                <span className="text-slate-400">Estimated Manifest Outlay: </span>
                 <strong className="text-xl text-emerald-400 font-mono font-black ml-2">{formatINR(totalOutlay)}</strong>
-                <span className="text-[11px] text-slate-400 block mt-0.5">Includes platform fee: {formatINR(totalFees)}</span>
+                <span className="text-[11px] text-slate-400 block mt-0.5">Includes platform fee: {formatINR(totalFees)}. The final amount is confirmed at booking.</span>
               </div>
               <button
                 type="button"
@@ -8069,7 +8622,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-7 py-3.5 rounded-xl text-xs transition shadow-lg flex items-center space-x-2 disabled:opacity-50"
               >
                 <CheckCircleIcon className="w-5 h-5 text-slate-950" />
-                <span>{isBatchProcessing ? "Assigning Carrier Dockets..." : `Confirm & Book ${bookableRows.length} Shipment${bookableRows.length === 1 ? "" : "s"}`}</span>
+                <span>{isBatchProcessing ? "Confirming with platform..." : `Confirm & Book ${bookableRows.length} Shipment${bookableRows.length === 1 ? "" : "s"}`}</span>
               </button>
             </div>
           </div>
@@ -8080,9 +8633,7 @@ const ShipperBulkCsvSection: FC<ShipperBulkCsvSectionProps> = ({
 };
 
 // ============================================================================
-// 44. CONTINUOUS 4x6 THERMAL MULTI-BOX LABELS + MASTER HANDOVER MANIFEST
-// Prints through window.print(). The app shell is hidden in print CSS (Page adds
-// `print:hidden` while this modal is open), so only labels + manifest are printed.
+// 48. CONTINUOUS 4x6 THERMAL MULTI-BOX LABELS + MASTER HANDOVER MANIFEST
 // NOTE: the bars are a docket-derived visual, NOT a scannable Code 128 barcode.
 // ============================================================================
 interface ThermalPrintModalProps {
@@ -8091,13 +8642,21 @@ interface ThermalPrintModalProps {
   onClose: () => void;
 }
 
+const MAX_LABELS_PER_BOOKING = 500;
+const MAX_LABELS_PER_PRINT_JOB = 600;
+
 function expandBookingBoxes(booking: Booking): BoxItem[] {
   const list = booking.boxes && booking.boxes.length > 0 ? booking.boxes : [];
   if (list.length === 0) {
     return [{ id: "b0", qty: 1, weight: booking.actual_weight, length: null, width: null, height: null }];
   }
-  // A carton row with qty 3 prints 3 labels ("BOX 1 OF N" ... "BOX N OF N").
-  return list.flatMap((b) => Array.from({ length: Math.max(1, Number(b.qty) || 1) }, () => b));
+  // A carton row with qty 3 prints 3 labels ("BOX 1 OF N" ... "BOX N OF N"), capped for safety.
+  const out: BoxItem[] = [];
+  for (const b of list) {
+    const q = boxQty(b);
+    for (let i = 0; i < q && out.length < MAX_LABELS_PER_BOOKING; i++) out.push(b);
+  }
+  return out;
 }
 
 function barsFromDocket(docket: string): number[] {
@@ -8109,7 +8668,28 @@ function barsFromDocket(docket: string): number[] {
 
 const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batchPrintBookings, onClose }) => {
   const allBookings = batchPrintBookings || (printableBooking ? [printableBooking] : []);
-  const totalCartons = allBookings.reduce((acc, b) => acc + expandBookingBoxes(b).length, 0);
+
+  // Build the print plan once and stop at a hard label budget.
+  const { plan, totalCartons, truncated } = useMemo(() => {
+    let remaining = MAX_LABELS_PER_PRINT_JOB;
+    let cut = false;
+    const rows: Array<{ booking: Booking; cartons: BoxItem[]; allCount: number }> = [];
+    for (const booking of allBookings) {
+      const full = expandBookingBoxes(booking);
+      if (remaining <= 0) {
+        cut = true;
+        break;
+      }
+      const cartons = full.slice(0, remaining);
+      if (cartons.length < full.length) cut = true;
+      remaining -= cartons.length;
+      rows.push({ booking, cartons, allCount: full.length });
+    }
+    return { plan: rows, totalCartons: rows.reduce((acc, r) => acc + r.cartons.length, 0), truncated: cut };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printableBooking, batchPrintBookings]);
+
+  const manifestBookings = plan.map((p) => p.booking);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto print:static print:block print:bg-white print:p-0 print:backdrop-blur-none select-none">
@@ -8129,9 +8709,14 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
         <div className="flex items-center justify-between border-b border-slate-200 pb-3 no-print">
           <div>
             <h3 className="text-base font-black text-slate-900">
-              {batchPrintBookings ? `Batch 4x6 Thermal Labels (${batchPrintBookings.length} Consignments, ${totalCartons} Labels) + Handover Manifest` : "4x6 Thermal Multi-Box Shipping Labels"}
+              {batchPrintBookings ? `Batch 4x6 Thermal Labels (${manifestBookings.length} Consignments, ${totalCartons} Labels) + Handover Manifest` : "4x6 Thermal Multi-Box Shipping Labels"}
             </h3>
             <p className="text-[11px] text-slate-500 font-medium">One label per carton, calibrated for 4x6 thermal printers. Set the printer paper size to 4x6 in the print dialog.</p>
+            {truncated && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1 mt-1 font-bold">
+                Print jobs are limited to {MAX_LABELS_PER_PRINT_JOB} labels. Print the remaining consignments in a second batch.
+              </p>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <button type="button" onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition">
@@ -8145,10 +8730,11 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
         </div>
 
         <div className="space-y-6 print:space-y-0">
-          {allBookings.map((booking) => {
-            const cartons = expandBookingBoxes(booking);
+          {plan.map(({ booking, cartons, allCount }) => {
             const carrierLabel = (booking.vendors?.name || "CARRIER").toUpperCase();
-            const bars = barsFromDocket(booking.carrier_docket_no || booking.awb_number);
+            const docketNo = booking.carrier_docket_no || booking.awb_number;
+            const bars = barsFromDocket(docketNo);
+            const provisional = /^LCD-/.test(docketNo || "");
 
             return (
               <React.Fragment key={booking.id}>
@@ -8164,7 +8750,7 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
                           {booking.origin_pin.slice(0, 3)} → {booking.dest_pin.slice(0, 3)}
                         </span>
                         <span className="text-[9px] font-black uppercase bg-black text-white px-1.5 py-0.5 rounded-sm block mt-0.5">
-                          BOX {boxIdx + 1} OF {cartons.length}
+                          BOX {boxIdx + 1} OF {allCount}
                         </span>
                       </div>
                     </div>
@@ -8176,9 +8762,10 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
                         ))}
                       </div>
                       <div className="flex items-center justify-center space-x-2 font-mono">
-                        <span className="text-sm font-black tracking-widest">DOCKET: {booking.carrier_docket_no || booking.awb_number}</span>
+                        <span className="text-sm font-black tracking-widest">DOCKET: {docketNo}</span>
                         <span className="text-[10px] font-bold text-slate-700">[{booking.order_id}]</span>
                       </div>
+                      {provisional && <span className="text-[8px] font-black uppercase tracking-wider block text-slate-700">PROVISIONAL PLATFORM DOCKET</span>}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 border-b-2 border-black pb-1.5 text-[10px] leading-tight">
@@ -8229,20 +8816,20 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
             );
           })}
 
-          {batchPrintBookings && batchPrintBookings.length > 0 && (
+          {batchPrintBookings && manifestBookings.length > 0 && (
             <div className="manifest-sheet bg-white text-black p-6 border-4 border-black font-sans space-y-5 rounded-sm">
               <div className="flex justify-between border-b-2 border-black pb-3">
                 <div>
                   <h2 className="text-lg font-black tracking-tight">MASTER PICKUP HANDOVER MANIFEST</h2>
-                  <p className="text-xs text-slate-700 font-medium">Dispatch Facility: {batchPrintBookings[0].pickup_address}</p>
-                  <p className="text-xs text-slate-700 font-mono">Origin Pincode: {batchPrintBookings[0].pickup_pincode || batchPrintBookings[0].origin_pin}</p>
-                  <p className="text-xs text-slate-700 font-medium">Shipper: {batchPrintBookings[0].shipper_name}</p>
+                  <p className="text-xs text-slate-700 font-medium">Dispatch Facility: {manifestBookings[0].pickup_address}</p>
+                  <p className="text-xs text-slate-700 font-mono">Origin Pincode: {manifestBookings[0].pickup_pincode || manifestBookings[0].origin_pin}</p>
+                  <p className="text-xs text-slate-700 font-medium">Shipper: {manifestBookings[0].shipper_name}</p>
                 </div>
                 <div className="text-right font-mono font-bold text-xs space-y-0.5">
                   <p>DISPATCH DATE: {new Date().toLocaleDateString("en-IN")}</p>
-                  <p className="text-sm font-black text-black">TOTAL CONSIGNMENTS: {batchPrintBookings.length}</p>
+                  <p className="text-sm font-black text-black">TOTAL CONSIGNMENTS: {manifestBookings.length}</p>
                   <p>TOTAL CARTONS: {totalCartons}</p>
-                  <p>TOTAL BILLABLE: {batchPrintBookings.reduce((acc, b) => acc + (b.billable_weight || 0), 0).toFixed(1)} KG</p>
+                  <p>TOTAL BILLABLE: {manifestBookings.reduce((acc, b) => acc + (b.billable_weight || 0), 0).toFixed(1)} KG</p>
                 </div>
               </div>
 
@@ -8261,7 +8848,7 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black font-medium">
-                  {batchPrintBookings.map((b, i) => (
+                  {manifestBookings.map((b, i) => (
                     <tr key={b.id}>
                       <td className="p-1.5 border-r border-black font-mono font-bold">{i + 1}</td>
                       <td className="p-1.5 border-r border-black font-mono font-black">{b.order_id}</td>
@@ -8296,7 +8883,7 @@ const ThermalPrintModal: FC<ThermalPrintModalProps> = ({ printableBooking, batch
 };
 
 // ============================================================================
-// 45. HERO ANIMATED TRUCK (2D CANVAS) — only mounted when High-Volume mode is OFF
+// 49. HERO ANIMATED TRUCK (2D CANVAS) — only mounted when High-Volume mode is OFF
 // ============================================================================
 function Hero3DTruck() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -8470,7 +9057,7 @@ function Hero3DTruck() {
 }
 
 // ============================================================================
-// 46. LANDING PAGE (CTAs ADAPT TO LOGGED-OUT / LIVE SHIPPER / LIVE CARRIER)
+// 50. LANDING PAGE (CTAs ADAPT TO LOGGED-OUT / LIVE SHIPPER / LIVE CARRIER)
 // ============================================================================
 interface LandingViewProps {
   highVolumeMode: boolean;
@@ -8513,7 +9100,7 @@ const LandingView: FC<LandingViewProps> = ({
   const faqs = [
     {
       q: "What is the difference between Order Ref (LC-XXXXXX) and Carrier Docket?",
-      a: "The Order Ref is LogiCompare Pro's internal reference used for platform invoices and receipts. The Carrier Docket is the transporter's own waybill used by drivers and freight hubs."
+      a: "The Order Ref is LogiCompare Pro's internal reference used for platform invoices and receipts. The Carrier Docket is the transporter's own waybill used by drivers and freight hubs. At booking the platform issues a provisional docket; the carrier replaces it with its official waybill number."
     },
     {
       q: "Can I book shipments if I don't know the exact box dimensions?",
@@ -8529,20 +9116,20 @@ const LandingView: FC<LandingViewProps> = ({
     },
     {
       q: "Where is my credit agreement or bilty scan stored?",
-      a: "Files are stored in private Supabase Storage buckets. Large files are compressed in your browser before upload to keep storage small."
+      a: "Files are stored in private Supabase Storage buckets and opened only through short-lived secure links. Large files are compressed in your browser before upload."
     }
   ];
 
   const shipperSteps = [
     ["PIN & Optional Dimensions", "Enter a destination PIN or upload a CSV of up to 50 locations. Dimensions are optional; dead weight prices the load when omitted."],
     ["Compare Rates & Credit", "Inspect line-item pricing: base, fuel %, docket, ODA, FOV and GST. See your approved credit line per carrier."],
-    ["One-Click Dual-ID Booking", "Settle via To-Pay, direct UPI or approved corporate credit. Receive an internal Order Ref and the carrier's docket."],
+    ["One-Click Dual-ID Booking", "Settle via To-Pay, direct UPI or approved corporate credit. Receive an internal Order Ref and a provisional docket confirmed by the carrier."],
     ["Continuous 4x6 Labels", "Print one Box X of Y thermal label per carton plus a Master Handover Manifest with driver sign-off."]
   ];
   const carrierSteps = [
-    ["Onboard Fleet & Tracking URL", "Register as a transporter, add bank/UPI settlement details and your public tracking portal URL."],
+    ["Onboard Fleet & Tracking URL", "Register as a transporter, add bank/UPI settlement details and your public tracking portal URL. New carriers are verified before shippers see their rates."],
     ["Underwrite Credit Agreements", "Review signed agreements from shippers, then approve a credit ceiling or reject with a reason."],
-    ["Weekly / Monthly Billing", "Track platform fee dues by cycle, with due dates and UTR payment recording."]
+    ["Weekly / Monthly Billing", "Track platform fee dues by cycle, with due dates and UTR payment references."]
   ];
 
   const capabilities: [ReactNode, string, string, string][] = [
@@ -8559,14 +9146,11 @@ const LandingView: FC<LandingViewProps> = ({
 
   return (
     <div className="flex-1 flex flex-col space-y-16 pb-16">
-      {/* SECTION 1: HERO */}
+      {/* SECTION 1: HERO (no third-party background image) */}
       <section className="relative overflow-hidden bg-slate-950 text-white pt-16 pb-24 px-4 lg:px-8 border-b border-slate-800">
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-105 pointer-events-none"
-          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop')` }}
-        />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-950 to-emerald-950/60 opacity-80 pointer-events-none" />
         <div className="absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/90 to-slate-950 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-slate-950/80 to-slate-950 pointer-events-none" />
 
         <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center z-10">
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
@@ -8627,7 +9211,6 @@ const LandingView: FC<LandingViewProps> = ({
           </div>
         </div>
 
-        {/* Tracking quick lookup */}
         {(!isLive || liveRole === "shipper") && (
           <div className="pt-10 max-w-xl mx-auto relative z-10">
             <form
@@ -8641,6 +9224,7 @@ const LandingView: FC<LandingViewProps> = ({
                 <SearchIcon className="w-4 h-4 text-indigo-400 shrink-0" />
                 <input
                   type="text"
+                  maxLength={60}
                   value={landingTrackingInput}
                   onChange={(e) => setLandingTrackingInput(e.target.value)}
                   placeholder="Enter Order Ref (LC-...) or Carrier Docket..."
@@ -8673,7 +9257,7 @@ const LandingView: FC<LandingViewProps> = ({
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-indigo-600">{vendors.length}</span>
             <p className="text-xs font-bold text-slate-900 mt-1">Carrier Partners On Platform</p>
-            <p className="text-[11px] text-slate-500">{isLive ? "Live onboarded transporters" : "Sample sandbox carriers"}</p>
+            <p className="text-[11px] text-slate-500">{isLive ? "Verified onboarded transporters" : "Sample sandbox carriers"}</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
             <span className="text-3xl font-black text-emerald-600">PIN</span>
@@ -8695,7 +9279,7 @@ const LandingView: FC<LandingViewProps> = ({
         <div className="pt-8 text-center space-y-4">
           <span className="text-xs uppercase font-black text-slate-500 tracking-widest block">Transporters On The Platform</span>
           {vendors.length === 0 ? (
-            <p className="text-xs text-slate-500">Carriers will appear here as they onboard.</p>
+            <p className="text-xs text-slate-500">Carriers will appear here as they are verified.</p>
           ) : (
             <div className="flex flex-wrap items-center justify-center gap-3">
               {vendors.map((v) => (
@@ -8778,7 +9362,7 @@ const LandingView: FC<LandingViewProps> = ({
         <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-950 rounded-3xl p-8 sm:p-14 text-white text-center space-y-6 shadow-2xl border border-indigo-500/20">
           <div className="absolute -top-24 left-1/3 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
           <span className="relative z-10 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-md">Start Saving On B2B Freight</span>
-          <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">Ready to book with official carrier dockets and zero freight markup?</h2>
+          <h2 className="relative z-10 text-2xl sm:text-4xl font-black max-w-2xl mx-auto">Ready to book direct with carriers and zero freight markup?</h2>
           <p className="relative z-10 text-indigo-200 text-xs sm:text-sm max-w-xl mx-auto">
             Open the dashboard to compare live rates, print carrier labels and manage approved credit agreements.
           </p>
@@ -8816,9 +9400,37 @@ const LandingView: FC<LandingViewProps> = ({
 };
 
 // ============================================================================
-// 47. THE MASTER NEXT.JS SINGLE DEFAULT EXPORT: Page()
+// 51. ERROR BOUNDARY — a crash shows a friendly message, never a stack trace
 // ============================================================================
-export default function Page() {
+class AppErrorBoundary extends React.Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("[LogiCompare] UI crashed:", error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 space-y-4 text-center">
+        <h1 className="text-xl font-black">Something went wrong</h1>
+        <p className="text-sm text-slate-400 max-w-md">The page hit an unexpected problem. Your data is safe. Please reload and try again.</p>
+        <button type="button" onClick={() => window.location.reload()} className="bg-indigo-600 hover:bg-indigo-500 text-white font-black px-6 py-2.5 rounded-xl text-sm">
+          Reload
+        </button>
+      </div>
+    );
+  }
+}
+
+// ============================================================================
+// 52. THE MASTER NEXT.JS SINGLE DEFAULT EXPORT: Page()
+// ============================================================================
+function PageInner() {
   const { state, handlers } = useAppEngine();
   const [creditCarrierPreselect, setCreditCarrierPreselect] = useState<string | undefined>(undefined);
 
@@ -8828,7 +9440,6 @@ export default function Page() {
   const printOpen = Boolean(state.printableBooking || state.batchPrintBookings);
   const authModalOpen = state.showAuthModal || state.passwordRecoveryPending;
 
-  // While the saved session is being restored, show a loader instead of flashing demo/landing UI.
   if (state.sessionStatus === "restoring") return <SessionLoadingScreen />;
 
   const openCreditApply = (carrierId?: string) => {
@@ -8862,7 +9473,6 @@ export default function Page() {
 
   return (
     <>
-      {/* The whole app is hidden when printing labels so only the label sheets print. */}
       <div className={`min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white ${printOpen ? "print:hidden" : ""}`}>
         <AppHeader
           activeRole={state.activeRole}
@@ -8889,7 +9499,7 @@ export default function Page() {
               landingTrackingInput={state.landingTrackingInput}
               setLandingTrackingInput={state.setLandingTrackingInput}
               onQuickTrack={(val) => {
-                const target = (val || state.landingTrackingInput || (isRealAuthLive ? "" : DEMO_INIT_ORDER_ID)).trim();
+                const target = (val || state.landingTrackingInput || (isRealAuthLive ? "" : DEMO_INIT_ORDER_ID)).trim().slice(0, 60);
                 if (!target) return;
                 if (isRealAuthLive && !userIsShipper) return;
                 state.setActiveTrackingAwb(target);
@@ -9038,6 +9648,7 @@ export default function Page() {
                       state.setShipperTab("history");
                     }}
                     onBatchPrintLabels={() => state.setBatchPrintBookings(state.bookings.slice(0, 50))}
+                    getBookingDocUrl={handlers.getBookingDocUrl}
                   />
                 </div>
               )}
@@ -9051,6 +9662,7 @@ export default function Page() {
                     setActiveTrackingAwb={state.setActiveTrackingAwb}
                     trackingSearchInput={state.trackingSearchInput}
                     setTrackingSearchInput={state.setTrackingSearchInput}
+                    getBookingDocUrl={handlers.getBookingDocUrl}
                   />
                 </div>
               )}
@@ -9143,6 +9755,7 @@ export default function Page() {
                       setStatusUpdateMap={state.setStatusUpdateMap}
                       onUploadDocketFile={handlers.handleUploadDocketFile}
                       onUpdateShipmentStatus={handlers.handleUpdateShipmentStatus}
+                      getBookingDocUrl={handlers.getBookingDocUrl}
                     />
                   </div>
                 </div>
@@ -9338,3 +9951,15 @@ export default function Page() {
     </>
   );
 }
+
+export default function Page() {
+  return (
+    <AppErrorBoundary>
+      <PageInner />
+    </AppErrorBoundary>
+  );
+}
+
+// ============================================================================
+// END OF PART 7 OF 8
+// ============================================================================
